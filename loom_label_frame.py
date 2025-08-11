@@ -99,20 +99,9 @@ class LoomLabelFrame(ctk.CTkFrame):
         main_editor_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_editor_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="nsew")
         main_editor_frame.grid_columnconfigure(0, weight=1)
-        main_editor_frame.grid_rowconfigure(2, weight=1)
-        
-        # --- New Menubar ---
-        menubar = ctk.CTkFrame(main_editor_frame, height=40)
-        menubar.grid(row=0, column=0, sticky="ew")
-        self.file_menu = ctk.CTkOptionMenu(menubar, values=["Save as New Sheet", "Open Sheet File...", "Import from CSV", "Export to CSV"], command=self.file_menu_handler)
-        self.file_menu.set("File")
-        self.file_menu.pack(side="left", padx=5, pady=5)
-        self.edit_menu = ctk.CTkOptionMenu(menubar, values=["Duplicate Selected", "Delete Selected Label", "Clear Current List"], command=self.edit_menu_handler)
-        self.edit_menu.set("Edit")
-        self.edit_menu.pack(side="left", padx=5, pady=5)
-
+        main_editor_frame.grid_rowconfigure(1, weight=1)
         input_frame = ctk.CTkFrame(main_editor_frame)
-        input_frame.grid(row=1, column=0, pady=20, sticky="ew")
+        input_frame.grid(row=0, column=0, sticky="ew")
         input_frame.grid_columnconfigure((1, 3), weight=1)
         ctk.CTkLabel(input_frame, text="Loom Name:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
         self.loom_name_entry = ctk.CTkEntry(input_frame)
@@ -133,9 +122,8 @@ class LoomLabelFrame(ctk.CTkFrame):
         self.destination_entry.grid(row=1, column=3, padx=10, pady=5, sticky="ew")
         ctk.CTkButton(input_frame, text="Add Label", command=self.add_label).grid(row=2, column=1, pady=10, sticky="w")
         ctk.CTkButton(input_frame, text="Update Selected", command=self.update_selected_label).grid(row=2, column=3, pady=10, sticky="e")
-        
         display_frame = ctk.CTkFrame(main_editor_frame)
-        display_frame.grid(row=2, column=0, sticky="nsew")
+        display_frame.grid(row=1, column=0, pady=20, sticky="nsew")
         display_frame.grid_columnconfigure(0, weight=1)
         display_frame.grid_rowconfigure(0, weight=1)
         columns = ("loom_name", "color", "source", "destination")
@@ -145,22 +133,9 @@ class LoomLabelFrame(ctk.CTkFrame):
         scrollbar = ctk.CTkScrollbar(display_frame, command=self.tree.yview); scrollbar.grid(row=0, column=1, sticky="ns"); self.tree.configure(yscrollcommand=scrollbar.set)
         
         action_button_frame = ctk.CTkFrame(main_editor_frame, fg_color="transparent")
-        action_button_frame.grid(row=3, column=0, pady=20, sticky="e")
+        action_button_frame.grid(row=2, column=0, pady=(0, 20), sticky="e")
         ctk.CTkButton(action_button_frame, text="Advanced Print", command=self.open_advanced_print).pack(side="left", padx=5)
         ctk.CTkButton(action_button_frame, text="Generate PDF", command=self.generate_pdf_from_gui).pack(side="left", padx=5)
-
-    def file_menu_handler(self, choice):
-        if choice == "Save as New Sheet": self.save_as_new_sheet()
-        elif choice == "Open Sheet File...": self.open_sheet_from_file()
-        elif choice == "Import from CSV": self.import_csv()
-        elif choice == "Export to CSV": self.export_csv()
-        self.file_menu.set("File")
-
-    def edit_menu_handler(self, choice):
-        if choice == "Duplicate Selected": self.duplicate_selected_label()
-        elif choice == "Delete Selected Label": self.delete_selected_label()
-        elif choice == "Clear Current List": self.clear_all_labels()
-        self.edit_menu.set("Edit")
 
     def bind_shortcuts(self):
         self.master.bind_all("<Control-s>", lambda event: self.save_as_new_sheet())
@@ -182,7 +157,6 @@ class LoomLabelFrame(ctk.CTkFrame):
         try:
             with open(filepath, 'r') as f:
                 data = json.load(f)
-            # Basic validation
             if isinstance(data, list) and all(isinstance(item, dict) for item in data):
                 self.labels_data = data
                 self.update_treeview()

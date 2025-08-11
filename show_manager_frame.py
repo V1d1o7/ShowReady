@@ -13,6 +13,7 @@ class ShowManagerFrame(ctk.CTkFrame):
         self.data = self.load_data()
         self._create_widgets()
         self.populate_show_list()
+        self.bind_shortcuts() # Add call to bind shortcuts
 
     def _create_widgets(self):
         self.grid_columnconfigure(0, weight=1)
@@ -67,10 +68,12 @@ class ShowManagerFrame(ctk.CTkFrame):
 
         ctk.CTkButton(details_frame, text="Set as Active Show", command=self.set_active_show).grid(row=len(fields)+1, column=0, columnspan=3, pady=10, padx=10, sticky="ew")
 
-        io_frame = ctk.CTkFrame(details_frame, fg_color="transparent")
-        io_frame.grid(row=len(fields)+2, column=0, columnspan=3, pady=(40, 0))
-        ctk.CTkButton(io_frame, text="Import Shows", command=self.import_shows).pack(side="left", padx=10)
-        ctk.CTkButton(io_frame, text="Export Shows", command=self.export_shows).pack(side="left", padx=10)
+    def bind_shortcuts(self):
+        """Binds keyboard shortcuts for the Show Manager."""
+        self.master.bind_all("<Control-i>", lambda event: self.import_shows())
+        self.master.bind_all("<Command-i>", lambda event: self.import_shows())
+        self.master.bind_all("<Control-e>", lambda event: self.export_shows())
+        self.master.bind_all("<Command-e>", lambda event: self.export_shows())
 
     def load_data(self):
         if not os.path.exists(self.config_file_path): return {"active_show": None, "shows": {}}
@@ -154,8 +157,8 @@ class ShowManagerFrame(ctk.CTkFrame):
         self.show_toast(f"'{show_name}' is now the active show.")
 
     def import_shows(self):
-        path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
-        if not path or not messagebox.askyesno("Confirm", "Overwrite current shows?"): return
+        path = filedialog.askopenfilename(filetypes=[("Show files", "*.show")])
+        if not path or not messagebox.askyesno("Confirm", "This will overwrite your current show list. Are you sure?"): return
         try:
             with open(path, 'r') as f: self.data = json.load(f)
             self.save_data()
@@ -164,7 +167,7 @@ class ShowManagerFrame(ctk.CTkFrame):
         except Exception as e: messagebox.showerror("Import Error", f"Could not import file: {e}")
 
     def export_shows(self):
-        path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        path = filedialog.asksaveasfilename(defaultextension=".show", filetypes=[("Show files", "*.show")])
         if not path: return
         try:
             with open(path, 'w') as f: json.dump(self.data, f, indent=4)

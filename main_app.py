@@ -1,5 +1,6 @@
 import customtkinter as ctk
 from tkinterdnd2 import TkinterDnD
+import tkinter as tk
 import json
 import os
 
@@ -25,6 +26,16 @@ class App(CTkDnD):
         # Set the overall grid layout
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
+
+        # --- Traditional Menubar ---
+        self.menubar = tk.Menu(self)
+        self.config(menu=self.menubar)
+
+        self.file_menu = tk.Menu(self.menubar, tearoff=0)
+        self.edit_menu = tk.Menu(self.menubar, tearoff=0)
+        
+        self.menubar.add_cascade(label="File", menu=self.file_menu)
+        self.menubar.add_cascade(label="Edit", menu=self.edit_menu)
 
         # --- Navigation Frame (Sidebar) ---
         self.nav_frame = ctk.CTkFrame(self, width=140, corner_radius=0)
@@ -62,16 +73,8 @@ class App(CTkDnD):
         self.toast_label.place_forget()
 
     def select_frame(self, name):
-        buttons = {
-            "loom_label": self.loom_label_button,
-            "case_label": self.case_label_button,
-            "show_manager": self.show_manager_button
-        }
-        frames = {
-            "loom_label": self.loom_label_frame,
-            "case_label": self.case_label_frame,
-            "show_manager": self.show_manager_frame
-        }
+        buttons = { "loom_label": self.loom_label_button, "case_label": self.case_label_button, "show_manager": self.show_manager_button }
+        frames = { "loom_label": self.loom_label_frame, "case_label": self.case_label_frame, "show_manager": self.show_manager_frame }
 
         for btn_name, button in buttons.items():
             button.configure(fg_color=("gray75", "gray25") if name == btn_name else "transparent")
@@ -83,13 +86,50 @@ class App(CTkDnD):
             frames[name].load_default_data(self.get_active_show_data())
         
         frames[name].grid(row=0, column=1, sticky="nsew")
+        self.update_menubar(name)
+
+    def update_menubar(self, frame_name):
+        """Dynamically configures the menubar based on the active frame."""
+        self.file_menu.delete(0, "end")
+        self.edit_menu.delete(0, "end")
+
+        active_frame = None
+        if frame_name == "loom_label":
+            active_frame = self.loom_label_frame
+        elif frame_name == "case_label":
+            active_frame = self.case_label_frame
+        elif frame_name == "show_manager":
+            active_frame = self.show_manager_frame
+
+        if frame_name in ["loom_label", "case_label"]:
+            self.file_menu.add_command(label="Save as New Sheet (Ctrl+S)", command=active_frame.save_as_new_sheet)
+            self.file_menu.add_command(label="Open Sheet File... (Ctrl+O)", command=active_frame.open_sheet_from_file)
+            self.file_menu.add_separator()
+            self.file_menu.add_command(label="Import from CSV (Ctrl+I)", command=active_frame.import_csv)
+            self.file_menu.add_command(label="Export to CSV (Ctrl+E)", command=active_frame.export_csv)
+            
+            self.edit_menu.add_command(label="Duplicate Selected (Ctrl+D)", command=active_frame.duplicate_selected_label)
+            self.edit_menu.add_command(label="Delete Selected (Delete)", command=active_frame.delete_selected_label)
+            self.edit_menu.add_separator()
+            self.edit_menu.add_command(label="Clear Current List", command=active_frame.clear_all_labels)
+            
+            self.menubar.entryconfig("File", state="normal")
+            self.menubar.entryconfig("Edit", state="normal")
+        elif frame_name == "show_manager":
+            self.file_menu.add_command(label="Import Shows", command=active_frame.import_shows)
+            self.file_menu.add_command(label="Export Shows", command=active_frame.export_shows)
+            self.menubar.entryconfig("File", state="normal")
+            self.menubar.entryconfig("Edit", state="disabled")
+        else:
+            self.menubar.entryconfig("File", state="disabled")
+            self.menubar.entryconfig("Edit", state="disabled")
 
     def loom_label_event(self): self.select_frame("loom_label")
     def case_label_event(self): self.select_frame("case_label")
     def show_manager_event(self): self.select_frame("show_manager")
     
     def get_active_show_data(self):
-        config_file = get_app_data_path("shows.show") 
+        config_file = get_app_data_path("shows.show")
         if not os.path.exists(config_file): return None
         try:
             with open(config_file, 'r') as f: data = json.load(f)
