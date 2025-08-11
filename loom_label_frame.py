@@ -10,7 +10,6 @@ from reportlab.lib.colors import Color, black
 from reportlab.pdfgen import canvas
 import copy
 from advanced_print_window import AdvancedPrintWindow
-from app_utils import get_app_data_path
 
 # --- PDF Generation Logic ---
 COLOR_MAP = {
@@ -71,19 +70,17 @@ class LoomLabelFrame(ctk.CTkFrame):
         super().__init__(master)
         self.show_toast = show_toast
         self.labels_data = []
-        self.sheets_file_path = get_app_data_path("loom.sheet")
-        self.sheets_data = self.load_sheets_data()
+        self.sheets_data = {}
         self._create_widgets()
-        self.populate_sheet_list()
         self.bind_shortcuts()
 
     def _create_widgets(self):
         self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
         sheet_manager_frame = ctk.CTkFrame(self, width=250)
-        sheet_manager_frame.grid(row=0, column=0, padx=20, pady=20, sticky="nsew")
+        sheet_manager_frame.grid(row=0, column=0, rowspan=3, padx=20, pady=20, sticky="nsew")
         sheet_manager_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(sheet_manager_frame, text="Saved Sheets", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=10)
+        ctk.CTkLabel(sheet_manager_frame, text="Sheets in Show", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=10)
         style = ttk.Style()
         style.theme_use("default")
         style.configure("Treeview", background="#2a2d2e", foreground="white", fieldbackground="#2a2d2e", borderwidth=0)
@@ -96,12 +93,9 @@ class LoomLabelFrame(ctk.CTkFrame):
         sheet_btn_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
         ctk.CTkButton(sheet_btn_frame, text="Load", command=self.load_selected_sheet).pack(side="left", expand=True, padx=2)
         ctk.CTkButton(sheet_btn_frame, text="Delete", command=self.delete_selected_sheet).pack(side="left", expand=True, padx=2)
-        main_editor_frame = ctk.CTkFrame(self, fg_color="transparent")
-        main_editor_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="nsew")
-        main_editor_frame.grid_columnconfigure(0, weight=1)
-        main_editor_frame.grid_rowconfigure(1, weight=1)
-        input_frame = ctk.CTkFrame(main_editor_frame)
-        input_frame.grid(row=0, column=0, sticky="ew")
+        
+        input_frame = ctk.CTkFrame(self)
+        input_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="new")
         input_frame.grid_columnconfigure((1, 3), weight=1)
         ctk.CTkLabel(input_frame, text="Loom Name:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
         self.loom_name_entry = ctk.CTkEntry(input_frame)
@@ -122,8 +116,9 @@ class LoomLabelFrame(ctk.CTkFrame):
         self.destination_entry.grid(row=1, column=3, padx=10, pady=5, sticky="ew")
         ctk.CTkButton(input_frame, text="Add Label", command=self.add_label).grid(row=2, column=1, pady=10, sticky="w")
         ctk.CTkButton(input_frame, text="Update Selected", command=self.update_selected_label).grid(row=2, column=3, pady=10, sticky="e")
-        display_frame = ctk.CTkFrame(main_editor_frame)
-        display_frame.grid(row=1, column=0, pady=20, sticky="nsew")
+        
+        display_frame = ctk.CTkFrame(self)
+        display_frame.grid(row=1, column=1, padx=(0, 20), sticky="nsew")
         display_frame.grid_columnconfigure(0, weight=1)
         display_frame.grid_rowconfigure(0, weight=1)
         columns = ("loom_name", "color", "source", "destination")
@@ -132,56 +127,49 @@ class LoomLabelFrame(ctk.CTkFrame):
         self.tree.grid(row=0, column=0, sticky="nsew"); self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         scrollbar = ctk.CTkScrollbar(display_frame, command=self.tree.yview); scrollbar.grid(row=0, column=1, sticky="ns"); self.tree.configure(yscrollcommand=scrollbar.set)
         
-        action_button_frame = ctk.CTkFrame(main_editor_frame, fg_color="transparent")
-        action_button_frame.grid(row=2, column=0, pady=(0, 20), sticky="e")
+        action_button_frame = ctk.CTkFrame(self, fg_color="transparent")
+        action_button_frame.grid(row=2, column=1, padx=(0, 20), pady=20, sticky="e")
         ctk.CTkButton(action_button_frame, text="Advanced Print", command=self.open_advanced_print).pack(side="left", padx=5)
         ctk.CTkButton(action_button_frame, text="Generate PDF", command=self.generate_pdf_from_gui).pack(side="left", padx=5)
 
     def bind_shortcuts(self):
-        self.master.bind_all("<Control-s>", lambda event: self.save_as_new_sheet())
-        self.master.bind_all("<Command-s>", lambda event: self.save_as_new_sheet())
-        self.master.bind_all("<Control-o>", lambda event: self.open_sheet_from_file())
-        self.master.bind_all("<Command-o>", lambda event: self.open_sheet_from_file())
-        self.master.bind_all("<Control-e>", lambda event: self.export_csv())
-        self.master.bind_all("<Command-e>", lambda event: self.export_csv())
-        self.master.bind_all("<Control-i>", lambda event: self.import_csv())
-        self.master.bind_all("<Command-i>", lambda event: self.import_csv())
-        self.master.bind_all("<Control-d>", lambda event: self.duplicate_selected_label())
-        self.master.bind_all("<Command-d>", lambda event: self.duplicate_selected_label())
-        self.tree.bind("<Delete>", lambda event: self.delete_selected_label())
-        self.tree.bind("<BackSpace>", lambda event: self.delete_selected_label())
+        """Widget-specific shortcuts are removed and handled globally by the main app."""
+        pass
 
-    def open_sheet_from_file(self):
+    def import_sheet_from_file(self):
         filepath = filedialog.askopenfilename(filetypes=[("Loom Sheet files", "*.sheet")])
         if not filepath: return
         try:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-            if isinstance(data, list) and all(isinstance(item, dict) for item in data):
-                self.labels_data = data
-                self.update_treeview()
-                self.show_toast(f"Loaded sheet from {os.path.basename(filepath)}")
-            else:
-                messagebox.showerror("Error", "Invalid sheet file format.")
-        except Exception as e:
-            messagebox.showerror("File Error", f"Could not open or read file: {e}")
+            with open(filepath, 'r') as f: data = json.load(f)
+            sheet_name = os.path.splitext(os.path.basename(filepath))[0]
+            if sheet_name in self.sheets_data and not messagebox.askyesno("Confirm Overwrite", f"A sheet named '{sheet_name}' already exists in this show. Overwrite it?"): return
+            self.sheets_data[sheet_name] = data
+            self.populate_sheet_list()
+            self.show_toast(f"Imported and added sheet '{sheet_name}'.")
+        except Exception as e: messagebox.showerror("File Error", f"Could not open or read file: {e}")
 
-    # ... (All other methods remain the same)
+    def export_sheet_to_file(self):
+        if not self.labels_data: messagebox.showerror("Error", "There are no labels in the current list to export."); return
+        filepath = filedialog.asksaveasfilename(defaultextension=".sheet", filetypes=[("Loom Sheet files", "*.sheet")])
+        if not filepath: return
+        try:
+            with open(filepath, 'w') as f: json.dump(self.labels_data, f, indent=4)
+            self.show_toast("Current sheet exported successfully.")
+        except Exception as e: messagebox.showerror("Error", f"Could not export file: {e}")
+
+    def load_show_data(self, loom_sheets_data):
+        self.sheets_data = loom_sheets_data
+        self.populate_sheet_list()
+        self.labels_data = []
+        self.update_treeview()
+
     def open_advanced_print(self):
         if not self.labels_data: messagebox.showwarning("No Labels", "There are no labels in the current list to print."); return
         AdvancedPrintWindow(self, self.labels_data, create_label_pdf, self.show_toast, rows=8, cols=3)
     def pick_color(self):
         color_info = colorchooser.askcolor(title="Choose color")
         if color_info and color_info[1]: self.color_entry.delete(0, tk.END); self.color_entry.insert(0, color_info[1])
-    def load_sheets_data(self):
-        if not os.path.exists(self.sheets_file_path): return {}
-        try:
-            with open(self.sheets_file_path, 'r') as f: return json.load(f)
-        except (json.JSONDecodeError, IOError): return {}
-    def save_sheets_data(self):
-        try:
-            with open(self.sheets_file_path, 'w') as f: json.dump(self.sheets_data, f, indent=4)
-        except IOError: messagebox.showerror("Error", "Could not save sheets data.")
+    
     def populate_sheet_list(self):
         self.sheet_tree.delete(*self.sheet_tree.get_children())
         for name in sorted(self.sheets_data.keys()): self.sheet_tree.insert("", "end", values=(name,), iid=name)
@@ -194,13 +182,13 @@ class LoomLabelFrame(ctk.CTkFrame):
         if not self.sheet_tree.selection(): return
         sheet_name = self.sheet_tree.selection()[0]
         if messagebox.askyesno("Confirm Delete", f"Delete sheet '{sheet_name}'? This cannot be undone."):
-            del self.sheets_data[sheet_name]; self.save_sheets_data(); self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' deleted.")
+            del self.sheets_data[sheet_name]; self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' deleted.")
     def save_as_new_sheet(self):
         if not self.labels_data: messagebox.showerror("Error", "There are no labels in the current list to save."); return
         dialog = ctk.CTkInputDialog(text="Enter a name for this new sheet:", title="Save as New Sheet"); sheet_name = dialog.get_input()
         if not sheet_name: return
         if sheet_name in self.sheets_data and not messagebox.askyesno("Confirm Overwrite", f"A sheet named '{sheet_name}' already exists. Overwrite it?"): return
-        self.sheets_data[sheet_name] = self.labels_data; self.save_sheets_data(); self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' saved.")
+        self.sheets_data[sheet_name] = self.labels_data; self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' saved.")
     def add_label(self):
         if not self.loom_name_entry.get(): return
         self.labels_data.append({"loom_name": self.loom_name_entry.get(), "color": self.color_entry.get(), "source": self.source_entry.get(), "destination": self.destination_entry.get()})
@@ -223,18 +211,33 @@ class LoomLabelFrame(ctk.CTkFrame):
             self.labels_data.clear(); self.update_treeview(); self.clear_entries()
     def update_treeview(self):
         self.tree.delete(*self.tree.get_children())
-        for label in self.labels_data: self.tree.insert("", "end", values=(label["loom_name"], label["color"], label["source"], label["destination"]))
+        for label in self.labels_data:
+            if isinstance(label, dict):
+                self.tree.insert("", "end", values=(
+                    label.get("loom_name", ""), 
+                    label.get("color", ""), 
+                    label.get("source", ""), 
+                    label.get("destination", "")
+                ))
+            else:
+                print(f"Warning: Skipped malformed label data: {label}")
     def clear_entries(self):
         self.loom_name_entry.delete(0, "end"); self.color_entry.delete(0, "end"); self.source_entry.delete(0, "end"); self.destination_entry.delete(0, "end"); self.loom_name_entry.focus()
     def on_tree_select(self, event):
         if not self.tree.selection(): return
         index = self.tree.index(self.tree.selection()[0]); label_data = self.labels_data[index]
-        self.clear_entries(); self.loom_name_entry.insert(0, label_data["loom_name"]); self.color_entry.insert(0, label_data["color"]); self.source_entry.insert(0, label_data["source"]); self.destination_entry.insert(0, label_data["destination"])
+        self.clear_entries(); self.loom_name_entry.insert(0, label_data.get("loom_name", "")); self.color_entry.insert(0, label_data.get("color", "")); self.source_entry.insert(0, label_data.get("source", "")); self.destination_entry.insert(0, label_data.get("destination", ""))
     def import_csv(self):
         filepath = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         if not filepath: return
         try:
-            with open(filepath, "r", newline="", encoding='utf-8') as f: self.labels_data = list(csv.DictReader(f))
+            with open(filepath, "r", newline="", encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                required_headers = ["loom_name", "color", "source", "destination"]
+                if not all(h in reader.fieldnames for h in required_headers):
+                    messagebox.showerror("Import Error", f"CSV must have the following headers: {', '.join(required_headers)}")
+                    return
+                self.labels_data = list(reader)
             self.update_treeview(); self.show_toast("Labels imported from CSV.")
         except Exception as e: messagebox.showerror("File Error", f"Could not load file: {e}")
     def export_csv(self):
