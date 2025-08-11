@@ -71,8 +71,8 @@ class LoomLabelFrame(ctk.CTkFrame):
         self.show_toast = show_toast
         self.labels_data = []
         self.sheets_data = {}
+        self.current_sheet_name = None
         self._create_widgets()
-        self.bind_shortcuts()
 
     def _create_widgets(self):
         self.grid_columnconfigure(1, weight=1)
@@ -80,7 +80,7 @@ class LoomLabelFrame(ctk.CTkFrame):
         sheet_manager_frame = ctk.CTkFrame(self, width=250)
         sheet_manager_frame.grid(row=0, column=0, rowspan=3, padx=20, pady=20, sticky="nsew")
         sheet_manager_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(sheet_manager_frame, text="Sheets in Show", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=10)
+        ctk.CTkLabel(sheet_manager_frame, text="Sheets in Show", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=10)
         style = ttk.Style()
         style.theme_use("default")
         style.configure("Treeview", background="#2a2d2e", foreground="white", fieldbackground="#2a2d2e", borderwidth=0)
@@ -88,11 +88,18 @@ class LoomLabelFrame(ctk.CTkFrame):
         style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat")
         self.sheet_tree = ttk.Treeview(sheet_manager_frame, columns=("name"), show="headings")
         self.sheet_tree.heading("name", text="Sheet Name")
-        self.sheet_tree.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        self.sheet_tree.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
+        
+        # --- Sheet Manager Buttons ---
         sheet_btn_frame = ctk.CTkFrame(sheet_manager_frame, fg_color="transparent")
-        sheet_btn_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
-        ctk.CTkButton(sheet_btn_frame, text="Load", command=self.load_selected_sheet).pack(side="left", expand=True, padx=2)
-        ctk.CTkButton(sheet_btn_frame, text="Delete", command=self.delete_selected_sheet).pack(side="left", expand=True, padx=2)
+        sheet_btn_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        sheet_btn_frame.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkButton(sheet_btn_frame, text="Load Sheet", command=self.load_selected_sheet).grid(row=0, column=0, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Delete Sheet", command=self.delete_selected_sheet).grid(row=0, column=1, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Import Sheet", command=self.import_sheet_from_file).grid(row=1, column=0, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Export Sheet", command=self.export_sheet_to_file).grid(row=1, column=1, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Save Current", command=self.save_current_sheet).grid(row=2, column=0, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Save as New...", command=self.save_as_new_sheet).grid(row=2, column=1, padx=2, pady=2, sticky="ew")
         
         input_frame = ctk.CTkFrame(self)
         input_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="new")
@@ -132,9 +139,11 @@ class LoomLabelFrame(ctk.CTkFrame):
         ctk.CTkButton(action_button_frame, text="Advanced Print", command=self.open_advanced_print).pack(side="left", padx=5)
         ctk.CTkButton(action_button_frame, text="Generate PDF", command=self.generate_pdf_from_gui).pack(side="left", padx=5)
 
-    def bind_shortcuts(self):
-        """Widget-specific shortcuts are removed and handled globally by the main app."""
-        pass
+    def get_sheets_data(self):
+        """Commits any pending changes in the editor before returning all sheet data."""
+        if self.current_sheet_name and self.current_sheet_name in self.sheets_data:
+            self.sheets_data[self.current_sheet_name] = self.labels_data
+        return self.sheets_data
 
     def import_sheet_from_file(self):
         filepath = filedialog.askopenfilename(filetypes=[("Loom Sheet files", "*.sheet")])
@@ -149,18 +158,33 @@ class LoomLabelFrame(ctk.CTkFrame):
         except Exception as e: messagebox.showerror("File Error", f"Could not open or read file: {e}")
 
     def export_sheet_to_file(self):
-        if not self.labels_data: messagebox.showerror("Error", "There are no labels in the current list to export."); return
-        filepath = filedialog.asksaveasfilename(defaultextension=".sheet", filetypes=[("Loom Sheet files", "*.sheet")])
+        if not self.sheet_tree.selection():
+            messagebox.showerror("Error", "Please select a sheet from the list to export.")
+            return
+        
+        sheet_name = self.sheet_tree.selection()[0]
+        sheet_data = self.sheets_data.get(sheet_name)
+
+        if not sheet_data:
+             messagebox.showerror("Error", f"Could not find data for sheet '{sheet_name}'.")
+             return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".sheet",
+            filetypes=[("Loom Sheet files", "*.sheet")],
+            initialfile=f"{sheet_name}.sheet"
+        )
         if not filepath: return
         try:
-            with open(filepath, 'w') as f: json.dump(self.labels_data, f, indent=4)
-            self.show_toast("Current sheet exported successfully.")
+            with open(filepath, 'w') as f: json.dump(sheet_data, f, indent=4)
+            self.show_toast(f"Sheet '{sheet_name}' exported successfully.")
         except Exception as e: messagebox.showerror("Error", f"Could not export file: {e}")
 
     def load_show_data(self, loom_sheets_data):
-        self.sheets_data = loom_sheets_data
+        self.sheets_data = loom_sheets_data if isinstance(loom_sheets_data, dict) else {}
         self.populate_sheet_list()
         self.labels_data = []
+        self.current_sheet_name = None
         self.update_treeview()
 
     def open_advanced_print(self):
@@ -173,24 +197,59 @@ class LoomLabelFrame(ctk.CTkFrame):
     def populate_sheet_list(self):
         self.sheet_tree.delete(*self.sheet_tree.get_children())
         for name in sorted(self.sheets_data.keys()): self.sheet_tree.insert("", "end", values=(name,), iid=name)
+        
     def load_selected_sheet(self):
         if not self.sheet_tree.selection(): return
         sheet_name = self.sheet_tree.selection()[0]
-        self.labels_data = self.sheets_data.get(sheet_name, [])
-        self.update_treeview(); self.show_toast(f"Sheet '{sheet_name}' loaded.")
+        sheet_data = self.sheets_data.get(sheet_name, [])
+        
+        if not isinstance(sheet_data, list):
+            messagebox.showwarning("Data Error", f"The sheet '{sheet_name}' has malformed data. It will be treated as an empty sheet.")
+            self.labels_data = []
+        else:
+            self.labels_data = copy.deepcopy(sheet_data)
+            
+        self.current_sheet_name = sheet_name
+        self.update_treeview()
+        self.show_toast(f"Sheet '{sheet_name}' loaded.")
+
     def delete_selected_sheet(self):
         if not self.sheet_tree.selection(): return
         sheet_name = self.sheet_tree.selection()[0]
         if messagebox.askyesno("Confirm Delete", f"Delete sheet '{sheet_name}'? This cannot be undone."):
-            del self.sheets_data[sheet_name]; self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' deleted.")
+            del self.sheets_data[sheet_name]
+            if self.current_sheet_name == sheet_name:
+                self.labels_data = []
+                self.current_sheet_name = None
+                self.update_treeview()
+            self.populate_sheet_list()
+            self.show_toast(f"Sheet '{sheet_name}' deleted.")
+
+    def save_current_sheet(self):
+        if not self.current_sheet_name:
+            messagebox.showerror("Error", "No sheet is currently loaded. Use 'Save as New...' to create a new sheet.")
+            return
+        
+        if messagebox.askyesno("Confirm Save", f"This will overwrite the sheet '{self.current_sheet_name}'. Continue?"):
+            self.sheets_data[self.current_sheet_name] = self.labels_data
+            self.show_toast(f"Sheet '{self.current_sheet_name}' saved successfully.")
+
     def save_as_new_sheet(self):
-        if not self.labels_data: messagebox.showerror("Error", "There are no labels in the current list to save."); return
-        dialog = ctk.CTkInputDialog(text="Enter a name for this new sheet:", title="Save as New Sheet"); sheet_name = dialog.get_input()
+        if not self.labels_data: 
+            messagebox.showerror("Error", "There are no labels in the current list to save."); 
+            return
+        dialog = ctk.CTkInputDialog(text="Enter a name for this new sheet:", title="Save as New Sheet")
+        sheet_name = dialog.get_input()
         if not sheet_name: return
         if sheet_name in self.sheets_data and not messagebox.askyesno("Confirm Overwrite", f"A sheet named '{sheet_name}' already exists. Overwrite it?"): return
-        self.sheets_data[sheet_name] = self.labels_data; self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' saved.")
+        self.sheets_data[sheet_name] = self.labels_data
+        self.populate_sheet_list()
+        self.show_toast(f"Sheet '{sheet_name}' saved.")
+
     def add_label(self):
         if not self.loom_name_entry.get(): return
+        if not isinstance(self.labels_data, list):
+            self.labels_data = []
         self.labels_data.append({"loom_name": self.loom_name_entry.get(), "color": self.color_entry.get(), "source": self.source_entry.get(), "destination": self.destination_entry.get()})
         self.update_treeview(); self.clear_entries()
     def update_selected_label(self):
@@ -211,6 +270,8 @@ class LoomLabelFrame(ctk.CTkFrame):
             self.labels_data.clear(); self.update_treeview(); self.clear_entries()
     def update_treeview(self):
         self.tree.delete(*self.tree.get_children())
+        if not isinstance(self.labels_data, list):
+            return
         for label in self.labels_data:
             if isinstance(label, dict):
                 self.tree.insert("", "end", values=(

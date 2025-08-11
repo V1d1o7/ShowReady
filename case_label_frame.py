@@ -25,20 +25,28 @@ def create_case_label_pdf(image_path, labels_data, output_filepath, placement=No
             label_info = labels_data[label_index]
             send_to_text = label_info.get("send_to", "")
             contents_text = label_info.get("contents", "")
+            # In advanced mode, the slot_index determines the position (0 or 1)
             draw_single_case_label(c, slot_index, image_path, send_to_text, contents_text)
     else:
-        # Standard print: one page per label
-        for label_info in labels_data:
+        # Standard print: one label per input, two labels per page
+        for i, label_info in enumerate(labels_data):
             send_to_text = label_info.get("send_to", "")
             contents_text = label_info.get("contents", "")
-            draw_single_case_label(c, 0, image_path, send_to_text, contents_text)
-            draw_single_case_label(c, 1, image_path, send_to_text, contents_text)
-            c.showPage()
+            
+            # Determine position on page (0 for top, 1 for bottom)
+            position_on_page = i % 2
+            
+            # If we are starting a new page (i.e., the first label of a pair), create a new page
+            if i > 0 and position_on_page == 0:
+                c.showPage()
+
+            draw_single_case_label(c, position_on_page, image_path, send_to_text, contents_text)
     c.save()
 
 def draw_single_case_label(c, label_index, image_path, send_to_text, contents_text):
     LABEL_WIDTH = 8.5 * inch
     LABEL_HEIGHT = 5.5 * inch
+    # Use label_index (0 or 1) to determine if it's the top or bottom half of the page
     y_start = LABEL_HEIGHT if label_index == 0 else 0
     padding = 0.25 * inch
     center_x = LABEL_WIDTH / 2
@@ -94,8 +102,8 @@ class CaseLabelFrame(ctk.CTkFrame):
         self.image_path = None
         self.labels_data = [] 
         self.sheets_data = {}
+        self.current_sheet_name = None
         self._create_widgets()
-        self.bind_shortcuts()
 
     def _create_widgets(self):
         self.grid_columnconfigure(1, weight=1)
@@ -103,7 +111,7 @@ class CaseLabelFrame(ctk.CTkFrame):
         sheet_manager_frame = ctk.CTkFrame(self, width=250)
         sheet_manager_frame.grid(row=0, column=0, rowspan=3, padx=20, pady=20, sticky="nsew")
         sheet_manager_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(sheet_manager_frame, text="Sheets in Show", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=10)
+        ctk.CTkLabel(sheet_manager_frame, text="Sheets in Show", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=10)
         style = ttk.Style()
         style.theme_use("default")
         style.configure("Treeview", background="#2a2d2e", foreground="white", fieldbackground="#2a2d2e", borderwidth=0, rowheight=40)
@@ -111,11 +119,19 @@ class CaseLabelFrame(ctk.CTkFrame):
         style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat", font=('Calibri', 12, 'bold'))
         self.sheet_tree = ttk.Treeview(sheet_manager_frame, columns=("name"), show="headings")
         self.sheet_tree.heading("name", text="Sheet Name")
-        self.sheet_tree.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        self.sheet_tree.grid(row=1, column=0, columnspan=2, padx=10, pady=5, sticky="nsew")
+        
+        # --- Sheet Manager Buttons ---
         sheet_btn_frame = ctk.CTkFrame(sheet_manager_frame, fg_color="transparent")
-        sheet_btn_frame.grid(row=2, column=0, padx=10, pady=10, sticky="ew")
-        ctk.CTkButton(sheet_btn_frame, text="Load", command=self.load_selected_sheet).pack(side="left", expand=True, padx=2)
-        ctk.CTkButton(sheet_btn_frame, text="Delete", command=self.delete_selected_sheet).pack(side="left", expand=True, padx=2)
+        sheet_btn_frame.grid(row=2, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        sheet_btn_frame.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkButton(sheet_btn_frame, text="Load Sheet", command=self.load_selected_sheet).grid(row=0, column=0, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Delete Sheet", command=self.delete_selected_sheet).grid(row=0, column=1, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Import Sheet", command=self.import_sheet_from_file).grid(row=1, column=0, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Export Sheet", command=self.export_sheet_to_file).grid(row=1, column=1, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Save Current", command=self.save_current_sheet).grid(row=2, column=0, padx=2, pady=2, sticky="ew")
+        ctk.CTkButton(sheet_btn_frame, text="Save as New...", command=self.save_as_new_sheet).grid(row=2, column=1, padx=2, pady=2, sticky="ew")
+
         main_editor_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_editor_frame.grid(row=0, column=1, rowspan=3, padx=(0, 20), pady=20, sticky="nsew")
         main_editor_frame.grid_columnconfigure(0, weight=1)
@@ -158,9 +174,11 @@ class CaseLabelFrame(ctk.CTkFrame):
         ctk.CTkButton(button_pane, text="Advanced Print", command=self.open_advanced_print).pack(pady=5, padx=5, fill="x")
         ctk.CTkButton(button_pane, text="Generate PDF", command=self.generate_pdf).pack(pady=10, padx=5, fill="x")
 
-    def bind_shortcuts(self):
-        """Widget-specific shortcuts are removed and handled globally by the main app."""
-        pass
+    def get_sheets_data(self):
+        """Commits any pending changes in the editor before returning all sheet data."""
+        if self.current_sheet_name and self.current_sheet_name in self.sheets_data:
+            self.sheets_data[self.current_sheet_name] = self.labels_data
+        return self.sheets_data
 
     def import_sheet_from_file(self):
         filepath = filedialog.askopenfilename(filetypes=[("Case Sheet files", "*.sheet")])
@@ -175,18 +193,33 @@ class CaseLabelFrame(ctk.CTkFrame):
         except Exception as e: messagebox.showerror("File Error", f"Could not open or read file: {e}")
 
     def export_sheet_to_file(self):
-        if not self.labels_data: messagebox.showerror("Error", "There are no labels in the current list to export."); return
-        filepath = filedialog.asksaveasfilename(defaultextension=".sheet", filetypes=[("Case Sheet files", "*.sheet")])
+        if not self.sheet_tree.selection():
+            messagebox.showerror("Error", "Please select a sheet from the list to export.")
+            return
+        
+        sheet_name = self.sheet_tree.selection()[0]
+        sheet_data = self.sheets_data.get(sheet_name)
+
+        if not sheet_data:
+             messagebox.showerror("Error", f"Could not find data for sheet '{sheet_name}'.")
+             return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".sheet",
+            filetypes=[("Case Sheet files", "*.sheet")],
+            initialfile=f"{sheet_name}.sheet"
+        )
         if not filepath: return
         try:
-            with open(filepath, 'w') as f: json.dump(self.labels_data, f, indent=4)
-            self.show_toast("Current sheet exported successfully.")
+            with open(filepath, 'w') as f: json.dump(sheet_data, f, indent=4)
+            self.show_toast(f"Sheet '{sheet_name}' exported successfully.")
         except Exception as e: messagebox.showerror("Error", f"Could not export file: {e}")
 
     def load_show_data(self, case_sheets_data):
-        self.sheets_data = case_sheets_data
+        self.sheets_data = case_sheets_data if isinstance(case_sheets_data, dict) else {}
         self.populate_sheet_list()
         self.labels_data = []
+        self.current_sheet_name = None
         self.update_treeview()
         if self.master.current_show_data and 'info' in self.master.current_show_data:
             logo_path = self.master.current_show_data['info'].get('logo_path')
@@ -209,25 +242,60 @@ class CaseLabelFrame(ctk.CTkFrame):
     def populate_sheet_list(self):
         self.sheet_tree.delete(*self.sheet_tree.get_children())
         for name in sorted(self.sheets_data.keys()): self.sheet_tree.insert("", "end", values=(name,), iid=name)
+        
     def load_selected_sheet(self):
         if not self.sheet_tree.selection(): return
         sheet_name = self.sheet_tree.selection()[0]
-        self.labels_data = self.sheets_data.get(sheet_name, [])
-        self.update_treeview(); self.show_toast(f"Sheet '{sheet_name}' loaded.")
+        sheet_data = self.sheets_data.get(sheet_name, [])
+
+        if not isinstance(sheet_data, list):
+            messagebox.showwarning("Data Error", f"The sheet '{sheet_name}' has malformed data. It will be treated as an empty sheet.")
+            self.labels_data = []
+        else:
+            self.labels_data = copy.deepcopy(sheet_data)
+
+        self.current_sheet_name = sheet_name
+        self.update_treeview()
+        self.show_toast(f"Sheet '{sheet_name}' loaded.")
+
     def delete_selected_sheet(self):
         if not self.sheet_tree.selection(): return
         sheet_name = self.sheet_tree.selection()[0]
         if messagebox.askyesno("Confirm Delete", f"Delete sheet '{sheet_name}'? This cannot be undone."):
-            del self.sheets_data[sheet_name]; self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' deleted.")
+            del self.sheets_data[sheet_name]
+            if self.current_sheet_name == sheet_name:
+                self.labels_data = []
+                self.current_sheet_name = None
+                self.update_treeview()
+            self.populate_sheet_list()
+            self.show_toast(f"Sheet '{sheet_name}' deleted.")
+
+    def save_current_sheet(self):
+        if not self.current_sheet_name:
+            messagebox.showerror("Error", "No sheet is currently loaded. Use 'Save as New...' to create a new sheet.")
+            return
+        
+        if messagebox.askyesno("Confirm Save", f"This will overwrite the sheet '{self.current_sheet_name}'. Continue?"):
+            self.sheets_data[self.current_sheet_name] = self.labels_data
+            self.show_toast(f"Sheet '{self.current_sheet_name}' saved successfully.")
+
     def save_as_new_sheet(self):
-        if not self.labels_data: messagebox.showerror("Error", "There are no labels in the current list to save."); return
-        dialog = ctk.CTkInputDialog(text="Enter a name for this new sheet:", title="Save as New Sheet"); sheet_name = dialog.get_input()
+        if not self.labels_data: 
+            messagebox.showerror("Error", "There are no labels in the current list to save.")
+            return
+        dialog = ctk.CTkInputDialog(text="Enter a name for this new sheet:", title="Save as New Sheet")
+        sheet_name = dialog.get_input()
         if not sheet_name: return
         if sheet_name in self.sheets_data and not messagebox.askyesno("Confirm Overwrite", f"A sheet named '{sheet_name}' already exists. Overwrite it?"): return
-        self.sheets_data[sheet_name] = self.labels_data; self.populate_sheet_list(); self.show_toast(f"Sheet '{sheet_name}' saved.")
+        self.sheets_data[sheet_name] = self.labels_data
+        self.populate_sheet_list()
+        self.show_toast(f"Sheet '{sheet_name}' saved.")
+
     def add_label(self):
         send_to, contents = self.send_to_entry.get(), self.contents_text.get("1.0", "end-1c").strip()
         if not send_to: messagebox.showerror("Error", "'Send To' cannot be empty."); return
+        if not isinstance(self.labels_data, list):
+            self.labels_data = []
         self.labels_data.append({"send_to": send_to, "contents": contents}); self.update_treeview(); self.clear_entries()
     def update_selected_label(self):
         if not self.tree.selection(): return
@@ -247,6 +315,8 @@ class CaseLabelFrame(ctk.CTkFrame):
             self.labels_data.clear(); self.update_treeview(); self.clear_entries()
     def update_treeview(self):
         self.tree.delete(*self.tree.get_children())
+        if not isinstance(self.labels_data, list):
+            return
         for label in self.labels_data:
             if isinstance(label, dict):
                 self.tree.insert("", "end", values=(label.get("send_to", ""), label.get("contents", "").split('\n', 1)[0]))
