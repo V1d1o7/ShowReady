@@ -116,3 +116,4 @@ class AdvancedPrintWindow(ctk.CTkToplevel):
             self.destroy()
         except Exception as e:
             messagebox.showerror("PDF Error", f"Could not generate PDF: {e}")
+
