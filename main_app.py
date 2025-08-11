@@ -7,6 +7,7 @@ import os
 from loom_label_frame import LoomLabelFrame
 from case_label_frame import CaseLabelFrame
 from show_manager_frame import ShowManagerFrame
+from app_utils import get_app_data_path
 
 # Create a new root class that inherits from both CTk and the DnD library
 class CTkDnD(ctk.CTk, TkinterDnD.DnDWrapper):
@@ -88,7 +89,7 @@ class App(CTkDnD):
     def show_manager_event(self): self.select_frame("show_manager")
     
     def get_active_show_data(self):
-        config_file = "shows.json"
+        config_file = get_app_data_path("shows.show") 
         if not os.path.exists(config_file): return None
         try:
             with open(config_file, 'r') as f: data = json.load(f)

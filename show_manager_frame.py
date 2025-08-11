@@ -3,13 +3,13 @@ from tkinter import ttk, filedialog, messagebox
 import customtkinter as ctk
 import json
 import os
+from app_utils import get_app_data_path
 
 class ShowManagerFrame(ctk.CTkFrame):
-    CONFIG_FILE = "shows.json"
-
     def __init__(self, master, show_toast):
         super().__init__(master)
         self.show_toast = show_toast
+        self.config_file_path = get_app_data_path("shows.show")
         self.data = self.load_data()
         self._create_widgets()
         self.populate_show_list()
@@ -45,7 +45,7 @@ class ShowManagerFrame(ctk.CTkFrame):
         self.detail_widgets = {}
         fields = {
             "Show Name": "show_name", "Show Logo": "logo_path", 
-            "Production Technician": "production_technician", "Production Manager": "production_manager",
+            "Production Video": "production_video", "Production Manager": "production_manager",
             "PM Email": "pm_email"
         }
         
@@ -73,14 +73,14 @@ class ShowManagerFrame(ctk.CTkFrame):
         ctk.CTkButton(io_frame, text="Export Shows", command=self.export_shows).pack(side="left", padx=10)
 
     def load_data(self):
-        if not os.path.exists(self.CONFIG_FILE): return {"active_show": None, "shows": {}}
+        if not os.path.exists(self.config_file_path): return {"active_show": None, "shows": {}}
         try:
-            with open(self.CONFIG_FILE, 'r') as f: return json.load(f)
+            with open(self.config_file_path, 'r') as f: return json.load(f)
         except Exception: return {"active_show": None, "shows": {}}
 
     def save_data(self):
         try:
-            with open(self.CONFIG_FILE, 'w') as f: json.dump(self.data, f, indent=4)
+            with open(self.config_file_path, 'w') as f: json.dump(self.data, f, indent=4)
         except IOError: messagebox.showerror("Error", "Could not save data.")
 
     def populate_show_list(self):

@@ -12,6 +12,7 @@ import json
 import copy
 from tkinterdnd2 import DND_FILES
 from advanced_print_window import AdvancedPrintWindow
+from app_utils import get_app_data_path
 
 # --- PDF Generation Logic ---
 def create_case_label_pdf(image_path, labels_data, output_filepath, placement=None):
@@ -88,15 +89,16 @@ def draw_single_case_label(c, label_index, image_path, send_to_text, contents_te
     for i, line in enumerate(lines): c.drawCentredString(center_x, content_start_y - (i * line_height), line.upper())
 
 class CaseLabelFrame(ctk.CTkFrame):
-    SHEETS_FILE = "case_sheets.json"
     def __init__(self, master, show_toast):
         super().__init__(master)
         self.show_toast = show_toast
         self.image_path = None
         self.labels_data = [] 
+        self.sheets_file_path = get_app_data_path("case.sheet")
         self.sheets_data = self.load_sheets_data()
         self._create_widgets()
         self.populate_sheet_list()
+        self.bind_shortcuts()
 
     def _create_widgets(self):
         self.grid_columnconfigure(1, weight=1)
@@ -107,9 +109,9 @@ class CaseLabelFrame(ctk.CTkFrame):
         ctk.CTkLabel(sheet_manager_frame, text="Saved Sheets", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=10)
         style = ttk.Style()
         style.theme_use("default")
-        style.configure("Treeview", background="#2a2d2e", foreground="white", fieldbackground="#2a2d2e", borderwidth=0)
+        style.configure("Treeview", background="#2a2d2e", foreground="white", fieldbackground="#2a2d2e", borderwidth=0, rowheight=40)
         style.map('Treeview', background=[('selected', '#22559b')])
-        style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat")
+        style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat", font=('Calibri', 12, 'bold'))
         self.sheet_tree = ttk.Treeview(sheet_manager_frame, columns=("name"), show="headings")
         self.sheet_tree.heading("name", text="Sheet Name")
         self.sheet_tree.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
@@ -120,10 +122,20 @@ class CaseLabelFrame(ctk.CTkFrame):
         main_editor_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_editor_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="nsew")
         main_editor_frame.grid_columnconfigure(0, weight=1)
-        main_editor_frame.grid_rowconfigure(1, weight=3)
-        main_editor_frame.grid_rowconfigure(2, weight=1)
+        main_editor_frame.grid_rowconfigure(2, weight=3) # Main content area
+        main_editor_frame.grid_rowconfigure(3, weight=1) # Action area
+        
+        menubar = ctk.CTkFrame(main_editor_frame, height=40)
+        menubar.grid(row=0, column=0, sticky="ew")
+        self.file_menu = ctk.CTkOptionMenu(menubar, values=["Save as New Sheet", "Open Sheet File...", "Import from CSV", "Export to CSV"], command=self.file_menu_handler)
+        self.file_menu.set("File")
+        self.file_menu.pack(side="left", padx=5, pady=5)
+        self.edit_menu = ctk.CTkOptionMenu(menubar, values=["Duplicate Selected", "Delete Selected", "Clear List"], command=self.edit_menu_handler)
+        self.edit_menu.set("Edit")
+        self.edit_menu.pack(side="left", padx=5, pady=5)
+
         input_frame = ctk.CTkFrame(main_editor_frame)
-        input_frame.grid(row=0, column=0, sticky="ew")
+        input_frame.grid(row=1, column=0, pady=20, sticky="ew")
         input_frame.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(input_frame, text="Send To:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
         self.send_to_entry = ctk.CTkEntry(input_frame)
@@ -133,8 +145,9 @@ class CaseLabelFrame(ctk.CTkFrame):
         self.contents_text.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
         ctk.CTkButton(input_frame, text="Add Label", command=self.add_label).grid(row=2, column=0, padx=10, pady=10)
         ctk.CTkButton(input_frame, text="Update Selected", command=self.update_selected_label).grid(row=2, column=1, padx=10, pady=10, sticky="e")
+        
         display_frame = ctk.CTkFrame(main_editor_frame)
-        display_frame.grid(row=1, column=0, pady=20, sticky="nsew")
+        display_frame.grid(row=2, column=0, sticky="nsew")
         display_frame.grid_columnconfigure(0, weight=1)
         display_frame.grid_rowconfigure(0, weight=1)
         columns = ("send_to", "contents")
@@ -142,22 +155,64 @@ class CaseLabelFrame(ctk.CTkFrame):
         self.tree.heading("send_to", text="Send To"); self.tree.heading("contents", text="Contents"); self.tree.column("send_to", width=250)
         self.tree.grid(row=0, column=0, sticky="nsew"); self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         scrollbar = ctk.CTkScrollbar(display_frame, command=self.tree.yview); scrollbar.grid(row=0, column=1, sticky="ns"); self.tree.configure(yscrollcommand=scrollbar.set)
+        
         action_frame = ctk.CTkFrame(main_editor_frame)
-        action_frame.grid(row=2, column=0, sticky="nsew")
+        action_frame.grid(row=3, column=0, pady=20, sticky="nsew")
         action_frame.grid_columnconfigure(0, weight=1); action_frame.grid_columnconfigure(1, weight=1)
         image_pane = ctk.CTkFrame(action_frame); image_pane.grid(row=0, column=0, padx=(0,10), sticky="ns")
         self.img_preview_label = ctk.CTkLabel(image_pane, text="No image selected\n\n(Drop image here)"); self.img_preview_label.pack(pady=5, padx=5, expand=True)
         ctk.CTkButton(image_pane, text="Upload Image", command=self.upload_image).pack(pady=5, padx=5, side="bottom")
         self.img_preview_label.drop_target_register(DND_FILES); self.img_preview_label.dnd_bind('<<Drop>>', self.on_image_drop)
-        button_pane = ctk.CTkFrame(action_frame); button_pane.grid(row=0, column=1, padx=(10,0), sticky="nsew"); button_pane.grid_columnconfigure(0, weight=1)
-        ctk.CTkButton(button_pane, text="Delete Selected", command=self.delete_selected_label).pack(pady=5, padx=5, fill="x")
-        ctk.CTkButton(button_pane, text="Duplicate Selected", command=self.duplicate_selected_label).pack(pady=5, padx=5, fill="x")
-        ctk.CTkButton(button_pane, text="Import from CSV", command=self.import_csv).pack(pady=5, padx=5, fill="x")
-        ctk.CTkButton(button_pane, text="Export to CSV", command=self.export_csv).pack(pady=5, padx=5, fill="x")
-        ctk.CTkButton(button_pane, text="Save as New Sheet", command=self.save_as_new_sheet).pack(pady=5, padx=5, fill="x")
+        
+        button_pane = ctk.CTkFrame(action_frame)
+        button_pane.grid(row=0, column=1, padx=(10,0), sticky="nsew")
+        button_pane.grid_columnconfigure(0, weight=1)
         ctk.CTkButton(button_pane, text="Advanced Print", command=self.open_advanced_print).pack(pady=5, padx=5, fill="x")
         ctk.CTkButton(button_pane, text="Generate PDF", command=self.generate_pdf).pack(pady=10, padx=5, fill="x")
 
+    def file_menu_handler(self, choice):
+        if choice == "Save as New Sheet": self.save_as_new_sheet()
+        elif choice == "Open Sheet File...": self.open_sheet_from_file()
+        elif choice == "Import from CSV": self.import_csv()
+        elif choice == "Export to CSV": self.export_csv()
+        self.file_menu.set("File")
+
+    def edit_menu_handler(self, choice):
+        if choice == "Duplicate Selected": self.duplicate_selected_label()
+        elif choice == "Delete Selected": self.delete_selected_label()
+        elif choice == "Clear List": self.clear_all_labels()
+        self.edit_menu.set("Edit")
+
+    def bind_shortcuts(self):
+        self.master.bind_all("<Control-s>", lambda event: self.save_as_new_sheet())
+        self.master.bind_all("<Command-s>", lambda event: self.save_as_new_sheet())
+        self.master.bind_all("<Control-o>", lambda event: self.open_sheet_from_file())
+        self.master.bind_all("<Command-o>", lambda event: self.open_sheet_from_file())
+        self.master.bind_all("<Control-e>", lambda event: self.export_csv())
+        self.master.bind_all("<Command-e>", lambda event: self.export_csv())
+        self.master.bind_all("<Control-i>", lambda event: self.import_csv())
+        self.master.bind_all("<Command-i>", lambda event: self.import_csv())
+        self.master.bind_all("<Control-d>", lambda event: self.duplicate_selected_label())
+        self.master.bind_all("<Command-d>", lambda event: self.duplicate_selected_label())
+        self.tree.bind("<Delete>", lambda event: self.delete_selected_label())
+        self.tree.bind("<BackSpace>", lambda event: self.delete_selected_label())
+
+    def open_sheet_from_file(self):
+        filepath = filedialog.askopenfilename(filetypes=[("Case Sheet files", "*.sheet")])
+        if not filepath: return
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            if isinstance(data, list) and all(isinstance(item, dict) for item in data):
+                self.labels_data = data
+                self.update_treeview()
+                self.show_toast(f"Loaded sheet from {os.path.basename(filepath)}")
+            else:
+                messagebox.showerror("Error", "Invalid sheet file format.")
+        except Exception as e:
+            messagebox.showerror("File Error", f"Could not open or read file: {e}")
+
+    # ... (All other methods remain the same)
     def open_advanced_print(self):
         if not self.labels_data: messagebox.showwarning("No Labels", "There are no labels in the current list to print."); return
         if not self.image_path: messagebox.showwarning("No Image", "An image must be selected for Advanced Print."); return
@@ -168,13 +223,13 @@ class CaseLabelFrame(ctk.CTkFrame):
         path = event.data.strip('{}')
         if os.path.exists(path): self.image_path = path; self.update_image_preview(); self.show_toast("Image loaded successfully.")
     def load_sheets_data(self):
-        if not os.path.exists(self.SHEETS_FILE): return {}
+        if not os.path.exists(self.sheets_file_path): return {}
         try:
-            with open(self.SHEETS_FILE, 'r') as f: return json.load(f)
+            with open(self.sheets_file_path, 'r') as f: return json.load(f)
         except (json.JSONDecodeError, IOError): return {}
     def save_sheets_data(self):
         try:
-            with open(self.SHEETS_FILE, 'w') as f: json.dump(self.sheets_data, f, indent=4)
+            with open(self.sheets_file_path, 'w') as f: json.dump(self.sheets_data, f, indent=4)
         except IOError: messagebox.showerror("Error", "Could not save sheets data.")
     def populate_sheet_list(self):
         self.sheet_tree.delete(*self.sheet_tree.get_children())
@@ -212,6 +267,9 @@ class CaseLabelFrame(ctk.CTkFrame):
         index = self.tree.index(self.tree.selection()[0]); original_label_data = self.labels_data[index]
         duplicated_label_data = copy.deepcopy(original_label_data)
         self.labels_data.insert(index + 1, duplicated_label_data); self.update_treeview(); self.show_toast("Label duplicated.")
+    def clear_all_labels(self):
+        if messagebox.askyesno("Confirm Clear", "Clear all labels from the current list?"):
+            self.labels_data.clear(); self.update_treeview(); self.clear_entries()
     def update_treeview(self):
         self.tree.delete(*self.tree.get_children())
         for label in self.labels_data: self.tree.insert("", "end", values=(label["send_to"], label["contents"].split('\n', 1)[0]))

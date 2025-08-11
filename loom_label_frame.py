@@ -10,6 +10,7 @@ from reportlab.lib.colors import Color, black
 from reportlab.pdfgen import canvas
 import copy
 from advanced_print_window import AdvancedPrintWindow
+from app_utils import get_app_data_path
 
 # --- PDF Generation Logic ---
 COLOR_MAP = {
@@ -66,14 +67,15 @@ def create_label_pdf(labels_data, output_filepath, placement=None):
     c.save()
 
 class LoomLabelFrame(ctk.CTkFrame):
-    SHEETS_FILE = "loom_sheets.json"
     def __init__(self, master, show_toast):
         super().__init__(master)
         self.show_toast = show_toast
         self.labels_data = []
+        self.sheets_file_path = get_app_data_path("loom.sheet")
         self.sheets_data = self.load_sheets_data()
         self._create_widgets()
         self.populate_sheet_list()
+        self.bind_shortcuts()
 
     def _create_widgets(self):
         self.grid_columnconfigure(1, weight=1)
@@ -97,9 +99,20 @@ class LoomLabelFrame(ctk.CTkFrame):
         main_editor_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_editor_frame.grid(row=0, column=1, padx=(0, 20), pady=20, sticky="nsew")
         main_editor_frame.grid_columnconfigure(0, weight=1)
-        main_editor_frame.grid_rowconfigure(1, weight=1)
+        main_editor_frame.grid_rowconfigure(2, weight=1)
+        
+        # --- New Menubar ---
+        menubar = ctk.CTkFrame(main_editor_frame, height=40)
+        menubar.grid(row=0, column=0, sticky="ew")
+        self.file_menu = ctk.CTkOptionMenu(menubar, values=["Save as New Sheet", "Open Sheet File...", "Import from CSV", "Export to CSV"], command=self.file_menu_handler)
+        self.file_menu.set("File")
+        self.file_menu.pack(side="left", padx=5, pady=5)
+        self.edit_menu = ctk.CTkOptionMenu(menubar, values=["Duplicate Selected", "Delete Selected Label", "Clear Current List"], command=self.edit_menu_handler)
+        self.edit_menu.set("Edit")
+        self.edit_menu.pack(side="left", padx=5, pady=5)
+
         input_frame = ctk.CTkFrame(main_editor_frame)
-        input_frame.grid(row=0, column=0, sticky="ew")
+        input_frame.grid(row=1, column=0, pady=20, sticky="ew")
         input_frame.grid_columnconfigure((1, 3), weight=1)
         ctk.CTkLabel(input_frame, text="Loom Name:").grid(row=0, column=0, padx=10, pady=5, sticky="w")
         self.loom_name_entry = ctk.CTkEntry(input_frame)
@@ -120,8 +133,9 @@ class LoomLabelFrame(ctk.CTkFrame):
         self.destination_entry.grid(row=1, column=3, padx=10, pady=5, sticky="ew")
         ctk.CTkButton(input_frame, text="Add Label", command=self.add_label).grid(row=2, column=1, pady=10, sticky="w")
         ctk.CTkButton(input_frame, text="Update Selected", command=self.update_selected_label).grid(row=2, column=3, pady=10, sticky="e")
+        
         display_frame = ctk.CTkFrame(main_editor_frame)
-        display_frame.grid(row=1, column=0, pady=20, sticky="nsew")
+        display_frame.grid(row=2, column=0, sticky="nsew")
         display_frame.grid_columnconfigure(0, weight=1)
         display_frame.grid_rowconfigure(0, weight=1)
         columns = ("loom_name", "color", "source", "destination")
@@ -129,17 +143,56 @@ class LoomLabelFrame(ctk.CTkFrame):
         self.tree.heading("loom_name", text="Loom Name"); self.tree.heading("color", text="Color"); self.tree.heading("source", text="Source"); self.tree.heading("destination", text="Destination")
         self.tree.grid(row=0, column=0, sticky="nsew"); self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         scrollbar = ctk.CTkScrollbar(display_frame, command=self.tree.yview); scrollbar.grid(row=0, column=1, sticky="ns"); self.tree.configure(yscrollcommand=scrollbar.set)
-        bottom_frame = ctk.CTkFrame(main_editor_frame)
-        bottom_frame.grid(row=2, column=0, sticky="ew")
-        ctk.CTkButton(bottom_frame, text="Delete Selected Label", command=self.delete_selected_label).pack(side="left", padx=5)
-        ctk.CTkButton(bottom_frame, text="Duplicate Selected", command=self.duplicate_selected_label).pack(side="left", padx=5)
-        ctk.CTkButton(bottom_frame, text="Clear Current List", command=self.clear_all_labels).pack(side="left", padx=5)
-        ctk.CTkButton(bottom_frame, text="Save as New Sheet", command=self.save_as_new_sheet).pack(side="right", padx=5)
-        ctk.CTkButton(bottom_frame, text="Advanced Print", command=self.open_advanced_print).pack(side="right", padx=5)
-        ctk.CTkButton(bottom_frame, text="Generate PDF", command=self.generate_pdf_from_gui).pack(side="right", padx=5)
-        ctk.CTkButton(bottom_frame, text="Export to CSV", command=self.export_csv).pack(side="right", padx=5)
-        ctk.CTkButton(bottom_frame, text="Import from CSV", command=self.import_csv).pack(side="right", padx=5)
+        
+        action_button_frame = ctk.CTkFrame(main_editor_frame, fg_color="transparent")
+        action_button_frame.grid(row=3, column=0, pady=20, sticky="e")
+        ctk.CTkButton(action_button_frame, text="Advanced Print", command=self.open_advanced_print).pack(side="left", padx=5)
+        ctk.CTkButton(action_button_frame, text="Generate PDF", command=self.generate_pdf_from_gui).pack(side="left", padx=5)
 
+    def file_menu_handler(self, choice):
+        if choice == "Save as New Sheet": self.save_as_new_sheet()
+        elif choice == "Open Sheet File...": self.open_sheet_from_file()
+        elif choice == "Import from CSV": self.import_csv()
+        elif choice == "Export to CSV": self.export_csv()
+        self.file_menu.set("File")
+
+    def edit_menu_handler(self, choice):
+        if choice == "Duplicate Selected": self.duplicate_selected_label()
+        elif choice == "Delete Selected Label": self.delete_selected_label()
+        elif choice == "Clear Current List": self.clear_all_labels()
+        self.edit_menu.set("Edit")
+
+    def bind_shortcuts(self):
+        self.master.bind_all("<Control-s>", lambda event: self.save_as_new_sheet())
+        self.master.bind_all("<Command-s>", lambda event: self.save_as_new_sheet())
+        self.master.bind_all("<Control-o>", lambda event: self.open_sheet_from_file())
+        self.master.bind_all("<Command-o>", lambda event: self.open_sheet_from_file())
+        self.master.bind_all("<Control-e>", lambda event: self.export_csv())
+        self.master.bind_all("<Command-e>", lambda event: self.export_csv())
+        self.master.bind_all("<Control-i>", lambda event: self.import_csv())
+        self.master.bind_all("<Command-i>", lambda event: self.import_csv())
+        self.master.bind_all("<Control-d>", lambda event: self.duplicate_selected_label())
+        self.master.bind_all("<Command-d>", lambda event: self.duplicate_selected_label())
+        self.tree.bind("<Delete>", lambda event: self.delete_selected_label())
+        self.tree.bind("<BackSpace>", lambda event: self.delete_selected_label())
+
+    def open_sheet_from_file(self):
+        filepath = filedialog.askopenfilename(filetypes=[("Loom Sheet files", "*.sheet")])
+        if not filepath: return
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            # Basic validation
+            if isinstance(data, list) and all(isinstance(item, dict) for item in data):
+                self.labels_data = data
+                self.update_treeview()
+                self.show_toast(f"Loaded sheet from {os.path.basename(filepath)}")
+            else:
+                messagebox.showerror("Error", "Invalid sheet file format.")
+        except Exception as e:
+            messagebox.showerror("File Error", f"Could not open or read file: {e}")
+
+    # ... (All other methods remain the same)
     def open_advanced_print(self):
         if not self.labels_data: messagebox.showwarning("No Labels", "There are no labels in the current list to print."); return
         AdvancedPrintWindow(self, self.labels_data, create_label_pdf, self.show_toast, rows=8, cols=3)
@@ -147,13 +200,13 @@ class LoomLabelFrame(ctk.CTkFrame):
         color_info = colorchooser.askcolor(title="Choose color")
         if color_info and color_info[1]: self.color_entry.delete(0, tk.END); self.color_entry.insert(0, color_info[1])
     def load_sheets_data(self):
-        if not os.path.exists(self.SHEETS_FILE): return {}
+        if not os.path.exists(self.sheets_file_path): return {}
         try:
-            with open(self.SHEETS_FILE, 'r') as f: return json.load(f)
+            with open(self.sheets_file_path, 'r') as f: return json.load(f)
         except (json.JSONDecodeError, IOError): return {}
     def save_sheets_data(self):
         try:
-            with open(self.SHEETS_FILE, 'w') as f: json.dump(self.sheets_data, f, indent=4)
+            with open(self.sheets_file_path, 'w') as f: json.dump(self.sheets_data, f, indent=4)
         except IOError: messagebox.showerror("Error", "Could not save sheets data.")
     def populate_sheet_list(self):
         self.sheet_tree.delete(*self.sheet_tree.get_children())
