@@ -20,7 +20,7 @@ class App(CTkDnD):
     def __init__(self):
         super().__init__()
 
-        self.title("Production Label Suite")
+        self.title("Production Label Suite DEV!")
         self.geometry("1600x900")
 
         self.current_show_data = None
