@@ -1,6 +1,5 @@
 import io
-import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -13,7 +12,7 @@ from reportlab.lib.enums import TA_CENTER
 
 from .models import LoomLabel, CaseLabel
 
-# --- FIX: Shortened Color Map ---
+# --- Color Map for parsing color strings ---
 COLOR_MAP = {
     'red': '#FF0000', 'orange': '#FFA500', 'yellow': '#FFFF00', 'green': '#008000', 
     'blue': '#0000FF', 'indigo': '#4B0082', 'violet': '#EE82EE', 'black': '#000000', 
@@ -22,21 +21,30 @@ COLOR_MAP = {
     'navy': '#000080', 'fuchsia': '#FF00FF', 'purple': '#800080'
 }
 
-def parse_color(color_string):
+def parse_color(color_string: Optional[str]) -> colors.Color:
+    """Parses a color string (name or hex) into a reportlab Color object."""
     if not color_string:
         return colors.black
     color_string = color_string.lower().strip()
-    if color_string in COLOR_MAP: hex_val = COLOR_MAP[color_string]
-    elif color_string.startswith('#') and len(color_string) in [4, 7]: hex_val = color_string
-    else: return colors.black
+    hex_val = COLOR_MAP.get(color_string)
+    if not hex_val and color_string.startswith('#') and len(color_string) in [4, 7]:
+        hex_val = color_string
+    
+    if not hex_val:
+        return colors.black
+
     hex_val = hex_val.lstrip('#')
-    if len(hex_val) == 3: hex_val = "".join([c*2 for c in hex_val])
+    if len(hex_val) == 3:
+        hex_val = "".join([c*2 for c in hex_val])
+    
     try:
         r, g, b = (int(hex_val[i:i+2], 16) / 255.0 for i in (0, 2, 4))
         return colors.Color(r, g, b)
-    except ValueError: return colors.black
+    except (ValueError, IndexError):
+        return colors.black
 
 def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
+    """Generates a PDF for loom labels in a BytesIO buffer."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
@@ -52,8 +60,7 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[in
             if 0 <= label_index < len(labels):
                 labels_to_draw.append((slot, labels[label_index]))
     else:
-        for i, label in enumerate(labels):
-            labels_to_draw.append((i, label))
+        labels_to_draw = list(enumerate(labels))
 
     for slot, label in labels_to_draw:
         if slot >= 24: continue
@@ -86,7 +93,8 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[in
     buffer.seek(0)
     return buffer
 
-def draw_single_case_label(c, label_index, image_path, send_to_text, contents_text):
+def draw_single_case_label(c, label_index: int, image_data: Optional[bytes], send_to_text: str, contents_text: str):
+    """Draws a single case label onto the canvas."""
     LABEL_WIDTH = 8.5 * inch
     LABEL_HEIGHT = 5.5 * inch
     y_start = LABEL_HEIGHT if label_index % 2 == 0 else 0
@@ -102,20 +110,22 @@ def draw_single_case_label(c, label_index, image_path, send_to_text, contents_te
     c.line(box_x, h_line_y, box_x + box_width, h_line_y)
     v_line_x = 4.5 * inch
     c.line(v_line_x, h_line_y, v_line_x, box_y + box_height)
-    if image_path and os.path.exists(image_path):
+    
+    if image_data:
         try:
+            image_reader = ImageReader(io.BytesIO(image_data))
             img_box_width, img_box_height = v_line_x - box_x, (box_y + box_height) - h_line_y
             img_box_center_x, img_box_center_y = box_x + (img_box_width / 2), h_line_y + (img_box_height / 2)
             max_img_width, max_img_height = 4.0 * inch, 1.6 * inch
-            img = ImageReader(image_path)
-            img_width, img_height = img.getSize()
+            img_width, img_height = image_reader.getSize()
             ratio = min(max_img_width / img_width, max_img_height / img_height)
             new_width, new_height = img_width * ratio, img_height * ratio
             img_x, img_y = img_box_center_x - (new_width / 2), img_box_center_y - (new_height / 2)
-            c.drawImage(image_path, img_x, img_y, width=new_width, height=new_height, mask='auto')
+            c.drawImage(image_reader, img_x, img_y, width=new_width, height=new_height, mask='auto')
         except Exception as e:
             c.setFont("Helvetica", 10)
-            c.drawCentredString(box_x + (v_line_x - box_x)/2, h_line_y + 0.5*inch, "Image failed to load.")
+            c.drawCentredString(box_x + (v_line_x - box_x)/2, h_line_y + 0.5*inch, f"Image failed to load: {e}")
+
     c.setFillColor(colors.black)
     c.setFont("Helvetica", 20)
     c.drawString(v_line_x + (0.1 * inch), (box_y + box_height) - (0.3 * inch), "SEND TO:")
@@ -137,27 +147,30 @@ def draw_single_case_label(c, label_index, image_path, send_to_text, contents_te
         alignment=TA_CENTER
     )
     
-    p = Paragraph(contents_text.replace('\n', '<br/>').upper(), style=style_body)
+    p = Paragraph((contents_text or "").replace('\n', '<br/>').upper(), style=style_body)
     p_width, p_height = p.wrapOn(c, LABEL_WIDTH - (2 * padding) - 0.2 * inch, h_line_y - box_y - 0.5 * inch)
     p.drawOn(c, center_x - p_width / 2, h_line_y - 0.5 * inch - p_height)
 
-def generate_case_label_pdf(labels: List[CaseLabel], logo_path: Optional[str] = None, placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
+def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes] = None, placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
+    """Generates a PDF for case labels in a BytesIO buffer."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     
+    labels_to_draw = []
     if placement:
-        for slot_index, label_index in placement.items():
+        for slot_index, label_index in sorted(placement.items()):
             if 0 <= label_index < len(labels):
-                label_info = labels[label_index]
-                draw_single_case_label(c, slot_index, logo_path, label_info.send_to, label_info.contents)
-        c.showPage()
+                labels_to_draw.append((slot_index, labels[label_index]))
     else:
-        for i, label_info in enumerate(labels):
-            slot_index = i % 2
-            draw_single_case_label(c, slot_index, logo_path, label_info.send_to, label_info.contents)
-            
-            if slot_index == 1 or i == len(labels) - 1:
-                c.showPage()
+        labels_to_draw = list(enumerate(labels))
+
+    for i, (slot_index_or_label_index, label_info) in enumerate(labels_to_draw):
+        slot_index = slot_index_or_label_index if placement else i % 2
+        draw_single_case_label(c, slot_index, logo_bytes, label_info.send_to, label_info.contents)
+        
+        # If it's the second label on a page, or the very last label, create a new page
+        if slot_index == 1 or i == len(labels_to_draw) - 1:
+            c.showPage()
 
     c.save()
     buffer.seek(0)

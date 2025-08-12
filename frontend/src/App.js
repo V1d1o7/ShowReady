@@ -3,35 +3,56 @@ import { FileText, Box, Info, UploadCloud, Trash2, Edit, Plus, Save, ChevronsUpD
 import { createClient } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || 'YOUR_SUPABASE_URL';
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
+// It's better to move these to environment variables for security
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("Supabase URL or Anon Key is missing. Please check your .env file.");
+}
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+
 // --- API Helper Functions ---
-const getAuthHeader = () => {
-    const session = supabase.auth.getSession();
+const getAuthHeader = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
     return session ? { Authorization: `Bearer ${session.access_token}` } : {};
 };
 
+const handleResponse = async (res) => {
+    if (!res.ok) {
+        const error = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(error.detail || 'An unknown error occurred');
+    }
+    if (res.headers.get('Content-Type')?.includes('application/json')) {
+        return res.json();
+    }
+    if (res.headers.get('Content-Type')?.includes('application/pdf')) {
+        return res.blob();
+    }
+    return res;
+};
+
 const api = {
-  getShows: () => fetch('/api/shows', { headers: getAuthHeader() }).then(res => res.json()),
-  getShow: (showName) => fetch(`/api/shows/${showName}`, { headers: getAuthHeader() }).then(res => res.json()),
-  saveShow: (showName, data) => fetch(`/api/shows/${showName}`, {
+  getShows: async () => fetch('/api/shows', { headers: await getAuthHeader() }).then(handleResponse),
+  getShow: async (showName) => fetch(`/api/shows/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+  saveShow: async (showName, data) => fetch(`/api/shows/${showName}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
     body: JSON.stringify(data),
-  }).then(res => res.json()),
-  deleteShow: (showName) => fetch(`/api/shows/${showName}`, { method: 'DELETE', headers: getAuthHeader() }),
-  uploadLogo: (formData) => fetch('/api/upload/logo', {
+  }).then(handleResponse),
+  deleteShow: async (showName) => fetch(`/api/shows/${showName}`, { method: 'DELETE', headers: await getAuthHeader() }).then(res => { if(!res.ok) throw new Error("Delete failed")}),
+  uploadLogo: async (formData) => fetch('/api/upload/logo', {
     method: 'POST',
-    headers: getAuthHeader(),
+    headers: await getAuthHeader(),
     body: formData,
-  }).then(res => res.json()),
-  generatePdf: (type, body) => fetch(`/api/pdf/${type}-labels`, {
+  }).then(handleResponse),
+  generatePdf: async (type, body) => fetch(`/api/pdf/${type}-labels`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
     body: JSON.stringify(body),
-  }).then(res => res.blob()),
+  }).then(handleResponse),
 };
 
 // --- Main Application Component ---
@@ -42,12 +63,15 @@ export default function App() {
   const [activeShowData, setActiveShowData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isNewShowModalOpen, setIsNewShowModalOpen] = useState(false);
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' or 'show'
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const fetchSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setIsLoading(false);
-    });
+    };
+    fetchSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
@@ -56,18 +80,17 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const loadShows = useCallback(() => {
+  const loadShows = useCallback(async () => {
     if (!session) return;
     setIsLoading(true);
-    api.getShows()
-      .then(showNames => {
-        setShows(showNames.sort());
-        setIsLoading(false);
-      })
-      .catch(error => {
-        console.error("Failed to fetch shows:", error);
-        setIsLoading(false);
-      });
+    try {
+      const showNames = await api.getShows();
+      setShows(showNames.sort());
+    } catch (error) {
+      console.error("Failed to fetch shows:", error);
+    } finally {
+      setIsLoading(false);
+    }
   }, [session]);
 
   useEffect(() => {
@@ -77,18 +100,20 @@ export default function App() {
   const fetchShowData = useCallback(async (showName) => {
     if (!showName) {
       setActiveShowData(null);
-      setIsLoading(false);
       return;
     }
     setIsLoading(true);
     try {
       const data = await api.getShow(showName);
       setActiveShowData(data);
+      setCurrentView('show');
     } catch (error) {
       console.error(`Failed to fetch data for ${showName}:`, error);
       setActiveShowName('');
+      setCurrentView('dashboard');
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -96,6 +121,7 @@ export default function App() {
       fetchShowData(activeShowName);
     } else {
       setActiveShowData(null);
+      setCurrentView('dashboard');
     }
   }, [activeShowName, fetchShowData]);
 
@@ -118,8 +144,7 @@ export default function App() {
     try {
       const newShowData = { info: { show_name: newShowName }, loom_sheets: {}, case_sheets: {} };
       await api.saveShow(newShowName, newShowData);
-      const updatedShows = [...shows, newShowName].sort();
-      setShows(updatedShows);
+      setShows(prev => [...prev, newShowName].sort());
       setActiveShowName(newShowName);
     } catch (error) {
       console.error("Failed to create new show:", error);
@@ -134,8 +159,7 @@ export default function App() {
     setIsLoading(true);
     try {
       await api.deleteShow(showNameToDelete);
-      const updatedShows = shows.filter(s => s !== showNameToDelete);
-      setShows(updatedShows);
+      setShows(prev => prev.filter(s => s !== showNameToDelete));
       if (activeShowName === showNameToDelete) {
         setActiveShowName('');
       }
@@ -146,8 +170,8 @@ export default function App() {
     setIsLoading(false);
   };
   
-  if (isLoading) {
-    return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading...</div></div>;
+  if (isLoading && !session) {
+    return <div className="flex items-center justify-center h-screen bg-gray-900"><div className="text-xl text-gray-400">Loading...</div></div>;
   }
 
   if (!session) {
@@ -155,8 +179,8 @@ export default function App() {
   }
 
   return (
-    <div className="bg-gray-900 text-gray-300 font-mono min-h-screen">
-      {activeShowName && activeShowData ? (
+    <div className="bg-gray-900 text-gray-300 font-sans min-h-screen">
+      {currentView === 'show' && activeShowData ? (
         <ShowView
           showName={activeShowName}
           showData={activeShowData}
@@ -187,32 +211,40 @@ export default function App() {
 function Auth({ supabaseClient }) {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authError, setAuthError] = useState(null);
 
-  const handleLogin = async (event) => {
+  const handleAuthAction = async (event) => {
     event.preventDefault();
     setLoading(true);
-    const { error } = await supabaseClient.auth.signInWithOtp({ email });
-    if (error) {
-      alert(error.error_description || error.message);
+    setAuthError(null);
+    
+    let response;
+    if (isSignUp) {
+      response = await supabaseClient.auth.signUp({ email, password });
     } else {
-      alert('Check your email for the login link!');
+      response = await supabaseClient.auth.signInWithPassword({ email, password });
     }
-    setLoading(false);
-  };
 
-  const handleGoogleLogin = async () => {
-    await supabaseClient.auth.signInWithOAuth({
-      provider: 'google',
-    });
+    if (response.error) {
+      setAuthError(response.error.message);
+    } else if (isSignUp) {
+        alert('Account created! Please check your email to confirm your registration.');
+    }
+    
+    setLoading(false);
   };
 
   return (
     <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-      <div className="w-full max-w-md p-8 space-y-8 bg-gray-800 rounded-xl shadow-lg">
+      <div className="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-xl shadow-lg">
         <div>
-          <h2 className="text-center text-3xl font-extrabold text-white">Sign in to ShowReady</h2>
+          <h2 className="text-center text-3xl font-extrabold text-white">
+            {isSignUp ? 'Create an Account' : 'Sign in to ShowReady'}
+          </h2>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleLogin}>
+        <form className="mt-8 space-y-6" onSubmit={handleAuthAction}>
           <InputField
             id="email"
             name="email"
@@ -221,27 +253,32 @@ function Auth({ supabaseClient }) {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Your email address"
+            placeholder="your@email.com"
             label="Email Address"
           />
+          <InputField
+            id="password"
+            name="password"
+            type="password"
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            label="Password"
+          />
+          
+          {authError && <p className="text-sm text-red-400">{authError}</p>}
+
           <div>
             <button type="submit" disabled={loading} className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-black bg-amber-500 hover:bg-amber-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 disabled:opacity-50">
-              {loading ? 'Sending...' : 'Send Magic Link'}
+              {loading ? 'Processing...' : (isSignUp ? 'Sign Up' : 'Sign In')}
             </button>
           </div>
         </form>
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-700" />
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-gray-800 text-gray-500">Or continue with</span>
-          </div>
-        </div>
-        <div>
-          <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
-            <svg className="w-5 h-5" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.6l-63.1 61.9C333.3 102.4 293.2 88 248 88c-73.2 0-133.1 59.9-133.1 133.1s59.9 133.1 133.1 133.1c76.9 0 115.1-53.2 120.2-79.2H248v-65.1h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path></svg>
-            Google
+        <div className="text-center text-sm">
+          <button onClick={() => { setIsSignUp(!isSignUp); setAuthError(null); }} className="font-medium text-amber-400 hover:text-amber-300">
+            {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
           </button>
         </div>
       </div>
@@ -317,13 +354,42 @@ const ShowCard = ({ showName, onSelect, onDelete }) => {
 
 
 // --- Show View Component ---
-const ShowView = ({ showName, showData, onSave, isLoading }) => {
-  // This component no longer needs onBack or onExport, as that's handled at the App level now
-  // ... rest of the component is the same
-};
+const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
+    const [activeTab, setActiveTab] = useState('info');
 
-// --- The rest of the components are largely unchanged but adapted for the new data flow ---
-// ... (Full code included below)
+    const tabs = [
+        { id: 'info', label: 'Show Info', icon: Info },
+        { id: 'loom', label: 'Loom Labels', icon: FileText },
+        { id: 'case', label: 'Case Labels', icon: Box },
+    ];
+
+    if (isLoading || !showData) {
+        return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Show...</div></div>;
+    }
+
+    return (
+        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+            <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
+                <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20}/></button>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">{showName}</h1>
+                </div>
+            </header>
+            <div className="flex border-b border-gray-700 mb-6">
+                {tabs.map(tab => (
+                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-4 py-3 text-sm font-bold transition-colors ${activeTab === tab.id ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400 hover:text-white'}`}>
+                        <tab.icon size={16} /> {tab.label}
+                    </button>
+                ))}
+            </div>
+            <main>
+                {activeTab === 'info' && <ShowInfoView showData={showData} onSave={onSave} />}
+                {activeTab === 'loom' && <LoomLabelView showData={showData} onSave={onSave} />}
+                {activeTab === 'case' && <CaseLabelView showData={showData} onSave={onSave} />}
+            </main>
+        </div>
+    );
+};
 
 const ShowInfoView = ({ showData, onSave }) => {
   const [formData, setFormData] = useState(showData.info);
@@ -336,7 +402,7 @@ const ShowInfoView = ({ showData, onSave }) => {
     if (showData.info.logo_path) {
       setLogoError(false);
       // Create a signed URL to display the private image
-      supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 60) // 60 seconds expiration
+      supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 3600) // 1 hour expiration
         .then(({ data, error }) => {
           if (error) {
             console.error("Error creating signed URL:", error);
@@ -362,7 +428,9 @@ const ShowInfoView = ({ showData, onSave }) => {
     try {
       const result = await api.uploadLogo(uploadFormData);
       if (result.logo_path) {
-        setFormData(prev => ({ ...prev, logo_path: result.logo_path }));
+        const updatedInfo = { ...formData, logo_path: result.logo_path };
+        setFormData(updatedInfo);
+        onSave({ ...showData, info: updatedInfo });
       }
     } catch (error) { 
       console.error("Logo upload failed:", error); 
@@ -410,9 +478,6 @@ const ShowInfoView = ({ showData, onSave }) => {
     </div>
   );
 }
-
-// --- All other components (LabelManagerView, Modals, etc.) are the same as the previous version ---
-// ... (Full component code included below for completeness)
 
 const InputField = ({ label, ...props }) => (
   <div>
@@ -777,3 +842,9 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf }) => {
         </Modal>
     );
 };
+
+const Card = ({ children, className = '' }) => (
+    <div className={`bg-gray-800/50 p-6 rounded-xl ${className}`}>
+        {children}
+    </div>
+);

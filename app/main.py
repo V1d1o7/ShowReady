@@ -1,7 +1,13 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+import uvicorn
+from dotenv import load_dotenv
 from .api import router as api_router
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(
     title="ShowReady API",
@@ -9,21 +15,38 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# --- Configuration for Static Files ---
-# This is the new section that tells FastAPI to serve files from the 'static' directory.
-STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
-os.makedirs(STATIC_DIR, exist_ok=True)
+# --- CORS Configuration ---
+# Allow requests from your frontend development server and production domain
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://showready.k-p.video", # Your production URL
+]
 
-# Mount the static directory to the /static path
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-
-# Include the API router, which contains all the endpoints
+# Include the API router BEFORE mounting the static files
 app.include_router(api_router, prefix="/api")
 
-@app.get("/", tags=["Root"])
-async def read_root():
-    """
-    A simple root endpoint to confirm the API is running.
-    """
-    return {"message": "Welcome to the ShowReady API!"}
+# --- Static Files Configuration ---
+# This will serve the index.html for any path that is not an api call
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "build")
+
+if not os.path.exists(STATIC_DIR):
+    print(f"Static directory not found at {STATIC_DIR}. Frontend may not be built.")
+    # Create a placeholder directory to prevent crashing
+    os.makedirs(STATIC_DIR)
+    with open(os.path.join(STATIC_DIR, "index.html"), "w") as f:
+        f.write("Frontend not built. Run 'npm run build' in the frontend directory.")
+
+app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
+
+# This block allows the script to be run directly for development
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)

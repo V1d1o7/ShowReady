@@ -5,4 +5,4 @@ reportlab
 python-multipart
 supabase
 gotrue
-python-multipart
+python-dotenv
