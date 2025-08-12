@@ -17,7 +17,7 @@ pip-delete-this-directory.txt
 /app/static/images/
 
 # Show Files created by users
-/app-data/
+/app-data
 
 # React / Node.js #
 ###################
