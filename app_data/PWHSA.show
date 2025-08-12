@@ -1,0 +1,169 @@
+{
+    "info": {
+        "show_name": "Powerhouse: International",
+        "logo_path": "C:/Users/Kuiper-Productions/Downloads/pwha.png",
+        "production_video": "Tristan Van Tine",
+        "production_manager": "Joe Trainor",
+        "pm_email": "joe@auroraprod.com"
+    },
+    "loom_sheets": {
+        "PJ Looms": [
+            {
+                "loom_name": "PJ-01 - Sibyl",
+                "color": "Red",
+                "source": "VID-01",
+                "destination": "PJ-01 - Sibyl"
+            },
+            {
+                "loom_name": "PJ-01 - Sibyl",
+                "color": "Red",
+                "source": "VID-01",
+                "destination": "PJ-01 - Sibyl"
+            },
+            {
+                "loom_name": "PJ-02 - Sibyl",
+                "color": "Orange",
+                "source": "VID-01",
+                "destination": "PJ-02 - Sibyl"
+            },
+            {
+                "loom_name": "PJ-02 - Sibyl",
+                "color": "Orange",
+                "source": "VID-01",
+                "destination": "PJ-02 - Sibyl"
+            },
+            {
+                "loom_name": "PJ-01 - Forca",
+                "color": "Yellow",
+                "source": "VID-01",
+                "destination": "PJ-01 - Forca"
+            },
+            {
+                "loom_name": "PJ-01 - Forca",
+                "color": "Yellow",
+                "source": "VID-01",
+                "destination": "PJ-01 - Forca"
+            },
+            {
+                "loom_name": "PJ-02 - Forca",
+                "color": "Green",
+                "source": "VID-01",
+                "destination": "PJ-02 - Forca"
+            },
+            {
+                "loom_name": "PJ-02 - Forca",
+                "color": "Green",
+                "source": "VID-01",
+                "destination": "PJ-02 - Forca"
+            },
+            {
+                "loom_name": "PJ-03 - Forca",
+                "color": "Blue",
+                "source": "VID-01",
+                "destination": "PJ-03 - Forca"
+            },
+            {
+                "loom_name": "PJ-03 - Forca",
+                "color": "Blue",
+                "source": "VID-01",
+                "destination": "PJ-03 - Forca"
+            },
+            {
+                "loom_name": "PJ-01 - Soa",
+                "color": "Indigo",
+                "source": "VID-01",
+                "destination": "PJ-01 - Soa"
+            },
+            {
+                "loom_name": "PJ-01 - Soa",
+                "color": "Indigo",
+                "source": "VID-01",
+                "destination": "PJ-01 - Soa"
+            },
+            {
+                "loom_name": "PJ-01 - Good Sex",
+                "color": "Violet",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "PJ-01 - Good Sex",
+                "color": "Violet",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            },
+            {
+                "loom_name": "Test Loom",
+                "color": "#804040",
+                "source": "VID-01",
+                "destination": "PJ-01 - Good Sex"
+            }
+        ]
+    },
+    "case_sheets": {
+        "Case 101": [
+            {
+                "send_to": "Floor",
+                "contents": "PJ Looms\nCAM Looms\nRack Power\nCAT6 Cables"
+            },
+            {
+                "send_to": "Floor",
+                "contents": "PJ Looms\nCAM Looms\nRack Power\nCAT6 Cables"
+            }
+        ]
+    }
+}
