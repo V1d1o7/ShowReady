@@ -1,6 +1,8 @@
 import os
 import shutil
 import json
+import io
+import zipfile
 from fastapi import APIRouter, HTTPException, Body, File, UploadFile
 from fastapi.responses import StreamingResponse, JSONResponse
 from typing import List, Dict, Optional
@@ -13,49 +15,37 @@ router = APIRouter()
 # --- Configuration ---
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 IMAGES_DIR = os.path.join(STATIC_DIR, "images")
-# --- FIX: Added a path to the app_data directory ---
 APP_DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app_data")
 
 os.makedirs(IMAGES_DIR, exist_ok=True)
-# --- FIX: Ensure the app_data directory exists ---
 os.makedirs(APP_DATA_DIR, exist_ok=True)
 
 # --- Database ---
 db: Dict[str, ShowFile] = {}
 
-# --- FIX: Function to load show files from disk ---
 def load_shows_from_disk():
+    db.clear() # Clear the in-memory database before loading
     for filename in os.listdir(APP_DATA_DIR):
         if filename.endswith(".show"):
-            show_name = filename[:-5] # Remove .show extension
+            show_name = filename[:-5]
             file_path = os.path.join(APP_DATA_DIR, filename)
             with open(file_path, 'r') as f:
                 try:
-                    # Load the JSON data from the file
                     show_data = json.load(f)
-                    # Create a ShowFile model instance from the data
                     db[show_name] = ShowFile(**show_data)
                 except (json.JSONDecodeError, TypeError) as e:
-                    # Handle cases with invalid JSON or data structure
                     print(f"Error loading {filename}: {e}")
 
-# --- FIX: Load existing shows at startup ---
 load_shows_from_disk()
 
 # --- Show Management Endpoints ---
 
 @router.post("/shows/{show_name}", response_model=ShowFile, tags=["Shows"])
 async def create_or_update_show(show_name: str, show_data: ShowFile):
-    """
-    Creates a new show or updates an existing one.
-    Saves the show data to a .show file.
-    """
     db[show_name] = show_data
-    # --- FIX: Save the new or updated show to a file ---
     file_path = os.path.join(APP_DATA_DIR, f"{show_name}.show")
     with open(file_path, "w") as f:
-        # Use Pydantic's json() method for proper serialization
-        f.write(show_data.json(indent=4))
+        f.write(show_data.model_dump_json(indent=4))
     return show_data
 
 @router.get("/shows/{show_name}", response_model=ShowFile, tags=["Shows"])
@@ -73,11 +63,82 @@ async def delete_show(show_name: str):
     if show_name not in db:
         raise HTTPException(status_code=404, detail=f"Show '{show_name}' not found.")
     del db[show_name]
-    # --- FIX: Also delete the show file from disk ---
     file_path = os.path.join(APP_DATA_DIR, f"{show_name}.show")
     if os.path.exists(file_path):
         os.remove(file_path)
     return
+
+# --- New Export/Import Endpoints ---
+
+@router.get("/shows/{show_name}/export", tags=["Shows"])
+async def export_show(show_name: str):
+    if show_name not in db:
+        raise HTTPException(status_code=404, detail="Show not found")
+
+    show_data = db[show_name]
+    show_file_path = os.path.join(APP_DATA_DIR, f"{show_name}.show")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # Add .show file to zip
+        zf.write(show_file_path, arcname=f"{show_name}.show")
+        
+        # Add logo to zip if it exists
+        if show_data.info.logo_path and os.path.exists(show_data.info.logo_path):
+            logo_filename = os.path.basename(show_data.info.logo_path)
+            zf.write(show_data.info.logo_path, arcname=logo_filename)
+
+    zip_buffer.seek(0)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={show_name}.zip"}
+    )
+
+@router.post("/shows/import", tags=["Shows"])
+async def import_show(file: UploadFile = File(...)):
+    if not file.filename.endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Invalid file type. Please upload a .zip file.")
+
+    with zipfile.ZipFile(io.BytesIO(await file.read()), 'r') as zf:
+        show_file_name = None
+        logo_file_name = None
+
+        for name in zf.namelist():
+            if name.endswith('.show'):
+                show_file_name = name
+            elif name.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                logo_file_name = name
+        
+        if not show_file_name:
+            raise HTTPException(status_code=400, detail="No .show file found in the zip archive.")
+
+        # Extract and save .show file
+        with zf.open(show_file_name) as show_file:
+            show_file_content = show_file.read()
+            # Ensure the show file name matches the internal show name for consistency
+            show_data = json.loads(show_file_content)
+            imported_show_name = show_data.get("info", {}).get("show_name")
+            if not imported_show_name:
+                raise HTTPException(status_code=400, detail="Show file is missing 'show_name' in info.")
+            
+            final_show_filename = f"{imported_show_name}.show"
+            
+            # Extract and save logo if it exists
+            if logo_file_name:
+                with zf.open(logo_file_name) as logo_file:
+                    logo_path = os.path.join(IMAGES_DIR, logo_file_name)
+                    with open(logo_path, 'wb') as f:
+                        f.write(logo_file.read())
+                    # Update logo path in the show data
+                    show_data["info"]["logo_path"] = logo_path
+
+            with open(os.path.join(APP_DATA_DIR, final_show_filename), 'w') as f:
+                json.dump(show_data, f, indent=4)
+
+    load_shows_from_disk()
+    return JSONResponse(content={"message": "Show imported successfully", "shows": list(db.keys())})
+
 
 # --- File Upload Endpoint ---
 
@@ -85,7 +146,11 @@ async def delete_show(show_name: str):
 async def upload_logo(file: UploadFile = File(...)):
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File provided is not an image.")
-    file_path = os.path.join(IMAGES_DIR, file.filename)
+    
+    # Sanitize filename to prevent directory traversal attacks
+    filename = os.path.basename(file.filename)
+    file_path = os.path.join(IMAGES_DIR, filename)
+
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
