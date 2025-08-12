@@ -7,76 +7,78 @@ from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
+from reportlab.lib.enums import TA_CENTER
 
 from .models import LoomLabel, CaseLabel
 
-def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
-    """
-    Generates a PDF for loom labels using ReportLab.
-    
-    Args:
-        labels: A list of LoomLabel data models.
-        placement: An optional dictionary for custom label placement on a grid.
-                   If None, labels are placed sequentially.
+# --- FIX: Shortened Color Map ---
+COLOR_MAP = {
+    'red': '#FF0000', 'orange': '#FFA500', 'yellow': '#FFFF00', 'green': '#008000', 
+    'blue': '#0000FF', 'indigo': '#4B0082', 'violet': '#EE82EE', 'black': '#000000', 
+    'white': '#FFFFFF', 'gray': '#808080', 'silver': '#C0C0C0', 'maroon': '#800000',
+    'olive': '#808000', 'lime': '#00FF00', 'aqua': '#00FFFF', 'teal': '#008080',
+    'navy': '#000080', 'fuchsia': '#FF00FF', 'purple': '#800080'
+}
 
-    Returns:
-        An in-memory buffer containing the generated PDF data.
-    """
+def parse_color(color_string):
+    if not color_string:
+        return colors.black
+    color_string = color_string.lower().strip()
+    if color_string in COLOR_MAP: hex_val = COLOR_MAP[color_string]
+    elif color_string.startswith('#') and len(color_string) in [4, 7]: hex_val = color_string
+    else: return colors.black
+    hex_val = hex_val.lstrip('#')
+    if len(hex_val) == 3: hex_val = "".join([c*2 for c in hex_val])
+    try:
+        r, g, b = (int(hex_val[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+        return colors.Color(r, g, b)
+    except ValueError: return colors.black
+
+def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter
 
-    # --- Grid and Layout Settings ---
-    rows, cols = 8, 3
-    margin = 0.5 * inch
-    label_width = (width - 2 * margin) / cols
-    label_height = (height - 2 * margin) / rows
-    
-    styles = getSampleStyleSheet()
-    style_normal = styles['Normal']
-    style_normal.fontSize = 8
-    style_normal.leading = 10
+    LABEL_WIDTH, LABEL_HEIGHT = 2.5 * inch, 1 * inch
+    TOP_MARGIN, LEFT_MARGIN = 0.625 * inch, 0.325 * inch
+    HORIZONTAL_SPACING, VERTICAL_SPACING = 0.175 * inch, 0.25 * inch
+    CORNER_RADIUS = 0.0625 * inch
 
-    # --- Drawing Logic ---
     labels_to_draw = []
     if placement:
-        # Use custom placement if provided
         for slot, label_index in sorted(placement.items()):
             if 0 <= label_index < len(labels):
                 labels_to_draw.append((slot, labels[label_index]))
     else:
-        # Otherwise, place sequentially
         for i, label in enumerate(labels):
             labels_to_draw.append((i, label))
 
     for slot, label in labels_to_draw:
-        if slot >= rows * cols: continue # Skip if out of bounds
+        if slot >= 24: continue
 
-        row = slot % rows
-        col = slot // rows
+        row, col = slot % 8, slot // 8
+        x = LEFT_MARGIN + (col * (LABEL_WIDTH + HORIZONTAL_SPACING))
+        y = height - TOP_MARGIN - (row * (LABEL_HEIGHT + VERTICAL_SPACING)) - LABEL_HEIGHT
         
-        x = margin + col * label_width
-        y = height - margin - (row + 1) * label_height
+        center_x, center_y = x + LABEL_WIDTH / 2, y + LABEL_HEIGHT / 2
+        font_size = 14
+        c.setFont("Helvetica-Bold", font_size)
+        c.setFillColor(colors.black)
+        c.drawCentredString(center_x, center_y - (font_size * 0.25), label.loom_name or 'N/A')
         
-        # Draw label border
-        c.rect(x, y, label_width, label_height)
+        bar_color = parse_color(label.color)
+        c.setFillColor(bar_color)
+        bar_height, bar_y_offset = 0.05 * inch, 0.18 * inch
+        c.roundRect(x, center_y + bar_y_offset, LABEL_WIDTH, bar_height, CORNER_RADIUS, fill=1, stroke=0)
+        c.roundRect(x, center_y - bar_y_offset - bar_height, LABEL_WIDTH, bar_height, CORNER_RADIUS, fill=1, stroke=0)
         
-        # Draw label content
-        text_x = x + 5
-        text_y = y + label_height - 15
-        
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(text_x, text_y, f"Loom: {label.loom_name or 'N/A'}")
-        
-        c.setFont("Helvetica", 8)
-        c.setFillColor(colors.HexColor(label.color) if label.color else colors.black)
-        c.drawString(text_x, text_y - 15, f"Color: {label.color or 'N/A'}")
-        c.setFillColor(colors.black) # Reset color
-        
-        c.drawString(text_x, text_y - 30, f"Source: {label.source or 'N/A'}")
-        c.drawString(text_x, text_y - 45, f"Destination: {label.destination or 'N/A'}")
+        c.setFont("Helvetica", 7)
+        c.setFillColor(colors.black)
+        padding, bottom_y = 0.08 * inch, y + 0.1 * inch
+        c.drawString(x + padding, bottom_y, f"SRC: {label.source or 'N/A'}")
+        c.drawRightString(x + LABEL_WIDTH - padding, bottom_y, f"DST: {label.destination or 'N/A'}")
 
     c.showPage()
     c.save()
@@ -84,77 +86,79 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[in
     buffer.seek(0)
     return buffer
 
+def draw_single_case_label(c, label_index, image_path, send_to_text, contents_text):
+    LABEL_WIDTH = 8.5 * inch
+    LABEL_HEIGHT = 5.5 * inch
+    y_start = LABEL_HEIGHT if label_index % 2 == 0 else 0
+    padding = 0.25 * inch
+    center_x = LABEL_WIDTH / 2
+    c.setStrokeColor(colors.lightgrey)
+    c.setLineWidth(2)
+    corner_radius = 0.1 * inch
+    box_x, box_y = padding, y_start + padding
+    box_width, box_height = LABEL_WIDTH - (2 * padding), LABEL_HEIGHT - (2 * padding)
+    c.roundRect(box_x, box_y, box_width, box_height, corner_radius, stroke=1, fill=0)
+    h_line_y = y_start + LABEL_HEIGHT - (2.0 * inch)
+    c.line(box_x, h_line_y, box_x + box_width, h_line_y)
+    v_line_x = 4.5 * inch
+    c.line(v_line_x, h_line_y, v_line_x, box_y + box_height)
+    if image_path and os.path.exists(image_path):
+        try:
+            img_box_width, img_box_height = v_line_x - box_x, (box_y + box_height) - h_line_y
+            img_box_center_x, img_box_center_y = box_x + (img_box_width / 2), h_line_y + (img_box_height / 2)
+            max_img_width, max_img_height = 4.0 * inch, 1.6 * inch
+            img = ImageReader(image_path)
+            img_width, img_height = img.getSize()
+            ratio = min(max_img_width / img_width, max_img_height / img_height)
+            new_width, new_height = img_width * ratio, img_height * ratio
+            img_x, img_y = img_box_center_x - (new_width / 2), img_box_center_y - (new_height / 2)
+            c.drawImage(image_path, img_x, img_y, width=new_width, height=new_height, mask='auto')
+        except Exception as e:
+            c.setFont("Helvetica", 10)
+            c.drawCentredString(box_x + (v_line_x - box_x)/2, h_line_y + 0.5*inch, "Image failed to load.")
+    c.setFillColor(colors.black)
+    c.setFont("Helvetica", 20)
+    c.drawString(v_line_x + (0.1 * inch), (box_y + box_height) - (0.3 * inch), "SEND TO:")
+    font_size = 48
+    text_to_draw = send_to_text.upper()
+    max_text_width = (box_x + box_width) - v_line_x - (0.2 * inch)
+    while c.stringWidth(text_to_draw, "Helvetica-Bold", font_size) > max_text_width and font_size > 8: font_size -= 1
+    c.setFont("Helvetica-Bold", font_size)
+    send_to_box_center_x = v_line_x + ((box_x + box_width - v_line_x) / 2)
+    c.drawCentredString(send_to_box_center_x, y_start + LABEL_HEIGHT - (1.35 * inch), text_to_draw)
+    c.setFont("Helvetica", 20)
+    c.drawString(padding + (0.1 * inch), h_line_y - (0.3 * inch), "CONTENTS:")
+    
+    style_body = ParagraphStyle(
+        name='BodyText',
+        fontName='Helvetica-Bold',
+        fontSize=28,
+        leading=34,
+        alignment=TA_CENTER
+    )
+    
+    p = Paragraph(contents_text.replace('\n', '<br/>').upper(), style=style_body)
+    p_width, p_height = p.wrapOn(c, LABEL_WIDTH - (2 * padding) - 0.2 * inch, h_line_y - box_y - 0.5 * inch)
+    p.drawOn(c, center_x - p_width / 2, h_line_y - 0.5 * inch - p_height)
 
 def generate_case_label_pdf(labels: List[CaseLabel], logo_path: Optional[str] = None, placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
-    """
-    Generates a PDF for case labels using ReportLab.
-    """
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-
-    # --- Grid and Layout Settings ---
-    rows, cols = 2, 1
-    margin = 0.5 * inch
-    label_width = (width - 2 * margin) / cols
-    label_height = (height - 2 * margin) / rows
-
-    styles = getSampleStyleSheet()
-    style_body = styles['BodyText']
-    style_body.fontSize = 12
-    style_body.leading = 14
-
-    # --- Drawing Logic ---
-    labels_to_draw = []
-    if placement:
-        for slot, label_index in sorted(placement.items()):
-            if 0 <= label_index < len(labels):
-                labels_to_draw.append((slot, labels[label_index]))
-    else:
-        for i, label in enumerate(labels):
-            labels_to_draw.append((i, label))
-
-    for slot, label in labels_to_draw:
-        if slot >= rows * cols: continue
-
-        row = slot % rows
-        col = slot // rows
-        
-        x = margin + col * label_width
-        y = height - margin - (row + 1) * label_height
-        
-        c.rect(x, y, label_width, label_height)
-        
-        # --- Draw Logo ---
-        if logo_path and os.path.exists(logo_path):
-            try:
-                logo = ImageReader(logo_path)
-                # Draw logo at top-right, 1.5x1.5 inch size
-                c.drawImage(logo, x + label_width - (1.5 * inch) - 10, y + label_height - (1.5 * inch) - 10, 
-                            width=1.5*inch, height=1.5*inch, preserveAspectRatio=True, mask='auto')
-            except Exception as e:
-                print(f"Could not load logo image: {e}")
-
-        # --- Draw Text Content ---
-        text_x = x + 20
-        text_y_start = y + label_height - (0.5 * inch)
-        
-        c.setFont("Helvetica-Bold", 24)
-        c.drawString(text_x, text_y_start, "SEND TO:")
-        
-        c.setFont("Helvetica-Bold", 36)
-        c.drawString(text_x + 20, text_y_start - (0.6 * inch), label.send_to)
-        
-        c.setFont("Helvetica-Bold", 24)
-        c.drawString(text_x, text_y_start - (1.5 * inch), "CONTENTS:")
-        
-        # Use a Paragraph for multi-line content
-        p = Paragraph(label.contents.replace('\n', '<br/>'), style=style_body)
-        p.wrapOn(c, label_width - 1.2 * inch, 2 * inch)
-        p.drawOn(c, text_x + 20, y + 0.5 * inch)
-
-    c.showPage()
-    c.save()
     
+    if placement:
+        for slot_index, label_index in placement.items():
+            if 0 <= label_index < len(labels):
+                label_info = labels[label_index]
+                draw_single_case_label(c, slot_index, logo_path, label_info.send_to, label_info.contents)
+        c.showPage()
+    else:
+        for i, label_info in enumerate(labels):
+            slot_index = i % 2
+            draw_single_case_label(c, slot_index, logo_path, label_info.send_to, label_info.contents)
+            
+            if slot_index == 1 or i == len(labels) - 1:
+                c.showPage()
+
+    c.save()
     buffer.seek(0)
     return buffer
