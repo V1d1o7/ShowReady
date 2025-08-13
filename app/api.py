@@ -209,12 +209,11 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('racks').select('*').eq('id', rack_id).eq('user_id', user.id).single().execute()
+    response = supabase.table('racks').select('*, equipment_templates(*)').eq('id', rack_id).eq('user_id', user.id).single().execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Rack not found")
     
-    # Fetch equipment instances for this rack
-    equipment_response = supabase.table('rack_equipment_instances').select('*').eq('rack_id', rack_id).execute()
+    equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', rack_id).execute()
     rack_data = response.data
     rack_data['equipment'] = equipment_response.data
     return rack_data
@@ -229,6 +228,12 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
 
 # --- Equipment Endpoints ---
 
+@router.get("/equipment", response_model=List[EquipmentTemplate], tags=["Racks"])
+async def get_equipment_templates(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # Fetches standard library items (user_id is NULL) and user-specific items
+    response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id}', 'user_id.is.null').execute()
+    return response.data
+
 @router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
 async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmentInstanceCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # Verify user owns the rack first
@@ -238,7 +243,7 @@ async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmen
 
     full_equipment_data = equipment_data.model_dump()
     full_equipment_data['rack_id'] = str(rack_id)
-    full_equipment_data['template_id'] = str(full_equipment_data['template_id']) # Ensure UUID is string
+    full_equipment_data['template_id'] = str(full_equipment_data['template_id'])
     
     response = supabase.table('rack_equipment_instances').insert(full_equipment_data).execute()
     if response.data:
