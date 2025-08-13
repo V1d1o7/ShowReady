@@ -43,7 +43,7 @@ def parse_color(color_string: Optional[str]) -> colors.Color:
     except (ValueError, IndexError):
         return colors.black
 
-def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
+def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[str, int]] = None) -> io.BytesIO:
     """Generates a PDF for loom labels in a BytesIO buffer."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
@@ -53,10 +53,13 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[in
     TOP_MARGIN, LEFT_MARGIN = 0.625 * inch, 0.325 * inch
     HORIZONTAL_SPACING, VERTICAL_SPACING = 0.175 * inch, 0.25 * inch
     CORNER_RADIUS = 0.0625 * inch
+    NUM_COLUMNS = 3
 
     labels_to_draw = []
     if placement:
-        for slot, label_index in sorted(placement.items()):
+        # Convert string keys from JSON to integers for sorting and calculation
+        int_placement = {int(k): v for k, v in placement.items()}
+        for slot, label_index in sorted(int_placement.items()):
             if 0 <= label_index < len(labels):
                 labels_to_draw.append((slot, labels[label_index]))
     else:
@@ -65,7 +68,10 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[in
     for slot, label in labels_to_draw:
         if slot >= 24: continue
 
-        row, col = slot % 8, slot // 8
+        # Corrected calculation for row-major order to match the UI grid
+        row = slot // NUM_COLUMNS
+        col = slot % NUM_COLUMNS
+        
         x = LEFT_MARGIN + (col * (LABEL_WIDTH + HORIZONTAL_SPACING))
         y = height - TOP_MARGIN - (row * (LABEL_HEIGHT + VERTICAL_SPACING)) - LABEL_HEIGHT
         
@@ -151,14 +157,16 @@ def draw_single_case_label(c, label_index: int, image_data: Optional[bytes], sen
     p_width, p_height = p.wrapOn(c, LABEL_WIDTH - (2 * padding) - 0.2 * inch, h_line_y - box_y - 0.5 * inch)
     p.drawOn(c, center_x - p_width / 2, h_line_y - 0.5 * inch - p_height)
 
-def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes] = None, placement: Optional[Dict[int, int]] = None) -> io.BytesIO:
+def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes] = None, placement: Optional[Dict[str, int]] = None) -> io.BytesIO:
     """Generates a PDF for case labels in a BytesIO buffer."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     
     labels_to_draw = []
     if placement:
-        for slot_index, label_index in sorted(placement.items()):
+        # Convert string keys from JSON to integers for sorting and calculation
+        int_placement = {int(k): v for k, v in placement.items()}
+        for slot_index, label_index in sorted(int_placement.items()):
             if 0 <= label_index < len(labels):
                 labels_to_draw.append((slot_index, labels[label_index]))
     else:

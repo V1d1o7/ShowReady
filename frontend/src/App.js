@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileText, Box, Info, UploadCloud, Trash2, Edit, Plus, Save, ChevronsUpDown, LayoutDashboard, ArrowLeft, X, Download, Eye, Grid3x3, List, LogOut } from 'lucide-react';
+import { FileText, Box, Info, UploadCloud, Trash2, Edit, Plus, Save, ChevronsUpDown, LayoutDashboard, ArrowLeft, X, Download, Eye, Grid3x3, List, LogOut, User as UserIcon, KeyRound, Globe } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
-// It's better to move these to environment variables for security
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
-
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error("Supabase URL or Anon Key is missing. Please check your .env file.");
@@ -22,8 +20,13 @@ const getAuthHeader = async () => {
 
 const handleResponse = async (res) => {
     if (!res.ok) {
-        const error = await res.json().catch(() => ({ detail: res.statusText }));
-        throw new Error(error.detail || 'An unknown error occurred');
+        const errorText = await res.text();
+        try {
+            const errorJson = JSON.parse(errorText);
+            throw new Error(errorJson.detail || 'An unknown error occurred');
+        } catch {
+            throw new Error(errorText || res.statusText);
+        }
     }
     if (res.headers.get('Content-Type')?.includes('application/json')) {
         return res.json();
@@ -53,6 +56,19 @@ const api = {
     headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
     body: JSON.stringify(body),
   }).then(handleResponse),
+  getProfile: async () => fetch('/api/profile', { headers: await getAuthHeader() }).then(handleResponse),
+  updateProfile: async (profileData) => fetch('/api/profile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+    body: JSON.stringify(profileData),
+  }).then(handleResponse),
+  getSsoConfig: async () => fetch('/api/sso_config', { headers: await getAuthHeader() }).then(handleResponse),
+  updateSsoConfig: async (ssoData) => fetch('/api/sso_config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+    body: JSON.stringify(ssoData),
+  }).then(handleResponse),
+  deleteAccount: async () => fetch('/api/profile', { method: 'DELETE', headers: await getAuthHeader() }),
 };
 
 // --- Main Application Component ---
@@ -63,7 +79,7 @@ export default function App() {
   const [activeShowData, setActiveShowData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isNewShowModalOpen, setIsNewShowModalOpen] = useState(false);
-  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard' or 'show'
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'show', 'account', 'sso_setup'
 
   useEffect(() => {
     const fetchSession = async () => {
@@ -84,8 +100,8 @@ export default function App() {
     if (!session) return;
     setIsLoading(true);
     try {
-      const showNames = await api.getShows();
-      setShows(showNames.sort());
+      const showData = await api.getShows();
+      setShows(showData.sort((a, b) => a.name.localeCompare(b.name)));
     } catch (error) {
       console.error("Failed to fetch shows:", error);
     } finally {
@@ -116,14 +132,22 @@ export default function App() {
     }
   }, []);
 
+  const handleNavigate = (view) => {
+    if (view === 'dashboard') {
+        setActiveShowName('');
+        setActiveShowData(null);
+    }
+    setCurrentView(view);
+  }
+
   useEffect(() => {
     if (activeShowName) {
       fetchShowData(activeShowName);
     } else {
       setActiveShowData(null);
-      setCurrentView('dashboard');
+      setCurrentView(currentView === 'show' ? 'dashboard' : currentView);
     }
-  }, [activeShowName, fetchShowData]);
+  }, [activeShowName, fetchShowData, currentView]);
 
   const handleSaveShowData = async (updatedData) => {
     if (!activeShowName) return;
@@ -136,7 +160,7 @@ export default function App() {
   };
 
   const handleCreateShow = async (newShowName) => {
-    if (!newShowName || shows.includes(newShowName)) {
+    if (!newShowName || shows.some(s => s.name === newShowName)) {
       alert("Show name cannot be empty or a duplicate.");
       return;
     }
@@ -144,11 +168,11 @@ export default function App() {
     try {
       const newShowData = { info: { show_name: newShowName }, loom_sheets: {}, case_sheets: {} };
       await api.saveShow(newShowName, newShowData);
-      setShows(prev => [...prev, newShowName].sort());
+      setShows(prev => [...prev, { name: newShowName, logo_path: null }].sort((a, b) => a.name.localeCompare(b.name)));
       setActiveShowName(newShowName);
     } catch (error) {
       console.error("Failed to create new show:", error);
-      alert("Failed to create new show.");
+      alert(`Failed to create new show: ${error.message}`);
     }
     setIsNewShowModalOpen(false);
     setIsLoading(false);
@@ -159,7 +183,7 @@ export default function App() {
     setIsLoading(true);
     try {
       await api.deleteShow(showNameToDelete);
-      setShows(prev => prev.filter(s => s !== showNameToDelete));
+      setShows(prev => prev.filter(s => s.name !== showNameToDelete));
       if (activeShowName === showNameToDelete) {
         setActiveShowName('');
       }
@@ -178,26 +202,24 @@ export default function App() {
     return <Auth supabaseClient={supabase} />;
   }
 
+  let viewComponent;
+  switch (currentView) {
+    case 'show':
+      viewComponent = <ShowView showName={activeShowName} showData={activeShowData} onSave={handleSaveShowData} onBack={() => handleNavigate('dashboard')} isLoading={isLoading} />;
+      break;
+    case 'account':
+      viewComponent = <AccountView onBack={() => handleNavigate('dashboard')} user={session.user} onNavigate={handleNavigate} />;
+      break;
+    case 'sso_setup':
+        viewComponent = <AdvancedSSOView onBack={() => handleNavigate('account')} />;
+        break;
+    default:
+      viewComponent = <DashboardView shows={shows} onSelectShow={setActiveShowName} onNewShow={() => setIsNewShowModalOpen(true)} onDeleteShow={handleDeleteShow} isLoading={isLoading} user={session.user} onNavigate={handleNavigate} />;
+  }
+
   return (
     <div className="bg-gray-900 text-gray-300 font-sans min-h-screen">
-      {currentView === 'show' && activeShowData ? (
-        <ShowView
-          showName={activeShowName}
-          showData={activeShowData}
-          onSave={handleSaveShowData}
-          onBack={() => setActiveShowName('')}
-          isLoading={isLoading}
-        />
-      ) : (
-        <DashboardView
-          shows={shows}
-          onSelectShow={setActiveShowName}
-          onNewShow={() => setIsNewShowModalOpen(true)}
-          onDeleteShow={handleDeleteShow}
-          isLoading={isLoading}
-          user={session.user}
-        />
-      )}
+      {viewComponent}
       <NewShowModal
         isOpen={isNewShowModalOpen}
         onClose={() => setIsNewShowModalOpen(false)}
@@ -212,6 +234,11 @@ function Auth({ supabaseClient }) {
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [productionRole, setProductionRole] = useState('');
+  const [otherRole, setOtherRole] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState(null);
 
@@ -222,7 +249,20 @@ function Auth({ supabaseClient }) {
     
     let response;
     if (isSignUp) {
-      response = await supabaseClient.auth.signUp({ email, password });
+      const metaData = {
+        first_name: firstName,
+        last_name: lastName,
+        company_name: companyName,
+        production_role: productionRole,
+        production_role_other: productionRole === 'Other' ? otherRole : '',
+      };
+      response = await supabaseClient.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          data: metaData
+        }
+      });
     } else {
       response = await supabaseClient.auth.signInWithPassword({ email, password });
     }
@@ -235,9 +275,18 @@ function Auth({ supabaseClient }) {
     
     setLoading(false);
   };
+  
+  const handleGoogleLogin = async () => {
+    await supabaseClient.auth.signInWithOAuth({ 
+      provider: 'google',
+      options: {
+        scopes: 'openid profile email'
+      }
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+    <div className="min-h-screen bg-gray-900 flex items-center justify-center py-12">
       <div className="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-xl shadow-lg">
         <div>
           <h2 className="text-center text-3xl font-extrabold text-white">
@@ -245,28 +294,30 @@ function Auth({ supabaseClient }) {
           </h2>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleAuthAction}>
-          <InputField
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your@email.com"
-            label="Email Address"
-          />
-          <InputField
-            id="password"
-            name="password"
-            type="password"
-            autoComplete={isSignUp ? "new-password" : "current-password"}
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
-            label="Password"
-          />
+          {isSignUp && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <InputField label="First Name" name="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+                <InputField label="Last Name" name="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+              </div>
+              <InputField label="Company Name (Optional)" name="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1.5">Production Role</label>
+                <select value={productionRole} onChange={(e) => setProductionRole(e.target.value)} required className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
+                  <option value="">Select a role...</option>
+                  <option>Production Video</option>
+                  <option>Production Audio</option>
+                  <option>Production Electrician</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              {productionRole === 'Other' && (
+                <InputField label="Please specify your role" name="otherRole" value={otherRole} onChange={(e) => setOtherRole(e.target.value)} required />
+              )}
+            </>
+          )}
+          <InputField id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your@email.com" label="Email Address"/>
+          <InputField id="password" name="password" type="password" autoComplete={isSignUp ? "new-password" : "current-password"} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" label="Password"/>
           
           {authError && <p className="text-sm text-red-400">{authError}</p>}
 
@@ -276,6 +327,16 @@ function Auth({ supabaseClient }) {
             </button>
           </div>
         </form>
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-700" /></div>
+          <div className="relative flex justify-center text-sm"><span className="px-2 bg-gray-800 text-gray-500">Or continue with</span></div>
+        </div>
+        <div>
+          <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white">
+            <svg className="w-5 h-5" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.6l-63.1 61.9C333.3 102.4 293.2 88 248 88c-73.2 0-133.1 59.9-133.1 133.1s59.9 133.1 133.1 133.1c76.9 0 115.1-53.2 120.2-79.2H248v-65.1h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path></svg>
+            Google
+          </button>
+        </div>
         <div className="text-center text-sm">
           <button onClick={() => { setIsSignUp(!isSignUp); setAuthError(null); }} className="font-medium text-amber-400 hover:text-amber-300">
             {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
@@ -288,21 +349,44 @@ function Auth({ supabaseClient }) {
 
 
 // --- Dashboard View Component ---
-const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading, user }) => {
+const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading, user, onNavigate }) => {
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      setProfileLoading(true);
+      try {
+        const data = await api.getProfile();
+        setProfile(data);
+      } catch (error) {
+        console.error("Failed to fetch profile for dashboard:", error);
+      } finally {
+        setProfileLoading(false);
+      }
+    };
+    fetchProfile();
+  }, []);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
   };
 
+  const displayName = useMemo(() => {
+    if (profileLoading) return 'Loading...';
+    if (profile && profile.first_name) return `${profile.first_name} ${profile.last_name || ''}`.trim();
+    return user.email;
+  }, [profile, user.email, profileLoading]);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <header className="flex items-center justify-between pb-8 border-b border-gray-700">
         <div className="flex items-center gap-3">
-          <LayoutDashboard className="text-amber-400" size={32} />
+          <img src={process.env.PUBLIC_URL + '/logo.png'} alt="ShowReady Logo" className="h-10 w-10" />
           <h1 className="text-3xl font-bold text-white">ShowReady</h1>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400 hidden sm:block">{user.email}</span>
+          <button onClick={() => onNavigate('account')} className="text-sm text-gray-400 hidden sm:block hover:text-white">{displayName}</button>
           <button onClick={handleSignOut} className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors">
             <LogOut size={18} />
           </button>
@@ -316,8 +400,8 @@ const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading
           <div className="text-center py-16 text-gray-500">Loading shows...</div>
         ) : shows.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {shows.map(showName => (
-              <ShowCard key={showName} showName={showName} onSelect={() => onSelectShow(showName)} onDelete={() => onDeleteShow(showName)} />
+            {shows.map(show => (
+              <ShowCard key={show.name} show={show} onSelect={() => onSelectShow(show.name)} onDelete={() => onDeleteShow(show.name)} />
             ))}
           </div>
         ) : (
@@ -331,22 +415,260 @@ const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading
   );
 };
 
+// --- Account View Component ---
+const AccountView = ({ onBack, user, onNavigate }) => {
+    const [profile, setProfile] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [newEmail, setNewEmail] = useState('');
+
+    useEffect(() => {
+        const fetchProfile = async () => {
+            try {
+                const data = await api.getProfile();
+                setProfile(data);
+                setNewEmail(user.email);
+            } catch (error) {
+                console.error("Failed to fetch profile:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchProfile();
+    }, [user.email]);
+
+    const handleProfileChange = (e) => {
+        setProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+    
+    const handleUpdateProfile = async () => {
+        try {
+            await api.updateProfile(profile);
+            alert("Profile updated successfully!");
+        } catch (error) {
+            alert(`Failed to update profile: ${error.message}`);
+        }
+    };
+
+    const handleUpdateEmail = async () => {
+        if (newEmail === user.email) {
+            alert("Please enter a new email address.");
+            return;
+        }
+        const { error } = await supabase.auth.updateUser({ email: newEmail });
+        if (error) {
+            alert(`Failed to update email: ${error.message}`);
+        } else {
+            alert("Please check your new email address to confirm the change.");
+        }
+    };
+    
+    const handleGoogleLogin = async () => {
+        await supabase.auth.signInWithOAuth({ 
+            provider: 'google',
+            options: {
+                scopes: 'openid profile email'
+            }
+        });
+    };
+
+    const handleDeleteAccount = async () => {
+        if (window.confirm("Are you absolutely sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.")) {
+            try {
+                await api.deleteAccount();
+                await supabase.auth.signOut();
+                // The onAuthStateChange listener will handle the rest
+            } catch (error) {
+                alert(`Failed to delete account: ${error.message}`);
+            }
+        }
+    };
+
+    if (isLoading) {
+        return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Profile...</div></div>;
+    }
+
+    return (
+        <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+            <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
+                <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20}/></button>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white">My Account</h1>
+                </div>
+            </header>
+            <main className="space-y-8">
+                <Card>
+                    <h2 className="text-xl font-bold mb-4 text-white">Profile Details</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <InputField label="First Name" name="first_name" value={profile?.first_name || ''} onChange={handleProfileChange} />
+                        <InputField label="Last Name" name="last_name" value={profile?.last_name || ''} onChange={handleProfileChange} />
+                        <InputField label="Company Name (Optional)" name="company_name" value={profile?.company_name || ''} onChange={handleProfileChange} />
+                         <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1.5">Production Role</label>
+                            <select name="production_role" value={profile?.production_role || ''} onChange={handleProfileChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
+                              <option value="">Select a role...</option>
+                              <option>Production Video</option>
+                              <option>Production Audio</option>
+                              <option>Production Electrician</option>
+                              <option>Other</option>
+                            </select>
+                        </div>
+                        {profile?.production_role === 'Other' && (
+                            <InputField label="Please specify your role" name="production_role_other" value={profile?.production_role_other || ''} onChange={handleProfileChange} />
+                        )}
+                    </div>
+                     <div className="mt-6 flex justify-end">
+                        <button onClick={handleUpdateProfile} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Profile</button>
+                    </div>
+                </Card>
+                <Card>
+                    <h2 className="text-xl font-bold mb-4 text-white">Account Settings</h2>
+                    <div className="space-y-4">
+                        <InputField label="Email Address" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+                    </div>
+                    <div className="mt-6 flex justify-end">
+                        <button onClick={handleUpdateEmail} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Update Email</button>
+                    </div>
+                </Card>
+                <Card>
+                    <h2 className="text-xl font-bold mb-4 text-white">Single Sign On</h2>
+                    <div className="space-y-4">
+                        <button onClick={handleGoogleLogin} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600">
+                            <svg className="w-5 h-5" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.6l-63.1 61.9C333.3 102.4 293.2 88 248 88c-73.2 0-133.1 59.9-133.1 133.1s59.9 133.1 133.1 133.1c76.9 0 115.1-53.2 120.2-79.2H248v-65.1h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path></svg>
+                            Link Google Account
+                        </button>
+                        <button onClick={() => onNavigate('sso_setup')} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600">
+                            <KeyRound size={16} /> Advanced SSO Setup
+                        </button>
+                    </div>
+                </Card>
+                 <Card>
+                    <h2 className="text-xl font-bold mb-4 text-red-500">Delete Account</h2>
+                    <p className="text-gray-400 text-sm mb-4">
+                        Once you delete your account, there is no going back. All your shows and data will be permanently lost. Please be certain.
+                    </p>
+                    <div className="mt-6 flex justify-end">
+                        <button onClick={handleDeleteAccount} className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-500 rounded-lg font-bold text-white transition-colors">
+                            <Trash2 size={16} /> Delete My Account
+                        </button>
+                    </div>
+                </Card>
+            </main>
+        </div>
+    );
+};
+
+// --- Advanced SSO View Component ---
+const AdvancedSSOView = ({ onBack }) => {
+    const [ssoConfig, setSsoConfig] = useState({ provider: 'authentik', config: { url: '', client_id: '', client_secret: '' } });
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchSsoConfig = async () => {
+            try {
+                const data = await api.getSsoConfig();
+                if (data && data.config) {
+                    setSsoConfig(data);
+                }
+            } catch (error) {
+                console.error("Failed to fetch SSO config:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchSsoConfig();
+    }, []);
+
+    const handleConfigChange = (e) => {
+        setSsoConfig(prev => ({
+            ...prev,
+            config: { ...prev.config, [e.target.name]: e.target.value }
+        }));
+    };
+
+    const handleSaveChanges = async () => {
+        try {
+            await api.updateSsoConfig(ssoConfig);
+            alert("SSO Configuration Saved!");
+        } catch (error) {
+            alert(`Failed to save SSO config: ${error.message}`);
+        }
+    };
+
+    if (isLoading) {
+        return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading SSO Config...</div></div>;
+    }
+
+    return (
+        <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+            <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
+                <div className="flex items-center gap-4">
+                    <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20}/></button>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white">Advanced SSO Setup</h1>
+                </div>
+            </header>
+            <main>
+                <Card>
+                    <h3 className="text-lg font-bold mb-4 text-white">Authentik Configuration</h3>
+                    <div className="space-y-4">
+                        <InputField label="Authentik Server URL" name="url" value={ssoConfig.config.url || ''} onChange={handleConfigChange} placeholder="https://authentik.yourcompany.com" />
+                        <InputField label="Client ID" name="client_id" value={ssoConfig.config.client_id || ''} onChange={handleConfigChange} />
+                        <InputField label="Client Secret" name="client_secret" type="password" value={ssoConfig.config.client_secret || ''} onChange={handleConfigChange} />
+                    </div>
+                    <div className="mt-6 flex justify-end">
+                        <button onClick={handleSaveChanges} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Configuration</button>
+                    </div>
+                </Card>
+            </main>
+        </div>
+    );
+};
+
+
 // --- Show Card Component for Dashboard ---
-const ShowCard = ({ showName, onSelect, onDelete }) => {
+const ShowCard = ({ show, onSelect, onDelete }) => {
+  const [logoUrl, setLogoUrl] = useState(null);
+  const [logoError, setLogoError] = useState(false);
+
+  useEffect(() => {
+    if (show.logo_path) {
+      setLogoError(false);
+      supabase.storage.from('logos').createSignedUrl(show.logo_path, 3600)
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Error creating signed URL for show card:", error);
+            setLogoError(true);
+          } else {
+            setLogoUrl(data.signedUrl);
+          }
+        });
+    } else {
+      setLogoUrl(null);
+    }
+  }, [show.logo_path]);
+
   const handleDeleteClick = (e) => {
     e.stopPropagation();
     onDelete();
   };
 
   return (
-    <div onClick={onSelect} className="group relative bg-gray-800/50 hover:bg-gray-800/80 rounded-xl p-6 cursor-pointer transition-all duration-300 transform hover:-translate-y-1">
-      <div className="absolute top-3 right-3">
+    <div onClick={onSelect} className="group relative bg-gray-800/50 hover:bg-gray-800/80 rounded-xl p-6 cursor-pointer transition-all duration-300 transform hover:-translate-y-1 overflow-hidden">
+      <div className="absolute top-3 right-3 z-10">
         <button onClick={handleDeleteClick} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 transition-opacity">
           <Trash2 size={16} />
         </button>
       </div>
       <div className="flex flex-col items-center justify-center h-32">
-        <h2 className="text-lg font-bold text-center text-white">{showName}</h2>
+        {logoUrl && !logoError ? (
+          <img 
+            src={logoUrl} 
+            alt={`${show.name} logo`} 
+            className="w-full h-full object-contain"
+            onError={() => setLogoError(true)}
+          />
+        ) : (
+          <h2 className="text-lg font-bold text-center text-white">{show.name}</h2>
+        )}
       </div>
     </div>
   );
@@ -497,6 +819,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
   const sheets = useMemo(() => showData[sheetType] || {}, [showData, sheetType]);
   const sheetNames = useMemo(() => Object.keys(sheets), [sheets]);
   const labels = useMemo(() => (activeSheetName ? sheets[activeSheetName] || [] : []), [activeSheetName, sheets]);
+  const numSlots = useMemo(() => (pdfType === 'case' ? 2 : 24), [pdfType]);
 
   useEffect(() => {
     if (sheetNames.length > 0 && !sheetNames.includes(activeSheetName)) {
@@ -638,12 +961,15 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
       
       <NewSheetModal isOpen={isNewSheetModalOpen} onClose={() => setIsNewSheetModalOpen(false)} onSubmit={handleCreateSheet} />
       <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
-      <AdvancedPrintModal 
+      {isAdvancedPrintModalOpen && <AdvancedPrintModal 
+        key={pdfType}
         isOpen={isAdvancedPrintModalOpen} 
         onClose={() => setIsAdvancedPrintModalOpen(false)} 
         labels={labels}
         onGeneratePdf={handleGeneratePdf}
-      />
+        numSlots={numSlots}
+        pdfType={pdfType}
+      />}
     </>
   );
 }
@@ -750,9 +1076,15 @@ const PdfPreviewModal = ({ url, onClose }) => {
   );
 };
 
-const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf }) => {
-    const [printSlots, setPrintSlots] = useState(Array(24).fill(null));
+const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf, numSlots, pdfType }) => {
+    const [printSlots, setPrintSlots] = useState(Array(numSlots).fill(null));
     const [draggedItem, setDraggedItem] = useState(null);
+
+    useEffect(() => {
+        if (isOpen) {
+            setPrintSlots(Array(numSlots).fill(null));
+        }
+    }, [isOpen, numSlots]);
 
     const handleDragStart = (e, item) => {
         setDraggedItem(item);
@@ -791,9 +1123,14 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf }) => {
         onGeneratePdf(placement);
         onClose();
     };
+    
+    const title = pdfType === 'case' ? "Advanced Case Label Print" : "Advanced Loom Label Print";
+    const slotText = pdfType === 'case' ? 'Page Side' : 'Slot';
+    const gridCols = pdfType === 'case' ? 'grid-cols-1' : 'grid-cols-3';
+    const slotHeight = pdfType === 'case' ? 'h-40' : 'h-20';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Advanced Print Placement" maxWidth="max-w-4xl">
+        <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-4xl">
             <div className="grid grid-cols-3 gap-6 h-[60vh]">
                 <div className="col-span-1 bg-gray-900/50 p-4 rounded-lg overflow-y-auto">
                     <h3 className="font-bold mb-4 text-white flex items-center gap-2"><List size={16}/> Available Labels</h3>
@@ -811,14 +1148,14 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf }) => {
                     </div>
                 </div>
                 <div className="col-span-2 bg-gray-900/50 p-4 rounded-lg overflow-y-auto">
-                    <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Grid3x3 size={16}/> Print Sheet (24 Slots)</h3>
-                    <div className="grid grid-cols-3 gap-2">
+                    <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Grid3x3 size={16}/> Print Sheet ({numSlots} Slots)</h3>
+                    <div className={`grid ${gridCols} gap-4`}>
                         {printSlots.map((item, index) => (
                             <div 
                                 key={index} 
                                 onDragOver={handleDragOver} 
                                 onDrop={(e) => handleDrop(e, index)}
-                                className="relative h-20 border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center text-center p-2 drag-over-target"
+                                className={`relative ${slotHeight} border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center text-center p-2 drag-over-target`}
                             >
                                 {item ? (
                                     <>
@@ -828,7 +1165,7 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf }) => {
                                         </button>
                                     </>
                                 ) : (
-                                    <span className="text-xs text-gray-500">Slot {index + 1}</span>
+                                    <span className="text-xs text-gray-500">{slotText} {index + 1}</span>
                                 )}
                             </div>
                         ))}

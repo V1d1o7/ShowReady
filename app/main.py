@@ -1,13 +1,22 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import os
 import uvicorn
 from dotenv import load_dotenv
+
+# --- Environment Variable Loading ---
+# This must be at the top, before other application imports,
+# to ensure environment variables are available globally.
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path=dotenv_path)
+else:
+    # Fallback for environments where .env might not be present (like some containers)
+    print("Warning: .env file not found. Relying on system environment variables.")
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .api import router as api_router
 
-# Load environment variables from .env file
-load_dotenv()
 
 app = FastAPI(
     title="ShowReady API",
