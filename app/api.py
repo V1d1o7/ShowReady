@@ -10,7 +10,7 @@ import uuid
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, RackEquipmentInstance, RackCreate,
-    RackEquipmentInstanceCreate
+    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
@@ -209,10 +209,11 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('racks').select('*, equipment_templates(*)').eq('id', rack_id).eq('user_id', user.id).single().execute()
+    response = supabase.table('racks').select('*').eq('id', rack_id).eq('user_id', user.id).single().execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Rack not found")
     
+    # Correctly fetch equipment instances and their related template data
     equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', rack_id).execute()
     rack_data = response.data
     rack_data['equipment'] = equipment_response.data
@@ -231,7 +232,7 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
 @router.get("/equipment", response_model=List[EquipmentTemplate], tags=["Racks"])
 async def get_equipment_templates(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # Fetches standard library items (user_id is NULL) and user-specific items
-    response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id}', 'user_id.is.null').execute()
+    response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id},user_id.is.null').execute()
     return response.data
 
 @router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
@@ -250,13 +251,22 @@ async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmen
         return response.data[0]
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
 
+@router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
+async def move_equipment_in_rack(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # A more robust check would join tables to ensure the user owns the rack this instance belongs to.
+    # For now, we'll trust RLS on the table if configured properly.
+    update_dict = update_data.model_dump(exclude_unset=True)
+    response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
+    if response.data:
+        return response.data[0]
+    raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
 async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # A more complex query is needed here to ensure the user owns the rack associated with the equipment instance
     # This might be better handled by a database function (e.g., RLS)
     # For now, we'll do a simple delete and rely on frontend logic to be correct.
-    supabase.table('rack_equipment_instances').delete().eq('id', instance_id).execute()
+    supabase.table('rack_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
 
 # --- File Upload Endpoint ---

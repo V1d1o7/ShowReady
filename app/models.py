@@ -87,6 +87,9 @@ class RackEquipmentInstanceCreate(BaseModel):
     ru_position: int
     instance_name: str
 
+class RackEquipmentInstanceUpdate(BaseModel):
+    ru_position: int
+
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     show_name: str

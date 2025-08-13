@@ -75,6 +75,8 @@ const api = {
   getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
   addEquipmentToRack: async (rackId, equipmentData) => fetch(`/api/racks/${rackId}/equipment`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(equipmentData) }).then(handleResponse),
   getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
+  moveEquipmentInRack: async (instanceId, newPosition) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify({ ru_position: newPosition }) }).then(handleResponse),
+  deleteEquipmentFromRack: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'DELETE', headers: await getAuthHeader() }),
 };
 
 // --- Main Application Component ---
@@ -729,38 +731,30 @@ const RackBuilderView = ({ showName }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
 
-    const loadRacks = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const racksData = await api.getRacksForShow(showName);
-            setRacks(racksData);
-            if (racksData.length > 0 && !activeRack) {
-                // Fetch full details of the first rack
-                const detailedRack = await api.getRackDetails(racksData[0].id);
-                setActiveRack(detailedRack);
-            } else if (racksData.length === 0) {
-                setActiveRack(null);
-            }
-        } catch (error) {
-            console.error("Failed to load racks:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [showName, activeRack]);
-
     useEffect(() => {
         const loadInitialData = async () => {
-            await loadRacks();
-            // In a real app, this would fetch from the API
-            const templates = [
-                { id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed', model_number: 'URX-P03D', manufacturer: 'Sony', ru_height: 1 },
-                { id: '2b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bee', model_number: 'AJA-FS2', manufacturer: 'AJA', ru_height: 2 },
-                { id: '3b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bef', model_number: 'Smart Videohub 40x40', manufacturer: 'Blackmagic', ru_height: 2 },
-            ];
-            setEquipmentTemplates(templates);
+            setIsLoading(true);
+            try {
+                const [racksData, templates] = await Promise.all([
+                    api.getRacksForShow(showName),
+                    api.getEquipmentTemplates()
+                ]);
+                
+                setRacks(racksData);
+                setEquipmentTemplates(templates);
+
+                if (racksData.length > 0) {
+                    const detailedRack = await api.getRackDetails(racksData[0].id);
+                    setActiveRack(detailedRack);
+                }
+            } catch (error) {
+                console.error("Failed to load initial data:", error);
+            } finally {
+                setIsLoading(false);
+            }
         };
         loadInitialData();
-    }, [showName]); // Removed loadRacks from dependency array to prevent loop
+    }, [showName]);
 
     const handleSelectRack = async (rack) => {
         setIsLoading(true);
@@ -778,33 +772,55 @@ const RackBuilderView = ({ showName }) => {
         try {
             const newRack = await api.createRack({ rack_name: rackName, ru_height: parseInt(ruHeight, 10), show_name: showName });
             setRacks(prev => [...prev, newRack]);
-            setActiveRack({ ...newRack, equipment: [] }); // Set as active, with empty equipment
+            setActiveRack(newRack); // Automatically select the new rack
         } catch (error) {
             console.error("Failed to create rack:", error);
         }
         setIsNewRackModalOpen(false);
     };
-
+    
     const handleAddEquipment = async (item, ru_position) => {
         if (!activeRack) return;
-        
-        const newInstance = {
-            rack_id: activeRack.id,
+        const newInstanceData = {
             template_id: item.id,
             ru_position: ru_position,
-            instance_name: `${item.model_number}-${activeRack.equipment.length + 1}`
+            instance_name: `${item.model_number}-${(activeRack.equipment || []).length + 1}`
         };
-
         try {
-            const addedEquipment = await api.addEquipmentToRack(activeRack.id, newInstance);
-            // Manually add the ru_height for immediate visual feedback
-            const completeEquipment = { ...addedEquipment, ru_height: item.ru_height };
+            const addedEquipment = await api.addEquipmentToRack(activeRack.id, newInstanceData);
+            const template = equipmentTemplates.find(t => t.id === addedEquipment.template_id);
+            const completeEquipment = { ...addedEquipment, equipment_templates: template };
+            setActiveRack(prev => ({...prev, equipment: [...(prev.equipment || []), completeEquipment]}));
+        } catch (error) { console.error("Failed to add equipment:", error); }
+    };
+
+    const handleMoveEquipment = async (item, new_ru_position) => {
+        if (!activeRack) return;
+        try {
+            await api.moveEquipmentInRack(item.id, new_ru_position);
             setActiveRack(prev => ({
                 ...prev,
-                equipment: [...prev.equipment, completeEquipment]
+                equipment: prev.equipment.map(eq => eq.id === item.id ? { ...eq, ru_position: new_ru_position } : eq)
             }));
-        } catch (error) {
-            console.error("Failed to add equipment:", error);
+        } catch (error) { console.error("Failed to move equipment:", error); }
+    };
+    
+    const handleDeleteEquipment = async (instanceId) => {
+        if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
+        try {
+            await api.deleteEquipmentFromRack(instanceId);
+            setActiveRack(prev => ({
+                ...prev,
+                equipment: prev.equipment.filter(eq => eq.id !== instanceId)
+            }));
+        } catch (error) { console.error("Failed to delete equipment:", error); }
+    };
+
+    const handleDrop = (data, ru_position) => {
+        if (data.isNew) {
+            handleAddEquipment(data.item, ru_position);
+        } else {
+            handleMoveEquipment(data.item, ru_position);
         }
     };
 
@@ -834,8 +850,8 @@ const RackBuilderView = ({ showName }) => {
 
                 {/* Center Panel: Rack Display */}
                 <div className="col-span-7 bg-gray-800/50 p-4 rounded-xl overflow-y-auto">
-                    {isLoading && !activeRack ? <p className="text-gray-500 text-center mt-10">Loading racks...</p> : activeRack ? (
-                        <RackComponent rack={activeRack} onDrop={handleAddEquipment} />
+                    {isLoading && !activeRack ? <p className="text-gray-500 text-center mt-10">Loading...</p> : activeRack ? (
+                        <RackComponent rack={activeRack} onDrop={handleDrop} onDelete={handleDeleteEquipment} />
                     ) : (
                         <p className="text-gray-500 text-center mt-10">Select or create a rack to begin.</p>
                     )}
@@ -854,17 +870,87 @@ const RackBuilderView = ({ showName }) => {
     );
 };
 
-const RackComponent = ({ rack, onDrop }) => {
-    const handleDragOver = (e) => e.preventDefault();
+const RackComponent = ({ rack, onDrop, onDelete }) => {
+    const [dragOverRU, setDragOverRU] = useState(null);
+    const [draggedItem, setDraggedItem] = useState(null);
+
+    const isOccupied = (start, end, excludeId) => {
+        for (let i = start; i <= end; i++) {
+            const occupiedBy = filledRUs.get(i);
+            if (occupiedBy && occupiedBy !== excludeId) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const filledRUs = useMemo(() => {
+        const map = new Map();
+        (rack.equipment || []).forEach(item => {
+            const height = (item.equipment_templates && item.equipment_templates.ru_height) || 1;
+            for (let i = 0; i < height; i++) {
+                map.set(item.ru_position + i, item.id);
+            }
+        });
+        return map;
+    }, [rack.equipment]);
+
+    const handleDragStart = (e, item, isNew) => {
+        const data = { isNew, item };
+        e.dataTransfer.setData('application/json', JSON.stringify(data));
+        setDraggedItem(item);
+    };
+    
+    const handleDragOver = (e, ru) => {
+        e.preventDefault();
+        if (draggedItem) {
+            const itemHeight = draggedItem.ru_height || (draggedItem.equipment_templates && draggedItem.equipment_templates.ru_height) || 1;
+            const dropPosition = ru - itemHeight + 1;
+            if (dropPosition < 1) {
+                setDragOverRU(null);
+                return;
+            }
+            setDragOverRU(ru);
+        }
+    };
+    
     const handleDrop = (e, ru) => {
         e.preventDefault();
-        const item = JSON.parse(e.dataTransfer.getData('application/json'));
-        // Prevent dropping if it overflows the rack
-        if (ru - item.ru_height + 1 < 1) {
+        const data = JSON.parse(e.dataTransfer.getData('application/json'));
+        const item = data.item;
+        const itemHeight = item.ru_height || (item.equipment_templates && item.equipment_templates.ru_height) || 1;
+        const dropPosition = ru - itemHeight + 1;
+
+        if (dropPosition < 1 || isOccupied(dropPosition, ru, data.isNew ? null : item.id)) {
             console.error("Equipment does not fit in this position.");
-            return;
+        } else {
+            onDrop(data, dropPosition);
         }
-        onDrop(item, ru - item.ru_height + 1); // Pass the bottom-most RU
+        setDragOverRU(null);
+        setDraggedItem(null);
+    };
+
+    const getHighlightStyle = () => {
+        if (!dragOverRU || !draggedItem) return { display: 'none' };
+        
+        const itemHeight = draggedItem.ru_height || (draggedItem.equipment_templates && draggedItem.equipment_templates.ru_height) || 1;
+        const dropPosition = dragOverRU - itemHeight + 1;
+
+        if (dropPosition < 1) return { display: 'none' };
+        
+        const isInvalid = isOccupied(dropPosition, dragOverRU, draggedItem.id);
+
+        return {
+            display: 'block',
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: `${(dropPosition - 1) * 1.5}rem`,
+            height: `${itemHeight * 1.5}rem`,
+            backgroundColor: isInvalid ? 'rgba(239, 68, 68, 0.5)' : 'rgba(59, 130, 246, 0.5)',
+            border: `1px dashed ${isInvalid ? '#EF4444' : '#3B82F6'}`,
+            zIndex: 10,
+        };
     };
 
     return (
@@ -872,17 +958,12 @@ const RackComponent = ({ rack, onDrop }) => {
             <div className="flex flex-col-reverse justify-end">
                 {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-right pr-2 select-none">{i + 1}</div>)}
             </div>
-            <div className="flex-grow border-2 border-gray-600 rounded-md relative">
+            <div className="flex-grow border-2 border-gray-600 rounded-md relative" onDragLeave={() => setDragOverRU(null)}>
                 {Array.from({ length: rack.ru_height }, (_, i) => (
-                    <div key={i} className="h-6 border-b border-gray-700/50" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, i + 1)}></div>
+                    <div key={i} className="h-6 border-b border-gray-700/50" onDragOver={(e) => handleDragOver(e, i + 1)} onDrop={(e) => handleDrop(e, i + 1)}></div>
                 ))}
-                {rack.equipment.map(item => (
-                    <div key={item.id} 
-                         className="absolute w-full bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-center p-1"
-                         style={{ height: `${item.ru_height * 1.5}rem`, bottom: `${(item.ru_position - 1) * 1.5}rem` }}>
-                        <span className="truncate">{item.instance_name}</span>
-                    </div>
-                ))}
+                {(rack.equipment || []).map(item => <PlacedEquipmentItem key={item.id} item={item} onDragStart={(e) => handleDragStart(e, item, false)} onDelete={() => onDelete(item.id)} />)}
+                <div style={getHighlightStyle()} />
             </div>
              <div className="flex flex-col-reverse justify-end">
                 {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-left pl-2 select-none">{i + 1}</div>)}
@@ -891,9 +972,24 @@ const RackComponent = ({ rack, onDrop }) => {
     );
 };
 
+const PlacedEquipmentItem = ({ item, onDragStart, onDelete }) => {
+    const itemHeight = ((item.equipment_templates && item.equipment_templates.ru_height) || 1) * 1.5;
+    return (
+        <div draggable onDragStart={onDragStart}
+             className="absolute w-full bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-between p-1 cursor-move group"
+             style={{ height: `${itemHeight}rem`, bottom: `${(item.ru_position - 1) * 1.5}rem`, zIndex: 20 }}>
+            <span className="truncate pl-2">{item.instance_name}</span>
+            <button onClick={onDelete} className="pr-2 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                <Trash2 size={14} />
+            </button>
+        </div>
+    );
+};
+
 const EquipmentLibraryItem = ({ item }) => {
     const handleDragStart = (e) => {
-        e.dataTransfer.setData('application/json', JSON.stringify(item));
+        const data = { isNew: true, item: item };
+        e.dataTransfer.setData('application/json', JSON.stringify(data));
     };
 
     return (
