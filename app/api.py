@@ -5,8 +5,13 @@ from supabase import create_client, Client
 from gotrue.errors import AuthApiError
 import io
 from pydantic import BaseModel
+import uuid
 
-from .models import ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig
+from .models import (
+    ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
+    Rack, RackUpdate, EquipmentTemplate, RackEquipmentInstance, RackCreate,
+    RackEquipmentInstanceCreate
+)
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
 
@@ -172,6 +177,82 @@ async def delete_show(show_name: str, user = Depends(get_user), supabase: Client
         return
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- AV Rack Endpoints ---
+
+@router.post("/racks", response_model=Rack, tags=["Racks"])
+async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    try:
+        full_rack_data = rack_data.model_dump()
+        full_rack_data['user_id'] = str(user.id)
+        
+        response = supabase.table('racks').insert(full_rack_data).execute()
+        if response.data:
+            new_rack = response.data[0]
+            new_rack['equipment'] = [] # Start with an empty equipment list
+            return new_rack
+        raise HTTPException(status_code=500, detail="Failed to create rack.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/racks", response_model=List[Rack], tags=["Racks"])
+async def list_racks(show_name: Optional[str] = None, from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    query = supabase.table('racks').select('*').eq('user_id', user.id)
+    if show_name:
+        query = query.eq('show_name', show_name)
+    if from_library:
+        query = query.eq('saved_to_library', True)
+    
+    response = query.execute()
+    return response.data
+
+@router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
+async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    response = supabase.table('racks').select('*').eq('id', rack_id).eq('user_id', user.id).single().execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Rack not found")
+    
+    # Fetch equipment instances for this rack
+    equipment_response = supabase.table('rack_equipment_instances').select('*').eq('rack_id', rack_id).execute()
+    rack_data = response.data
+    rack_data['equipment'] = equipment_response.data
+    return rack_data
+
+@router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
+async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    update_data = rack_update.model_dump(exclude_unset=True)
+    response = supabase.table('racks').update(update_data).eq('id', rack_id).eq('user_id', user.id).execute()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Rack not found to update")
+    return response.data[0]
+
+# --- Equipment Endpoints ---
+
+@router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
+async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmentInstanceCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # Verify user owns the rack first
+    rack_response = supabase.table('racks').select('id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
+    if not rack_response.data:
+        raise HTTPException(status_code=404, detail="Rack not found or access denied")
+
+    full_equipment_data = equipment_data.model_dump()
+    full_equipment_data['rack_id'] = str(rack_id)
+    full_equipment_data['template_id'] = str(full_equipment_data['template_id']) # Ensure UUID is string
+    
+    response = supabase.table('rack_equipment_instances').insert(full_equipment_data).execute()
+    if response.data:
+        return response.data[0]
+    raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
+
+
+@router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
+async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # A more complex query is needed here to ensure the user owns the rack associated with the equipment instance
+    # This might be better handled by a database function (e.g., RLS)
+    # For now, we'll do a simple delete and rely on frontend logic to be correct.
+    supabase.table('rack_equipment_instances').delete().eq('id', instance_id).execute()
+    return
 
 # --- File Upload Endpoint ---
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { FileText, Box, Info, UploadCloud, Trash2, Edit, Plus, Save, ChevronsUpDown, LayoutDashboard, ArrowLeft, X, Download, Eye, Grid3x3, List, LogOut, User as UserIcon, KeyRound, Globe } from 'lucide-react';
+import { FileText, Box, Info, UploadCloud, Trash2, Edit, Plus, Save, ChevronsUpDown, LayoutDashboard, ArrowLeft, X, Download, Eye, Grid3x3, List, LogOut, User as UserIcon, KeyRound, Globe, Server } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 // --- Supabase Client Setup ---
@@ -69,6 +69,12 @@ const api = {
     body: JSON.stringify(ssoData),
   }).then(handleResponse),
   deleteAccount: async () => fetch('/api/profile', { method: 'DELETE', headers: await getAuthHeader() }),
+  // Rack Builder API endpoints
+  createRack: async (rackData) => fetch('/api/racks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(rackData) }).then(handleResponse),
+  getRacksForShow: async (showName) => fetch(`/api/racks?show_name=${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+  getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
+  addEquipmentToRack: async (rackId, equipmentData) => fetch(`/api/racks/${rackId}/equipment`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(equipmentData) }).then(handleResponse),
+  getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
 };
 
 // --- Main Application Component ---
@@ -683,6 +689,7 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
         { id: 'info', label: 'Show Info', icon: Info },
         { id: 'loom', label: 'Loom Labels', icon: FileText },
         { id: 'case', label: 'Case Labels', icon: Box },
+        { id: 'rack', label: 'Rack Builder', icon: Server },
     ];
 
     if (isLoading || !showData) {
@@ -708,7 +715,191 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
                 {activeTab === 'info' && <ShowInfoView showData={showData} onSave={onSave} />}
                 {activeTab === 'loom' && <LoomLabelView showData={showData} onSave={onSave} />}
                 {activeTab === 'case' && <CaseLabelView showData={showData} onSave={onSave} />}
+                {activeTab === 'rack' && <RackBuilderView showName={showName} />}
             </main>
+        </div>
+    );
+};
+
+// --- Rack Builder View Component ---
+const RackBuilderView = ({ showName }) => {
+    const [racks, setRacks] = useState([]);
+    const [activeRack, setActiveRack] = useState(null);
+    const [equipmentTemplates, setEquipmentTemplates] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
+
+    const loadRacks = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const racksData = await api.getRacksForShow(showName);
+            setRacks(racksData);
+            if (racksData.length > 0 && !activeRack) {
+                // Fetch full details of the first rack
+                const detailedRack = await api.getRackDetails(racksData[0].id);
+                setActiveRack(detailedRack);
+            } else if (racksData.length === 0) {
+                setActiveRack(null);
+            }
+        } catch (error) {
+            console.error("Failed to load racks:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [showName, activeRack]);
+
+    useEffect(() => {
+        const loadInitialData = async () => {
+            await loadRacks();
+            // In a real app, this would fetch from the API
+            const templates = [
+                { id: '1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed', model_number: 'URX-P03D', manufacturer: 'Sony', ru_height: 1 },
+                { id: '2b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bee', model_number: 'AJA-FS2', manufacturer: 'AJA', ru_height: 2 },
+                { id: '3b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bef', model_number: 'Smart Videohub 40x40', manufacturer: 'Blackmagic', ru_height: 2 },
+            ];
+            setEquipmentTemplates(templates);
+        };
+        loadInitialData();
+    }, [showName]); // Removed loadRacks from dependency array to prevent loop
+
+    const handleSelectRack = async (rack) => {
+        setIsLoading(true);
+        try {
+            const detailedRack = await api.getRackDetails(rack.id);
+            setActiveRack(detailedRack);
+        } catch (error) {
+            console.error("Failed to fetch rack details:", error);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    
+    const handleCreateRack = async ({ rackName, ruHeight }) => {
+        try {
+            const newRack = await api.createRack({ rack_name: rackName, ru_height: parseInt(ruHeight, 10), show_name: showName });
+            setRacks(prev => [...prev, newRack]);
+            setActiveRack({ ...newRack, equipment: [] }); // Set as active, with empty equipment
+        } catch (error) {
+            console.error("Failed to create rack:", error);
+        }
+        setIsNewRackModalOpen(false);
+    };
+
+    const handleAddEquipment = async (item, ru_position) => {
+        if (!activeRack) return;
+        
+        const newInstance = {
+            rack_id: activeRack.id,
+            template_id: item.id,
+            ru_position: ru_position,
+            instance_name: `${item.model_number}-${activeRack.equipment.length + 1}`
+        };
+
+        try {
+            const addedEquipment = await api.addEquipmentToRack(activeRack.id, newInstance);
+            // Manually add the ru_height for immediate visual feedback
+            const completeEquipment = { ...addedEquipment, ru_height: item.ru_height };
+            setActiveRack(prev => ({
+                ...prev,
+                equipment: [...prev.equipment, completeEquipment]
+            }));
+        } catch (error) {
+            console.error("Failed to add equipment:", error);
+        }
+    };
+
+    return (
+        <>
+            <div className="grid grid-cols-12 gap-6 h-[calc(100vh-220px)]">
+                {/* Left Panel: Rack List */}
+                <div className="col-span-2 bg-gray-800/50 p-4 rounded-xl flex flex-col">
+                    <h2 className="text-lg font-bold text-white mb-4">Racks</h2>
+                    <div className="flex-grow overflow-y-auto">
+                        {isLoading && racks.length === 0 ? <p>Loading...</p> : (
+                            <ul>
+                                {racks.map(rack => 
+                                    <li key={rack.id} 
+                                        onClick={() => handleSelectRack(rack)}
+                                        className={`p-2 rounded-md cursor-pointer ${activeRack?.id === rack.id ? 'bg-amber-500 text-black' : 'hover:bg-gray-700'}`}>
+                                        {rack.rack_name}
+                                    </li>
+                                )}
+                            </ul>
+                        )}
+                    </div>
+                     <button onClick={() => setIsNewRackModalOpen(true)} className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
+                        <Plus size={16}/> New Rack
+                    </button>
+                </div>
+
+                {/* Center Panel: Rack Display */}
+                <div className="col-span-7 bg-gray-800/50 p-4 rounded-xl overflow-y-auto">
+                    {isLoading && !activeRack ? <p className="text-gray-500 text-center mt-10">Loading racks...</p> : activeRack ? (
+                        <RackComponent rack={activeRack} onDrop={handleAddEquipment} />
+                    ) : (
+                        <p className="text-gray-500 text-center mt-10">Select or create a rack to begin.</p>
+                    )}
+                </div>
+
+                {/* Right Panel: Equipment Library */}
+                <div className="col-span-3 bg-gray-800/50 p-4 rounded-xl flex flex-col">
+                    <h2 className="text-lg font-bold text-white mb-4">Equipment Library</h2>
+                    <div className="flex-grow overflow-y-auto">
+                        {equipmentTemplates.map(item => <EquipmentLibraryItem key={item.id} item={item} />)}
+                    </div>
+                </div>
+            </div>
+            <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
+        </>
+    );
+};
+
+const RackComponent = ({ rack, onDrop }) => {
+    const handleDragOver = (e) => e.preventDefault();
+    const handleDrop = (e, ru) => {
+        e.preventDefault();
+        const item = JSON.parse(e.dataTransfer.getData('application/json'));
+        // Prevent dropping if it overflows the rack
+        if (ru - item.ru_height + 1 < 1) {
+            console.error("Equipment does not fit in this position.");
+            return;
+        }
+        onDrop(item, ru - item.ru_height + 1); // Pass the bottom-most RU
+    };
+
+    return (
+        <div className="w-full bg-gray-900/50 p-4 rounded-lg flex gap-4">
+            <div className="flex flex-col-reverse justify-end">
+                {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-right pr-2 select-none">{i + 1}</div>)}
+            </div>
+            <div className="flex-grow border-2 border-gray-600 rounded-md relative">
+                {Array.from({ length: rack.ru_height }, (_, i) => (
+                    <div key={i} className="h-6 border-b border-gray-700/50" onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, i + 1)}></div>
+                ))}
+                {rack.equipment.map(item => (
+                    <div key={item.id} 
+                         className="absolute w-full bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-center p-1"
+                         style={{ height: `${item.ru_height * 1.5}rem`, bottom: `${(item.ru_position - 1) * 1.5}rem` }}>
+                        <span className="truncate">{item.instance_name}</span>
+                    </div>
+                ))}
+            </div>
+             <div className="flex flex-col-reverse justify-end">
+                {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-left pl-2 select-none">{i + 1}</div>)}
+            </div>
+        </div>
+    );
+};
+
+const EquipmentLibraryItem = ({ item }) => {
+    const handleDragStart = (e) => {
+        e.dataTransfer.setData('application/json', JSON.stringify(item));
+    };
+
+    return (
+        <div draggable onDragStart={handleDragStart} className="p-2 mb-2 bg-gray-700 rounded-md cursor-grab active:cursor-grabbing">
+            <p className="font-bold text-sm truncate">{item.model_number}</p>
+            <p className="text-xs text-gray-400">{item.manufacturer} - {item.ru_height}RU</p>
         </div>
     );
 };
@@ -1032,6 +1223,24 @@ const NewShowModal = ({ isOpen, onClose, onSubmit }) => {
                 <div className="flex justify-end gap-4 mt-6">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">Cancel</button>
                     <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors">Create</button>
+                </div>
+            </form>
+        </Modal>
+    );
+};
+
+const NewRackModal = ({ isOpen, onClose, onSubmit }) => {
+    const [rackName, setRackName] = useState('');
+    const [ruHeight, setRuHeight] = useState(42);
+    const handleSubmit = (e) => { e.preventDefault(); onSubmit({ rackName, ruHeight }); setRackName(''); setRuHeight(42); };
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Create New Rack">
+            <form onSubmit={handleSubmit} className="space-y-4">
+                <InputField label="Rack Name" type="text" value={rackName} onChange={(e) => setRackName(e.target.value)} required autoFocus />
+                <InputField label="RU Height" type="number" value={ruHeight} onChange={(e) => setRuHeight(e.target.value)} required min="1" />
+                <div className="flex justify-end gap-4 pt-4">
+                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">Cancel</button>
+                    <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors">Create Rack</button>
                 </div>
             </form>
         </Modal>
