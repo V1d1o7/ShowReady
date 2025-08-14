@@ -10,6 +10,7 @@ class UserProfile(BaseModel):
     company_name: Optional[str] = None
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
+    role: Optional[str] = 'user'
 
 class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -17,6 +18,7 @@ class UserProfileUpdate(BaseModel):
     company_name: Optional[str] = None
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
+    role: Optional[str] = None
 
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):
@@ -132,3 +134,9 @@ class Folder(BaseModel):
 class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[uuid.UUID] = None
+
+class EquipmentTemplateCreate(BaseModel):
+    model_number: str
+    manufacturer: str
+    ru_height: int
+    folder_id: Optional[uuid.UUID] = None

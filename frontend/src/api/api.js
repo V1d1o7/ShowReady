@@ -73,5 +73,15 @@ export const api = {
     moveEquipmentInRack: async (instanceId, newPosition) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify({ ru_position: newPosition }) }).then(handleResponse),
     deleteEquipmentFromRack: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'DELETE', headers: await getAuthHeader() }),
     getAdminFolders: async () => fetch('/api/admin/folders', { headers: await getAuthHeader() }).then(handleResponse),
-
+    getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
+    createAdminFolder: async (folderData) => fetch('/api/admin/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(folderData),
+    }).then(handleResponse),
+    createAdminEquipment: async (equipmentData) => fetch('/api/admin/equipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(equipmentData),
+    }).then(handleResponse),
 };

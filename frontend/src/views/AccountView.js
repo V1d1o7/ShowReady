@@ -4,13 +4,21 @@ import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
 
-const AccountView = ({ onBack, user, onNavigate }) => {
-    const [profile, setProfile] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
+const AccountView = ({ onBack, user, onNavigate, profile: initialProfile }) => {
+    const [profile, setProfile] = useState(initialProfile);
+    const [isLoading, setIsLoading] = useState(!initialProfile);
     const [newEmail, setNewEmail] = useState('');
+
+    // --- DEBUGGING ---
+    console.log('%c[AccountView.js] Received profile prop:', 'color: lightgreen;', initialProfile);
 
     useEffect(() => {
         const fetchProfile = async () => {
+            if (profile) {
+                setNewEmail(user.email);
+                return;
+            };
+            setIsLoading(true);
             try {
                 const data = await api.getProfile();
                 setProfile(data);
@@ -22,7 +30,7 @@ const AccountView = ({ onBack, user, onNavigate }) => {
             }
         };
         fetchProfile();
-    }, [user.email]);
+    }, [user.email, profile]);
 
     const handleProfileChange = (e) => {
         setProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));

@@ -9,7 +9,7 @@ import uuid
 
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
-    Rack, RackUpdate, EquipmentTemplate, RackEquipmentInstance, RackCreate,
+    Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
@@ -44,35 +44,67 @@ async def get_user(request: Request, supabase: Client = Depends(get_supabase_cli
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # --- Admin Authentication Dependency ---
-async def get_admin_user(user = Depends(get_user)):
+async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Dependency that checks if the user has the 'admin' role."""
-    supabase: Client = get_supabase_client()
     try:
         profile_response = supabase.table('profiles').select('role').eq('id', user.id).single().execute()
         if not profile_response.data or profile_response.data.get('role') != 'admin':
             raise HTTPException(status_code=403, detail="User is not an administrator.")
         return user
-    except Exception as e:
-        # This will catch cases where the profile doesn't exist or other DB errors
+    except Exception:
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
 
-
 # --- Admin Library Management Endpoints ---
-@router.get("/admin/folders", tags=["Admin"], response_model=List[Folder])
-async def get_default_folders(admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
-    """Admin: Retrieves all default library folders."""
-    response = supabase.table('folders').select('*').eq('is_default', True).execute()
-    return response.data
-
 @router.post("/admin/folders", tags=["Admin"], response_model=Folder)
 async def create_default_folder(folder_data: FolderCreate, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
     """Admin: Creates a new default library folder."""
-    insert_data = folder_data.model_dump()
-    insert_data['is_default'] = True
+    insert_data = {
+        "name": folder_data.name,
+        "is_default": True,
+    }
+    if folder_data.parent_id:
+        insert_data["parent_id"] = str(folder_data.parent_id)
+
     response = supabase.table('folders').insert(insert_data).execute()
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create folder.")
     return response.data[0]
+
+@router.post("/admin/equipment", tags=["Admin"], response_model=EquipmentTemplate)
+async def create_default_equipment(
+    equipment_data: EquipmentTemplateCreate,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Creates a new default equipment template."""
+    # ROBUST FIX: Manually construct the dictionary to match the database schema.
+    insert_data = {
+        "model_number": equipment_data.model_number,
+        "manufacturer": equipment_data.manufacturer,
+        "ru_height": equipment_data.ru_height,
+        "is_default": True,
+    }
+    if equipment_data.folder_id:
+        insert_data["folder_id"] = str(equipment_data.folder_id)
+        
+    response = supabase.table('equipment_templates').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create equipment template.")
+    return response.data[0]
+
+@router.get("/admin/library", tags=["Admin"])
+async def get_admin_library(admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Fetches the default library tree for the admin panel."""
+    try:
+        folders_response = supabase.table('folders').select('*').eq('is_default', True).execute()
+        equipment_response = supabase.table('equipment_templates').select('*').eq('is_default', True).execute()
+        return {
+            "folders": folders_response.data,
+            "equipment": equipment_response.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
+
 
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
@@ -86,7 +118,7 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
             try:
                 user_meta = user.user_metadata
                 profile_to_create = {
-                    'id': user.id,
+                    'id': str(user.id),
                     'first_name': user_meta.get('first_name'),
                     'last_name': user_meta.get('last_name'),
                     'company_name': user_meta.get('company_name'),
@@ -120,8 +152,6 @@ async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_use
 async def delete_account(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Deletes the authenticated user's account and profile."""
     try:
-        # This calls a custom database function to perform the deletion
-        # with elevated privileges.
         supabase.rpc('delete_user', {}).execute()
         return
     except Exception as e:
@@ -143,7 +173,7 @@ async def update_sso_config(sso_data: SSOConfig, user = Depends(get_user), supab
     """Creates or updates the SSO configuration for the authenticated user."""
     try:
         response = supabase.table('sso_configs').upsert({
-            'id': user.id,
+            'id': str(user.id),
             'provider': sso_data.provider,
             'config': sso_data.config
         }).execute()
@@ -155,7 +185,6 @@ async def update_sso_config(sso_data: SSOConfig, user = Depends(get_user), supab
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Show Management Endpoints ---
-
 @router.post("/shows/{show_name}", tags=["Shows"])
 async def create_or_update_show(show_name: str, show_data: ShowFile, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new show or updates an existing one for the authenticated user."""
@@ -163,7 +192,7 @@ async def create_or_update_show(show_name: str, show_data: ShowFile, user = Depe
         response = supabase.table('shows').upsert({
             'name': show_name,
             'data': show_data.model_dump(mode='json'),
-            'user_id': user.id
+            'user_id': str(user.id)
         }, on_conflict='name, user_id').execute()
         
         if response.data:
@@ -210,7 +239,6 @@ async def delete_show(show_name: str, user = Depends(get_user), supabase: Client
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- AV Rack Endpoints ---
-
 @router.post("/racks", response_model=Rack, tags=["Racks"])
 async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     try:
@@ -220,12 +248,11 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         response = supabase.table('racks').insert(full_rack_data).execute()
         if response.data:
             new_rack = response.data[0]
-            new_rack['equipment'] = [] # Start with an empty equipment list
+            new_rack['equipment'] = []
             return new_rack
         raise HTTPException(status_code=500, detail="Failed to create rack.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.get("/racks", response_model=List[Rack], tags=["Racks"])
 async def list_racks(show_name: Optional[str] = None, from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -244,7 +271,6 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     if not response.data:
         raise HTTPException(status_code=404, detail="Rack not found")
     
-    # Correctly fetch equipment instances and their related template data
     equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', rack_id).execute()
     rack_data = response.data
     rack_data['equipment'] = equipment_response.data
@@ -259,23 +285,19 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
     return response.data[0]
 
 # --- Equipment Endpoints ---
-
 @router.get("/equipment", response_model=List[EquipmentTemplate], tags=["Racks"])
 async def get_equipment_templates(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # Fetches standard library items (user_id is NULL) and user-specific items
     response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id},user_id.is.null').execute()
     return response.data
 
 @router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
 async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmentInstanceCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # Verify user owns the rack first
     rack_response = supabase.table('racks').select('id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
     if not rack_response.data:
         raise HTTPException(status_code=404, detail="Rack not found or access denied")
 
-    full_equipment_data = equipment_data.model_dump()
+    full_equipment_data = equipment_data.model_dump(mode='json')
     full_equipment_data['rack_id'] = str(rack_id)
-    full_equipment_data['template_id'] = str(full_equipment_data['template_id'])
     
     response = supabase.table('rack_equipment_instances').insert(full_equipment_data).execute()
     if response.data:
@@ -284,8 +306,6 @@ async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmen
 
 @router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
 async def move_equipment_in_rack(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # A more robust check would join tables to ensure the user owns the rack this instance belongs to.
-    # For now, we'll trust RLS on the table if configured properly.
     update_dict = update_data.model_dump(exclude_unset=True)
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
     if response.data:
@@ -294,33 +314,21 @@ async def move_equipment_in_rack(instance_id: uuid.UUID, update_data: RackEquipm
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
 async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # A more complex query is needed here to ensure the user owns the rack associated with the equipment instance
-    # This might be better handled by a database function (e.g., RLS)
-    # For now, we'll do a simple delete and rely on frontend logic to be correct.
     supabase.table('rack_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
 
-# --- Library Management Endpoints (New) ---
-
+# --- Library Management Endpoints ---
 @router.get("/library", tags=["Library"])
 async def get_library(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Fetches the entire library tree for the logged-in user."""
     try:
-        # Fetch all folders (both default and user-specific)
         folders_response = supabase.table('folders').select('*').or_(f'user_id.eq.{user.id},is_default.eq.true').execute()
-
-        # Fetch all equipment templates (both default and user-specific)
         equipment_response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id},is_default.eq.true').execute()
-
-        return {
-            "folders": folders_response.data,
-            "equipment": equipment_response.data
-        }
+        return { "folders": folders_response.data, "equipment": equipment_response.data }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
 
 # --- File Upload Endpoint ---
-
 @router.post("/upload/logo", tags=["File Upload"])
 async def upload_logo(file: UploadFile = File(...), user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Uploads a logo for the authenticated user."""
@@ -333,7 +341,7 @@ async def upload_logo(file: UploadFile = File(...), user = Depends(get_user), su
         if not safe_filename:
             raise HTTPException(status_code=400, detail="Invalid filename.")
 
-        file_path_in_bucket = f"{user.id}/{safe_filename}"
+        file_path_in_bucket = f"{user.id}/{uuid.uuid4()}-{safe_filename}"
         file_content = await file.read()
         
         supabase.storage.from_('logos').upload(
@@ -347,7 +355,6 @@ async def upload_logo(file: UploadFile = File(...), user = Depends(get_user), su
         raise HTTPException(status_code=500, detail=f"Logo upload failed: {str(e)}")
 
 # --- PDF Generation Endpoints ---
-
 class LoomLabelPayload(BaseModel):
     labels: List[LoomLabel]
     placement: Optional[Dict[str, int]] = None
@@ -358,7 +365,7 @@ class CaseLabelPayload(BaseModel):
     placement: Optional[Dict[str, int]] = None
 
 @router.post("/pdf/loom-labels", tags=["PDF Generation"])
-async def create_loom_label_pdf(payload: LoomLabelPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+async def create_loom_label_pdf(payload: LoomLabelPayload, user = Depends(get_user)):
     pdf_buffer = generate_loom_label_pdf(payload.labels, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
