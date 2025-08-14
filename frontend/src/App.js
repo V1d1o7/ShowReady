@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     FileText, Box, Info, UploadCloud, Trash2, Edit, Plus, Save, ChevronsUpDown,
     LayoutDashboard, ArrowLeft, X, Download, Eye, Grid3x3, List, LogOut,
-    User as UserIcon, KeyRound, Globe, Server
+    User as UserIcon, KeyRound, Globe, Server, Folder as FolderIcon, ChevronRight, ChevronDown
 } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
@@ -78,6 +78,7 @@ const api = {
     getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
     addEquipmentToRack: async (rackId, equipmentData) => fetch(`/api/racks/${rackId}/equipment`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(equipmentData) }).then(handleResponse),
     getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
+    getLibrary: async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse),
     moveEquipmentInRack: async (instanceId, newPosition) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify({ ru_position: newPosition }) }).then(handleResponse),
     deleteEquipmentFromRack: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'DELETE', headers: await getAuthHeader() }),
 };
@@ -726,27 +727,101 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
     );
 };
 
+// --- TreeView Component (New, Refactored) ---
+const TreeView = ({ folders = [], equipment = [], onDragStart }) => {
+    const [expandedFolders, setExpandedFolders] = useState({});
+
+    const toggleFolder = (folderId) => {
+        setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+    };
+
+    const tree = useMemo(() => {
+        const itemsById = {};
+        [...folders, ...equipment].forEach(item => {
+            itemsById[item.id] = { ...item, children: [] };
+        });
+
+        const roots = [];
+        Object.values(itemsById).forEach(item => {
+            const parentId = item.parent_id || item.folder_id;
+            if (parentId && itemsById[parentId]) {
+                itemsById[parentId].children.push(item);
+            } else {
+                roots.push(item);
+            }
+        });
+        return roots;
+    }, [folders, equipment]);
+
+    const renderNode = (node) => {
+        const isFolder = 'parent_id' in node || (node.children && node.children.some(child => 'parent_id' in child));
+
+        if (isFolder) {
+            return (
+                <li key={node.id}>
+                    <div
+                        className="flex items-center cursor-pointer p-1 rounded-md hover:bg-gray-700"
+                        onClick={() => toggleFolder(node.id)}
+                    >
+                        {expandedFolders[node.id] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        <FolderIcon size={16} className="mx-2 flex-shrink-0" />
+                        <span className="truncate">{node.name}</span>
+                    </div>
+                    {expandedFolders[node.id] && (
+                        <ul className="pl-4">
+                            {node.children.map(child => renderNode(child))}
+                        </ul>
+                    )}
+                </li>
+            );
+        }
+
+        return (
+            <li key={node.id}>
+                <div
+                    draggable
+                    onDragStart={(e) => onDragStart(e, node)}
+                    className="p-2 my-1 bg-gray-700 rounded-md cursor-grab active:cursor-grabbing"
+                >
+                    <p className="font-bold text-sm truncate">{node.model_number}</p>
+                    <p className="text-xs text-gray-400">{node.manufacturer} - {node.ru_height}RU</p>
+                </div>
+            </li>
+        );
+    };
+
+    return <ul>{tree.map(node => renderNode(node))}</ul>;
+};
+
+
 // --- Rack Builder View Component ---
 const RackBuilderView = ({ showName }) => {
     const [racks, setRacks] = useState([]);
     const [activeRack, setActiveRack] = useState(null);
-    const [equipmentTemplates, setEquipmentTemplates] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
+    
+    const [libraryFolders, setLibraryFolders] = useState([]);
+    const [libraryEquipment, setLibraryEquipment] = useState([]);
+    const [draggedItem, setDraggedItem] = useState(null);
 
     useEffect(() => {
         const loadInitialData = async () => {
             setIsLoading(true);
             try {
-                const [racksData, templates] = await Promise.all([
+                const [racksData, libraryData] = await Promise.all([
                     api.getRacksForShow(showName),
-                    api.getEquipmentTemplates()
+                    api.getLibrary()
                 ]);
+                
+                setRacks(racksData || []);
 
-                setRacks(racksData);
-                setEquipmentTemplates(templates);
+                if (libraryData) {
+                    setLibraryFolders(libraryData.folders || []);
+                    setLibraryEquipment(libraryData.equipment || []);
+                }
 
-                if (racksData.length > 0) {
+                if (racksData && racksData.length > 0) {
                     const detailedRack = await api.getRackDetails(racksData[0].id);
                     setActiveRack(detailedRack);
                 }
@@ -758,7 +833,7 @@ const RackBuilderView = ({ showName }) => {
         };
         loadInitialData();
     }, [showName]);
-
+    
     const handleSelectRack = async (rack) => {
         setIsLoading(true);
         try {
@@ -770,28 +845,46 @@ const RackBuilderView = ({ showName }) => {
             setIsLoading(false);
         }
     };
-
+    
     const handleCreateRack = async ({ rackName, ruHeight }) => {
         try {
             const newRack = await api.createRack({ rack_name: rackName, ru_height: parseInt(ruHeight, 10), show_name: showName });
             setRacks(prev => [...prev, newRack]);
-            setActiveRack(newRack); // Automatically select the new rack
+            setActiveRack(newRack);
         } catch (error) {
             console.error("Failed to create rack:", error);
         }
         setIsNewRackModalOpen(false);
     };
-
+    
     const handleAddEquipment = async (item, ru_position) => {
         if (!activeRack) return;
+
+        const parentFolder = libraryFolders.find(f => f.id === item.folder_id);
+        let instanceName = `${item.model_number}-1`; // Default fallback name
+
+        if (parentFolder && parentFolder.nomenclature_prefix) {
+            const prefix = parentFolder.nomenclature_prefix;
+            const existingCount = (activeRack.equipment || []).filter(eq => 
+                eq.instance_name.startsWith(prefix)
+            ).length;
+            instanceName = `${prefix}-${String(existingCount + 1).padStart(2, '0')}`;
+        } else {
+             const existingCount = (activeRack.equipment || []).filter(eq => 
+                eq.template_id === item.id
+            ).length;
+            instanceName = `${item.model_number}-${existingCount + 1}`;
+        }
+
         const newInstanceData = {
             template_id: item.id,
             ru_position: ru_position,
-            instance_name: `${item.model_number}-${(activeRack.equipment || []).length + 1}`
+            instance_name: instanceName
         };
+
         try {
             const addedEquipment = await api.addEquipmentToRack(activeRack.id, newInstanceData);
-            const template = equipmentTemplates.find(t => t.id === addedEquipment.template_id);
+            const template = libraryEquipment.find(t => t.id === addedEquipment.template_id);
             const completeEquipment = { ...addedEquipment, equipment_templates: template };
             setActiveRack(prev => ({ ...prev, equipment: [...(prev.equipment || []), completeEquipment] }));
         } catch (error) { console.error("Failed to add equipment:", error); }
@@ -807,7 +900,7 @@ const RackBuilderView = ({ showName }) => {
             }));
         } catch (error) { console.error("Failed to move equipment:", error); }
     };
-
+    
     const handleDeleteEquipment = async (instanceId) => {
         if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
         try {
@@ -827,10 +920,15 @@ const RackBuilderView = ({ showName }) => {
         }
     };
 
+    const handleDragStartFromLibrary = (e, item) => {
+        const data = { isNew: true, item: item };
+        e.dataTransfer.setData('application/json', JSON.stringify(data));
+        setDraggedItem(data);
+    };
+
     return (
         <>
             <div className="grid grid-cols-12 gap-6 h-[calc(100vh-220px)]">
-                {/* Left Panel: Rack List */}
                 <div className="col-span-2 bg-gray-800/50 p-4 rounded-xl flex flex-col">
                     <h2 className="text-lg font-bold text-white mb-4">Racks</h2>
                     <div className="flex-grow overflow-y-auto">
@@ -851,20 +949,28 @@ const RackBuilderView = ({ showName }) => {
                     </button>
                 </div>
 
-                {/* Center Panel: Rack Display */}
                 <div className="col-span-7 bg-gray-800/50 p-4 rounded-xl overflow-y-auto">
                     {isLoading && !activeRack ? <p className="text-gray-500 text-center mt-10">Loading...</p> : activeRack ? (
-                        <RackComponent rack={activeRack} onDrop={handleDrop} onDelete={handleDeleteEquipment} />
+                        <RackComponent 
+                            rack={activeRack} 
+                            onDrop={handleDrop} 
+                            onDelete={handleDeleteEquipment} 
+                            draggedItem={draggedItem}
+                            setDraggedItem={setDraggedItem}
+                        />
                     ) : (
                         <p className="text-gray-500 text-center mt-10">Select or create a rack to begin.</p>
                     )}
                 </div>
 
-                {/* Right Panel: Equipment Library */}
                 <div className="col-span-3 bg-gray-800/50 p-4 rounded-xl flex flex-col">
                     <h2 className="text-lg font-bold text-white mb-4">Equipment Library</h2>
                     <div className="flex-grow overflow-y-auto">
-                        {equipmentTemplates.map(item => <EquipmentLibraryItem key={item.id} item={item} />)}
+                        <TreeView
+                            folders={libraryFolders}
+                            equipment={libraryEquipment}
+                            onDragStart={handleDragStartFromLibrary}
+                        />
                     </div>
                 </div>
             </div>
@@ -873,11 +979,9 @@ const RackBuilderView = ({ showName }) => {
     );
 };
 
-const RackComponent = ({ rack, onDrop, onDelete }) => {
+const RackComponent = ({ rack, onDrop, onDelete, draggedItem, setDraggedItem }) => {
     const [dragOverRU, setDragOverRU] = useState(null);
-    const [draggedItem, setDraggedItem] = useState(null);
 
-    // Creates a map of which RUs are occupied for quick lookup.
     const filledRUs = useMemo(() => {
         const map = new Map();
         (rack.equipment || []).forEach(item => {
@@ -889,7 +993,6 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
         return map;
     }, [rack.equipment]);
 
-    // Checks if a range of RUs is occupied, excluding the item being moved.
     const isOccupied = (start, end, excludeId) => {
         for (let i = start; i <= end; i++) {
             const occupiedBy = filledRUs.get(i);
@@ -906,7 +1009,6 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
         setDraggedItem(data);
     };
 
-    // As the mouse moves over a drop zone, update the RU it's currently over.
     const handleDragOver = (e, ru) => {
         e.preventDefault();
         if (draggedItem) {
@@ -919,8 +1021,6 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
         const data = JSON.parse(e.dataTransfer.getData('application/json'));
         const item = data.item;
         const itemHeight = item.ru_height || (item.equipment_templates?.ru_height) || 1;
-
-        // The `ru` is the TOP of the drop zone. The item's position is its BOTTOM RU.
         const dropPosition = ru - itemHeight + 1;
 
         if (dropPosition < 1 || isOccupied(dropPosition, ru, data.isNew ? null : item.id)) {
@@ -950,7 +1050,7 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
             right: 0,
             bottom: `${(dropPosition - 1) * 1.5}rem`,
             height: `${itemHeight * 1.5}rem`,
-            backgroundColor: isInvalid ? 'rgba(239, 68, 68, 0.5)' : 'rgba(59, 130, 246, 0.5)',
+            backgroundColor: isInvalid ? 'rgba(239, 68, 68, 0.8)' : 'rgba(59, 130, 246, 0.8)',
             border: `1px dashed ${isInvalid ? '#EF4444' : '#3B82F6'}`,
             zIndex: 10,
         };
@@ -958,18 +1058,15 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
 
     return (
         <div className="w-full bg-gray-900/50 p-4 rounded-lg flex gap-4">
-            {/* Left-side RU numbers */}
             <div className="flex flex-col-reverse justify-end">
                 {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-right pr-2 select-none">{i + 1}</div>)}
             </div>
 
             <div
                 className="flex-grow border-2 border-gray-600 rounded-md relative"
-                onDragLeave={() => setDragOverRU(null)}
+                onDragLeave={() => { setDragOverRU(null); }}
             >
-                {/* Render drop zones from top to bottom visually */}
                 {Array.from({ length: rack.ru_height }, (_, i) => {
-                    // Translate visual index (0 at top) to RU number (42 at top)
                     const ru = rack.ru_height - i;
                     return (
                         <div
@@ -981,9 +1078,7 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
                     );
                 })}
 
-                {/* Container for absolutely positioned items, doesn't interfere with drop events */}
                 <div className="absolute inset-0 pointer-events-none">
-                    {/* Items are positioned from the bottom up inside this container */}
                     {(rack.equipment || []).map(item => (
                         <div key={item.id} className="pointer-events-auto">
                             <PlacedEquipmentItem item={item} onDragStart={(e) => handleDragStart(e, item, false)} onDelete={() => onDelete(item.id)} />
@@ -993,7 +1088,6 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
                 </div>
             </div>
 
-            {/* Right-side RU numbers */}
             <div className="flex flex-col-reverse justify-end">
                 {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-left pl-2 select-none">{i + 1}</div>)}
             </div>
@@ -1001,321 +1095,319 @@ const RackComponent = ({ rack, onDrop, onDelete }) => {
     );
 };
 
+
 const PlacedEquipmentItem = ({ item, onDragStart, onDelete }) => {
-    // This function now correctly calculates the visual position from the bottom up.
-    // An item at ru_position 1 will have a "bottom" style of 0.
+    const [isDragging, setIsDragging] = useState(false);
+
+    const handleDragStart = (e) => {
+        setIsDragging(true);
+        onDragStart(e); // Propagate the event to the parent
+    };
+
+    const handleDragEnd = () => {
+        setIsDragging(false);
+    };
+
     const bottomPosition = (item.ru_position - 1) * 1.5;
     const itemHeight = ((item.equipment_templates && item.equipment_templates.ru_height) || 1) * 1.5;
 
     return (
-        <div draggable onDragStart={onDragStart}
-            className="absolute w-full bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-between p-1 cursor-move group"
+        <div
+            draggable
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            className={`absolute w-full bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-center p-1 cursor-move group ${isDragging ? 'opacity-80' : ''}`}
             style={{ height: `${itemHeight}rem`, bottom: `${bottomPosition}rem`, zIndex: 20 }}>
-            <span className="truncate pl-2">{item.instance_name}</span>
-            <button onClick={onDelete} className="pr-2 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="truncate px-2">{item.instance_name}</span>
+            <button onClick={onDelete} className="absolute right-0 pr-2 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Trash2 size={14} />
             </button>
         </div>
     );
 };
 
-const EquipmentLibraryItem = ({ item }) => {
-    const handleDragStart = (e) => {
-        const data = { isNew: true, item: item };
-        e.dataTransfer.setData('application/json', JSON.stringify(data));
-    };
-
-    return (
-        <div draggable onDragStart={handleDragStart} className="p-2 mb-2 bg-gray-700 rounded-md cursor-grab active:cursor-grabbing">
-            <p className="font-bold text-sm truncate">{item.model_number}</p>
-            <p className="text-xs text-gray-400">{item.manufacturer} - {item.ru_height}RU</p>
-        </div>
-    );
-};
-
 const ShowInfoView = ({ showData, onSave }) => {
-    const [formData, setFormData] = useState(showData.info);
-    const [isUploading, setIsUploading] = useState(false);
-    const [logoUrl, setLogoUrl] = useState(null);
-    const [logoError, setLogoError] = useState(false);
+  const [formData, setFormData] = useState(showData.info);
+  const [isUploading, setIsUploading] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(null);
+  const [logoError, setLogoError] = useState(false);
 
-    useEffect(() => {
-        setFormData(showData.info);
-        if (showData.info.logo_path) {
-            setLogoError(false);
-            // Create a signed URL to display the private image
-            supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 3600) // 1 hour expiration
-                .then(({ data, error }) => {
-                    if (error) {
-                        console.error("Error creating signed URL:", error);
-                        setLogoError(true);
-                    } else {
-                        setLogoUrl(data.signedUrl);
-                    }
-                });
-        } else {
-            setLogoUrl(null);
-        }
-    }, [showData]);
-
-    const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-
-    const handleLogoUpload = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const uploadFormData = new FormData();
-        uploadFormData.append('file', file);
-        setIsUploading(true);
-        setLogoError(false);
-        try {
-            const result = await api.uploadLogo(uploadFormData);
-            if (result.logo_path) {
-                const updatedInfo = { ...formData, logo_path: result.logo_path };
-                setFormData(updatedInfo);
-                onSave({ ...showData, info: updatedInfo });
-            }
-        } catch (error) {
-            console.error("Logo upload failed:", error);
+  useEffect(() => {
+    setFormData(showData.info);
+    if (showData.info.logo_path) {
+      setLogoError(false);
+      supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 3600)
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Error creating signed URL:", error);
             setLogoError(true);
-        }
-        setIsUploading(false);
-    };
+          } else {
+            setLogoUrl(data.signedUrl);
+          }
+        });
+    } else {
+      setLogoUrl(null);
+    }
+  }, [showData]);
 
-    const handleSave = () => onSave({ ...showData, info: formData });
+  const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
 
-    return (
-        <div className="space-y-8">
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                <Card className="lg:col-span-3 space-y-6">
-                    <InputField label="Show Name" name="show_name" value={formData.show_name || ''} onChange={handleChange} />
-                    <InputField label="Production Manager" name="production_manager" value={formData.production_manager || ''} onChange={handleChange} />
-                    <InputField label="PM Email" name="pm_email" type="email" value={formData.pm_email || ''} onChange={handleChange} />
-                    <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
-                </Card>
-                <Card className="lg:col-span-2 space-y-4">
-                    <label className="block text-sm font-medium text-gray-300">Show Logo</label>
-                    <div className="w-full aspect-video bg-gray-900/50 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-700 overflow-hidden">
-                        {logoUrl && !logoError ? (
-                            <img
-                                src={logoUrl}
-                                alt="Show Logo"
-                                className="w-full h-full object-contain"
-                                onError={() => setLogoError(true)}
-                            />
-                        ) : (
-                            <p className="text-gray-500 text-sm px-4 text-center">
-                                {logoError ? `Failed to load logo` : 'No logo uploaded'}
-                            </p>
-                        )}
-                    </div>
-                    <input type="file" id="logo-upload" className="hidden" onChange={handleLogoUpload} accept="image/*" />
-                    <button onClick={() => document.getElementById('logo-upload').click()} disabled={isUploading} className="w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 disabled:bg-gray-600 transition-colors">
-                        <UploadCloud size={16} /> {isUploading ? 'Uploading...' : 'Upload Logo'}
-                    </button>
-                </Card>
-            </div>
-            <div className="mt-8 flex justify-end">
-                <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Changes</button>
-            </div>
-        </div>
-    );
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const uploadFormData = new FormData();
+    uploadFormData.append('file', file);
+    setIsUploading(true);
+    setLogoError(false);
+    try {
+      const result = await api.uploadLogo(uploadFormData);
+      if (result.logo_path) {
+        const updatedInfo = { ...formData, logo_path: result.logo_path };
+        setFormData(updatedInfo);
+        onSave({ ...showData, info: updatedInfo });
+      }
+    } catch (error) { 
+      console.error("Logo upload failed:", error); 
+      setLogoError(true);
+    }
+    setIsUploading(false);
+  };
+
+  const handleSave = () => onSave({ ...showData, info: formData });
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
+        <Card className="lg:col-span-3 space-y-6">
+          <InputField label="Show Name" name="show_name" value={formData.show_name || ''} onChange={handleChange} />
+          <InputField label="Production Manager" name="production_manager" value={formData.production_manager || ''} onChange={handleChange} />
+          <InputField label="PM Email" name="pm_email" type="email" value={formData.pm_email || ''} onChange={handleChange} />
+          <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
+        </Card>
+        <Card className="lg:col-span-2 space-y-4">
+          <label className="block text-sm font-medium text-gray-300">Show Logo</label>
+          <div className="w-full aspect-video bg-gray-900/50 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-700 overflow-hidden">
+            {logoUrl && !logoError ? (
+              <img 
+                src={logoUrl}
+                alt="Show Logo"
+                className="w-full h-full object-contain"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <p className="text-gray-500 text-sm px-4 text-center">
+                {logoError ? `Failed to load logo` : 'No logo uploaded'}
+              </p>
+            )}
+          </div>
+          <input type="file" id="logo-upload" className="hidden" onChange={handleLogoUpload} accept="image/*" />
+          <button onClick={() => document.getElementById('logo-upload').click()} disabled={isUploading} className="w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 disabled:bg-gray-600 transition-colors">
+            <UploadCloud size={16} /> {isUploading ? 'Uploading...' : 'Upload Logo'}
+          </button>
+        </Card>
+      </div>
+      <div className="mt-8 flex justify-end">
+        <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Changes</button>
+      </div>
+    </div>
+  );
 }
 
 const InputField = ({ label, ...props }) => (
-    <div>
-        <label className="block text-sm font-medium text-gray-300 mb-1.5">{label}</label>
-        <input {...props} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500" />
-    </div>
+  <div>
+    <label className="block text-sm font-medium text-gray-300 mb-1.5">{label}</label>
+    <input {...props} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500" />
+  </div>
 );
 
 function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType }) {
-    const [activeSheetName, setActiveSheetName] = useState('');
-    const [isNewSheetModalOpen, setIsNewSheetModalOpen] = useState(false);
-    const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
-    const [isAdvancedPrintModalOpen, setIsAdvancedPrintModalOpen] = useState(false);
-    const [editingIndex, setEditingIndex] = useState(null);
-    const [editFormData, setEditFormData] = useState({});
+  const [activeSheetName, setActiveSheetName] = useState('');
+  const [isNewSheetModalOpen, setIsNewSheetModalOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [isAdvancedPrintModalOpen, setIsAdvancedPrintModalOpen] = useState(false);
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
 
-    const sheets = useMemo(() => showData[sheetType] || {}, [showData, sheetType]);
-    const sheetNames = useMemo(() => Object.keys(sheets), [sheets]);
-    const labels = useMemo(() => (activeSheetName ? sheets[activeSheetName] || [] : []), [activeSheetName, sheets]);
-    const numSlots = useMemo(() => (pdfType === 'case' ? 2 : 24), [pdfType]);
+  const sheets = useMemo(() => showData[sheetType] || {}, [showData, sheetType]);
+  const sheetNames = useMemo(() => Object.keys(sheets), [sheets]);
+  const labels = useMemo(() => (activeSheetName ? sheets[activeSheetName] || [] : []), [activeSheetName, sheets]);
+  const numSlots = useMemo(() => (pdfType === 'case' ? 2 : 24), [pdfType]);
 
-    useEffect(() => {
-        if (sheetNames.length > 0 && !sheetNames.includes(activeSheetName)) {
-            setActiveSheetName(sheetNames[0]);
-        } else if (sheetNames.length === 0) {
-            setActiveSheetName('');
-        }
-    }, [sheetNames, activeSheetName]);
+  useEffect(() => {
+    if (sheetNames.length > 0 && !sheetNames.includes(activeSheetName)) {
+      setActiveSheetName(sheetNames[0]);
+    } else if (sheetNames.length === 0) {
+      setActiveSheetName('');
+    }
+  }, [sheetNames, activeSheetName]);
 
-    const handleCreateSheet = (newSheetName) => {
-        if (!newSheetName || sheetNames.includes(newSheetName)) {
-            alert("Sheet name cannot be empty or a duplicate.");
-            return;
-        }
-        const updatedShowData = {
-            ...showData,
-            [sheetType]: { ...sheets, [newSheetName]: [] }
-        };
-        onSave(updatedShowData);
-        setActiveSheetName(newSheetName);
-        setIsNewSheetModalOpen(false);
+  const handleCreateSheet = (newSheetName) => {
+    if (!newSheetName || sheetNames.includes(newSheetName)) {
+        alert("Sheet name cannot be empty or a duplicate.");
+        return;
+    }
+    const updatedShowData = {
+        ...showData,
+        [sheetType]: { ...sheets, [newSheetName]: [] }
     };
+    onSave(updatedShowData);
+    setActiveSheetName(newSheetName);
+    setIsNewSheetModalOpen(false);
+  };
 
-    const handleUpdateLabels = (newLabels) => {
-        const updatedShowData = { ...showData, [sheetType]: { ...sheets, [activeSheetName]: newLabels } };
-        onSave(updatedShowData);
-    };
+  const handleUpdateLabels = (newLabels) => {
+    const updatedShowData = { ...showData, [sheetType]: { ...sheets, [activeSheetName]: newLabels } };
+    onSave(updatedShowData);
+  };
+ 
+  const handleAddNewLabel = () => {
+    const newLabel = labelFields.reduce((acc, f) => ({...acc, [f.name]: ''}), {});
+    const newLabels = [...labels, newLabel];
+    handleUpdateLabels(newLabels);
+    setEditingIndex(newLabels.length - 1);
+    setEditFormData(newLabel);
+  };
 
-    const handleAddNewLabel = () => {
-        const newLabel = labelFields.reduce((acc, f) => ({ ...acc, [f.name]: '' }), {});
-        const newLabels = [...labels, newLabel];
+  const handleEditClick = (label, index) => {
+    setEditingIndex(index);
+    setEditFormData(label);
+  };
+ 
+  const handleCancelEdit = () => {
+    if (labels[editingIndex] && Object.values(labels[editingIndex]).every(val => val === '')) {
+        const newLabels = labels.filter((_, i) => i !== editingIndex);
         handleUpdateLabels(newLabels);
-        setEditingIndex(newLabels.length - 1);
-        setEditFormData(newLabel);
-    };
+    }
+    setEditingIndex(null);
+  };
 
-    const handleEditClick = (label, index) => {
-        setEditingIndex(index);
-        setEditFormData(label);
-    };
+  const handleSaveEdit = (index) => {
+    const newLabels = [...labels];
+    newLabels[index] = editFormData;
+    handleUpdateLabels(newLabels);
+    setEditingIndex(null);
+  };
 
-    const handleCancelEdit = () => {
-        if (labels[editingIndex] && Object.values(labels[editingIndex]).every(val => val === '')) {
-            const newLabels = labels.filter((_, i) => i !== editingIndex);
-            handleUpdateLabels(newLabels);
-        }
-        setEditingIndex(null);
-    };
+  const handleDeleteLabel = (indexToDelete) => {
+    if (!window.confirm("Are you sure you want to delete this label?")) return;
+    const newLabels = labels.filter((_, i) => i !== indexToDelete);
+    handleUpdateLabels(newLabels);
+  };
 
-    const handleSaveEdit = (index) => {
-        const newLabels = [...labels];
-        newLabels[index] = editFormData;
-        handleUpdateLabels(newLabels);
-        setEditingIndex(null);
-    };
+  const handleGeneratePdf = async (placement = null) => {
+    const body = { labels };
+    if (pdfType === 'case') body.logo_path = showData.info.logo_path;
+    if (placement) body.placement = placement;
+   
+    try {
+      const blob = await api.generatePdf(pdfType, body);
+      const url = URL.createObjectURL(blob);
+      setPdfPreviewUrl(url);
+    } catch(e) { console.error("PDF generation failed", e); }
+  };
 
-    const handleDeleteLabel = (indexToDelete) => {
-        if (!window.confirm("Are you sure you want to delete this label?")) return;
-        const newLabels = labels.filter((_, i) => i !== indexToDelete);
-        handleUpdateLabels(newLabels);
-    };
-
-    const handleGeneratePdf = async (placement = null) => {
-        const body = { labels };
-        if (pdfType === 'case') body.logo_path = showData.info.logo_path;
-        if (placement) body.placement = placement;
-
-        try {
-            const blob = await api.generatePdf(pdfType, body);
-            const url = URL.createObjectURL(blob);
-            setPdfPreviewUrl(url);
-        } catch (e) { console.error("PDF generation failed", e); }
-    };
-
-    return (
-        <>
-            <Card>
-                <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
-                    <div className="flex items-center gap-2">
-                        <div className="relative">
-                            <select value={activeSheetName} onChange={(e) => setActiveSheetName(e.target.value)} className="appearance-none p-2 bg-gray-700 border border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
-                                <option value="" disabled>{sheetNames.length === 0 ? 'No sheets' : 'Select a sheet'}</option>
-                                {sheetNames.map(name => <option key={name} value={name}>{name}</option>)}
-                            </select>
-                            <ChevronsUpDown size={16} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                        </div>
-                        <button onClick={() => setIsNewSheetModalOpen(true)} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg"><Plus size={18} /></button>
-                    </div>
-                    {activeSheetName && (
-                        <div className="flex items-center gap-2">
-                            <button onClick={handleAddNewLabel} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
-                                <Plus size={16} /> Add Label
-                            </button>
-                        </div>
-                    )}
-                </div>
-
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                        <thead className="border-b border-gray-700">
-                            <tr>
-                                {labelFields.map(f => <th key={f.name} className="p-3 text-left font-bold text-gray-400 uppercase tracking-wider">{f.label}</th>)}
-                                <th className="p-3 w-28 text-right font-bold text-gray-400 uppercase tracking-wider">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {labels.map((label, idx) => (
-                                editingIndex === idx ? (
-                                    <EditableLabelRow
-                                        key={idx}
-                                        fields={labelFields}
-                                        formData={editFormData}
-                                        setFormData={setEditFormData}
-                                        onSave={() => handleSaveEdit(idx)}
-                                        onCancel={handleCancelEdit}
-                                    />
-                                ) : (
-                                    <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-800/50">
-                                        {labelFields.map(f => <td key={f.name} className="p-3 truncate">{label[f.name]}</td>)}
-                                        <td className="p-3 flex justify-end gap-2">
-                                            <button onClick={() => handleEditClick(label, idx)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
-                                            <button onClick={() => handleDeleteLabel(idx)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
-                                        </td>
-                                    </tr>
-                                )
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="mt-6 flex justify-end gap-4">
-                    <button onClick={() => setIsAdvancedPrintModalOpen(true)} disabled={labels.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-colors text-sm disabled:bg-gray-600 disabled:text-gray-400">
-                        <Grid3x3 size={16} /> Advanced Print
-                    </button>
-                    <button onClick={() => handleGeneratePdf()} disabled={labels.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors text-sm disabled:bg-gray-600 disabled:text-gray-400">
-                        <Eye size={16} /> Generate Full Sheet
-                    </button>
-                </div>
-            </Card>
-
-            <NewSheetModal isOpen={isNewSheetModalOpen} onClose={() => setIsNewSheetModalOpen(false)} onSubmit={handleCreateSheet} />
-            <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
-            {isAdvancedPrintModalOpen && <AdvancedPrintModal
-                key={pdfType}
-                isOpen={isAdvancedPrintModalOpen}
-                onClose={() => setIsAdvancedPrintModalOpen(false)}
-                labels={labels}
-                onGeneratePdf={handleGeneratePdf}
-                numSlots={numSlots}
-                pdfType={pdfType}
-            />}
-        </>
-    );
+  return (
+    <>
+      <Card>
+        <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <select value={activeSheetName} onChange={(e) => setActiveSheetName(e.target.value)} className="appearance-none p-2 bg-gray-700 border border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option value="" disabled>{sheetNames.length === 0 ? 'No sheets' : 'Select a sheet'}</option>
+                {sheetNames.map(name => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <ChevronsUpDown size={16} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+            <button onClick={() => setIsNewSheetModalOpen(true)} className="p-2 bg-gray-700 hover:bg-gray-600 rounded-lg"><Plus size={18} /></button>
+          </div>
+          {activeSheetName && (
+            <div className="flex items-center gap-2">
+              <button onClick={handleAddNewLabel} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
+                  <Plus size={16}/> Add Label
+              </button>
+            </div>
+          )}
+        </div>
+       
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-gray-700">
+              <tr>
+                {labelFields.map(f => <th key={f.name} className="p-3 text-left font-bold text-gray-400 uppercase tracking-wider">{f.label}</th>)}
+                <th className="p-3 w-28 text-right font-bold text-gray-400 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {labels.map((label, idx) => (
+                editingIndex === idx ? (
+                  <EditableLabelRow
+                    key={idx}
+                    fields={labelFields}
+                    formData={editFormData}
+                    setFormData={setEditFormData}
+                    onSave={() => handleSaveEdit(idx)}
+                    onCancel={handleCancelEdit}
+                  />
+                ) : (
+                  <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-800/50">
+                    {labelFields.map(f => <td key={f.name} className="p-3 truncate">{label[f.name]}</td>)}
+                    <td className="p-3 flex justify-end gap-2">
+                      <button onClick={() => handleEditClick(label, idx)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
+                      <button onClick={() => handleDeleteLabel(idx)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
+                    </td>
+                  </tr>
+                )
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="mt-6 flex justify-end gap-4">
+          <button onClick={() => setIsAdvancedPrintModalOpen(true)} disabled={labels.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-colors text-sm disabled:bg-gray-600 disabled:text-gray-400">
+            <Grid3x3 size={16} /> Advanced Print
+          </button>
+          <button onClick={() => handleGeneratePdf()} disabled={labels.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors text-sm disabled:bg-gray-600 disabled:text-gray-400">
+            <Eye size={16} /> Generate Full Sheet
+          </button>
+        </div>
+      </Card>
+     
+      <NewSheetModal isOpen={isNewSheetModalOpen} onClose={() => setIsNewSheetModalOpen(false)} onSubmit={handleCreateSheet} />
+      <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
+      {isAdvancedPrintModalOpen && <AdvancedPrintModal 
+        key={pdfType}
+        isOpen={isAdvancedPrintModalOpen} 
+        onClose={() => setIsAdvancedPrintModalOpen(false)} 
+        labels={labels}
+        onGeneratePdf={handleGeneratePdf}
+        numSlots={numSlots}
+        pdfType={pdfType}
+      />}
+    </>
+  );
 }
 
 const EditableLabelRow = ({ fields, formData, setFormData, onSave, onCancel }) => {
-    const handleChange = (e) => {
-        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
-    };
+  const handleChange = (e) => {
+    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+  };
 
-    return (
-        <tr className="bg-gray-800/50">
-            {fields.map(field => (
-                <td key={field.name} className="p-2">
-                    {field.type === 'textarea' ? (
-                        <textarea name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-1 bg-gray-900 border border-gray-600 rounded-md text-sm" rows="1"></textarea>
-                    ) : (
-                        <input type={field.type === 'color' ? 'text' : field.type} name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-1 bg-gray-900 border border-gray-600 rounded-md text-sm" />
-                    )}
-                </td>
-            ))}
-            <td className="p-2 flex justify-end gap-2">
-                <button onClick={onSave} className="p-2 bg-green-600 hover:bg-green-500 rounded-lg"><Save size={16} /></button>
-                <button onClick={onCancel} className="p-2 bg-red-600 hover:bg-red-500 rounded-lg"><X size={16} /></button>
-            </td>
-        </tr>
-    );
+  return (
+    <tr className="bg-gray-800/50">
+      {fields.map(field => (
+        <td key={field.name} className="p-2">
+          {field.type === 'textarea' ? (
+            <textarea name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-1 bg-gray-900 border border-gray-600 rounded-md text-sm" rows="1"></textarea>
+          ) : (
+            <input type={field.type === 'color' ? 'text' : field.type} name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-1 bg-gray-900 border border-gray-600 rounded-md text-sm" />
+          )}
+        </td>
+      ))}
+      <td className="p-2 flex justify-end gap-2">
+        <button onClick={onSave} className="p-2 bg-green-600 hover:bg-green-500 rounded-lg"><Save size={16} /></button>
+        <button onClick={onCancel} className="p-2 bg-red-600 hover:bg-red-500 rounded-lg"><X size={16} /></button>
+      </td>
+    </tr>
+  );
 };
 
 const loomLabelFields = [
@@ -1325,21 +1417,21 @@ const loomLabelFields = [
     { name: 'destination', label: 'Destination', type: 'text' }
 ];
 const LoomLabelView = ({ showData, onSave }) => <LabelManagerView sheetType="loom_sheets" pdfType="loom" showData={showData} onSave={onSave} labelFields={loomLabelFields} />;
-const CaseLabelView = ({ showData, onSave }) => <LabelManagerView sheetType="case_sheets" pdfType="case" showData={showData} onSave={onSave} labelFields={[{ name: 'send_to', label: 'Send To', type: 'text' }, { name: 'contents', label: 'Contents', type: 'textarea' }]} />;
+const CaseLabelView = ({ showData, onSave }) => <LabelManagerView sheetType="case_sheets" pdfType="case" showData={showData} onSave={onSave} labelFields={[{ name: 'send_to', label: 'Send To', type: 'text' },{ name: 'contents', label: 'Contents', type: 'textarea' }]} />;
 
 const Modal = ({ isOpen, onClose, children, title, maxWidth = 'max-w-md' }) => {
-    if (!isOpen) return null;
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-            <div className={`bg-gray-800 p-6 rounded-xl shadow-xl w-full ${maxWidth} border border-gray-700`}>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-white">{title}</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20} /></button>
-                </div>
-                {children}
-            </div>
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className={`bg-gray-800 p-6 rounded-xl shadow-xl w-full ${maxWidth} border border-gray-700`}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold text-white">{title}</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={20}/></button>
         </div>
-    );
+        {children}
+      </div>
+    </div>
+  );
 };
 
 const NewShowModal = ({ isOpen, onClose, onSubmit }) => {
@@ -1393,25 +1485,25 @@ const NewSheetModal = ({ isOpen, onClose, onSubmit }) => {
 };
 
 const PdfPreviewModal = ({ url, onClose }) => {
-    if (!url) return null;
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-            <div className="bg-gray-800 rounded-xl shadow-xl w-full max-w-4xl h-[90vh] flex flex-col border border-gray-700">
-                <header className="flex justify-between items-center p-4 border-b border-gray-700">
-                    <h2 className="text-xl font-bold text-white">PDF Preview</h2>
-                    <div className="flex items-center gap-4">
-                        <a href={url} download="labels.pdf" className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">
-                            <Download size={16} /> Download
-                        </a>
-                        <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={24} /></button>
-                    </div>
-                </header>
-                <div className="flex-grow p-4">
-                    <iframe src={url} title="PDF Preview" className="w-full h-full border-0 rounded-lg"></iframe>
-                </div>
-            </div>
+  if (!url) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-800 rounded-xl shadow-xl w-full max-w-4xl h-[90vh] flex flex-col border border-gray-700">
+        <header className="flex justify-between items-center p-4 border-b border-gray-700">
+          <h2 className="text-xl font-bold text-white">PDF Preview</h2>
+          <div className="flex items-center gap-4">
+            <a href={url} download="labels.pdf" className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">
+              <Download size={16}/> Download
+            </a>
+            <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={24}/></button>
+          </div>
+        </header>
+        <div className="flex-grow p-4">
+          <iframe src={url} title="PDF Preview" className="w-full h-full border-0 rounded-lg"></iframe>
         </div>
-    );
+      </div>
+    </div>
+  );
 };
 
 const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf, numSlots, pdfType }) => {
@@ -1438,13 +1530,13 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf, numSlots, 
         if (draggedItem) {
             const newSlots = [...printSlots];
             const oldIndex = newSlots.findIndex(item => item && item.originalIndex === draggedItem.originalIndex);
-            if (oldIndex > -1) newSlots[oldIndex] = null;
+            if(oldIndex > -1) newSlots[oldIndex] = null;
             newSlots[slotIndex] = draggedItem;
             setPrintSlots(newSlots);
             setDraggedItem(null);
         }
     };
-
+   
     const removeFromSlot = (slotIndex) => {
         const newSlots = [...printSlots];
         newSlots[slotIndex] = null;
@@ -1461,7 +1553,7 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf, numSlots, 
         onGeneratePdf(placement);
         onClose();
     };
-
+   
     const title = pdfType === 'case' ? "Advanced Case Label Print" : "Advanced Loom Label Print";
     const slotText = pdfType === 'case' ? 'Page Side' : 'Slot';
     const gridCols = pdfType === 'case' ? 'grid-cols-1' : 'grid-cols-3';
@@ -1471,12 +1563,12 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf, numSlots, 
         <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-4xl">
             <div className="grid grid-cols-3 gap-6 h-[60vh]">
                 <div className="col-span-1 bg-gray-900/50 p-4 rounded-lg overflow-y-auto">
-                    <h3 className="font-bold mb-4 text-white flex items-center gap-2"><List size={16} /> Available Labels</h3>
+                    <h3 className="font-bold mb-4 text-white flex items-center gap-2"><List size={16}/> Available Labels</h3>
                     <div className="space-y-2">
                         {labels.map((label, index) => (
-                            <div
-                                key={index}
-                                draggable
+                            <div 
+                                key={index} 
+                                draggable 
                                 onDragStart={(e) => handleDragStart(e, { ...label, originalIndex: index })}
                                 className={`p-2 rounded-md text-sm cursor-grab ${printSlots.some(s => s && s.originalIndex === index) ? 'bg-gray-700 text-gray-500' : 'bg-gray-700 hover:bg-gray-600'}`}
                             >
@@ -1486,12 +1578,12 @@ const AdvancedPrintModal = ({ isOpen, onClose, labels, onGeneratePdf, numSlots, 
                     </div>
                 </div>
                 <div className="col-span-2 bg-gray-900/50 p-4 rounded-lg overflow-y-auto">
-                    <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Grid3x3 size={16} /> Print Sheet ({numSlots} Slots)</h3>
+                    <h3 className="font-bold mb-4 text-white flex items-center gap-2"><Grid3x3 size={16}/> Print Sheet ({numSlots} Slots)</h3>
                     <div className={`grid ${gridCols} gap-4`}>
                         {printSlots.map((item, index) => (
-                            <div
-                                key={index}
-                                onDragOver={handleDragOver}
+                            <div 
+                                key={index} 
+                                onDragOver={handleDragOver} 
                                 onDrop={(e) => handleDrop(e, index)}
                                 className={`relative ${slotHeight} border-2 border-dashed border-gray-600 rounded-lg flex items-center justify-center text-center p-2 drag-over-target`}
                             >

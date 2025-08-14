@@ -1,20 +1,23 @@
-/* Import the new primary font and a fallback */
+/* Import Tailwind's base, components, and utilities styles. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* You can still keep your custom base styles here if needed. */
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
 
 body {
   margin: 0;
-  /* Use Space Mono as the primary font, with Inter as a fallback for better UI text rendering */
   font-family: 'Space Mono', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* A slightly darker, more neutral background */
   background-color: #111111; 
-  color: #e5e7eb; /* A slightly brighter default text color */
+  color: #e5e7eb;
 }
 
-/* Custom Scrollbar for a more integrated dark-mode feel */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -31,12 +34,10 @@ body {
   background: #6b7280;
 }
 
-/* Ensure inputs with the mono font don't look out of place */
 input, select, textarea, button {
     font-family: 'Inter', sans-serif;
 }
 
-/* Use the mono font for specific elements where it fits best, like titles */
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Space Mono', monospace;
 }

@@ -10,7 +10,7 @@ import uuid
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, RackEquipmentInstance, RackCreate,
-    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate
+    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
@@ -268,6 +268,25 @@ async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_
     # For now, we'll do a simple delete and rely on frontend logic to be correct.
     supabase.table('rack_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
+
+# --- Library Management Endpoints (New) ---
+
+@router.get("/library", tags=["Library"])
+async def get_library(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Fetches the entire library tree for the logged-in user."""
+    try:
+        # Fetch all folders (both default and user-specific)
+        folders_response = supabase.table('folders').select('*').or_(f'user_id.eq.{user.id},is_default.eq.true').execute()
+
+        # Fetch all equipment templates (both default and user-specific)
+        equipment_response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id},is_default.eq.true').execute()
+
+        return {
+            "folders": folders_response.data,
+            "equipment": equipment_response.data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
 
 # --- File Upload Endpoint ---
 

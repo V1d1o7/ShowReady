@@ -74,6 +74,17 @@ class EquipmentTemplate(BaseModel):
     ru_height: int
     power_consumption_watts: Optional[int] = None
     panels: List[PanelLayout] = Field(default_factory=list)
+    folder_id: Optional[uuid.UUID] = None
+    is_default: bool = False
+
+# This new model correctly represents an equipment instance with its template data nested inside.
+class RackEquipmentInstanceWithTemplate(BaseModel):
+    id: uuid.UUID
+    rack_id: uuid.UUID
+    template_id: uuid.UUID
+    ru_position: int
+    instance_name: str
+    equipment_templates: Optional[EquipmentTemplate] = None
 
 class RackEquipmentInstance(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -90,6 +101,7 @@ class RackEquipmentInstanceCreate(BaseModel):
 class RackEquipmentInstanceUpdate(BaseModel):
     ru_position: int
 
+# This new model ensures the full equipment data is sent to the frontend.
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     show_name: str
@@ -97,7 +109,7 @@ class Rack(BaseModel):
     rack_name: str
     ru_height: int
     saved_to_library: bool = False
-    equipment: List[RackEquipmentInstance] = Field(default_factory=list)
+    equipment: List[RackEquipmentInstanceWithTemplate] = Field(default_factory=list)
 
 class RackCreate(BaseModel):
     rack_name: str
@@ -108,3 +120,15 @@ class RackUpdate(BaseModel):
     rack_name: Optional[str] = None
     ru_height: Optional[int] = None
     saved_to_library: Optional[bool] = None
+
+# --- Library Models ---
+class Folder(BaseModel):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    parent_id: Optional[uuid.UUID] = None
+    name: str
+    is_default: bool = False
+
+class FolderCreate(BaseModel):
+    name: str
+    parent_id: Optional[uuid.UUID] = None
