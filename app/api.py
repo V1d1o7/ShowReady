@@ -43,6 +43,37 @@ async def get_user(request: Request, supabase: Client = Depends(get_supabase_cli
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+# --- Admin Authentication Dependency ---
+async def get_admin_user(user = Depends(get_user)):
+    """Dependency that checks if the user has the 'admin' role."""
+    supabase: Client = get_supabase_client()
+    try:
+        profile_response = supabase.table('profiles').select('role').eq('id', user.id).single().execute()
+        if not profile_response.data or profile_response.data.get('role') != 'admin':
+            raise HTTPException(status_code=403, detail="User is not an administrator.")
+        return user
+    except Exception as e:
+        # This will catch cases where the profile doesn't exist or other DB errors
+        raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
+
+
+# --- Admin Library Management Endpoints ---
+@router.get("/admin/folders", tags=["Admin"], response_model=List[Folder])
+async def get_default_folders(admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Retrieves all default library folders."""
+    response = supabase.table('folders').select('*').eq('is_default', True).execute()
+    return response.data
+
+@router.post("/admin/folders", tags=["Admin"], response_model=Folder)
+async def create_default_folder(folder_data: FolderCreate, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Creates a new default library folder."""
+    insert_data = folder_data.model_dump()
+    insert_data['is_default'] = True
+    response = supabase.table('folders').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create folder.")
+    return response.data[0]
+
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
 async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
