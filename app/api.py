@@ -348,6 +348,7 @@ async def add_equipment_to_rack(
         "ru_position": equipment_data.ru_position,
         "rack_side": equipment_data.rack_side,
         "instance_name": new_instance_name
+        
     }
     
     response = supabase.table('rack_equipment_instances').insert(insert_data).execute()
@@ -355,25 +356,39 @@ async def add_equipment_to_rack(
         return response.data[0]
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
 
-@router.put("/racks/equipment/{instance_id}", tags=["Racks"])
+@router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
 async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates the position, side, or IP address of a rack equipment instance."""
-    update_dict = update_data.model_dump(exclude_unset=True)
-    # Check if a user owns the rack before updating.
-    check_owner = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
-    if check_owner.data:
-        rack_id = check_owner.data['rack_id']
-        is_owner = supabase.table('racks').select('user_id').eq('id', rack_id).eq('user_id', str(user.id)).single().execute()
-        if not is_owner.data:
-            raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
     
-    # Check for position conflicts before updating
-    if update_dict.get('ru_position') is not None or update_dict.get('rack_side') is not None:
-        pass # TODO: Add collision checking logic here
+    # First, verify the equipment instance exists and the user has permission.
+    try:
+        # Fetch the instance and the associated rack's user_id in one go
+        owner_check_res = supabase.table('rack_equipment_instances').select('racks(user_id)').eq('id', str(instance_id)).single().execute()
+        
+        if not owner_check_res.data or not owner_check_res.data.get('racks'):
+            raise HTTPException(status_code=404, detail="Equipment instance not found.")
+
+        if str(owner_check_res.data['racks']['user_id']) != str(user.id):
+            raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
+
+    except Exception as e:
+        # Re-raise HTTP exceptions, otherwise log and raise a 500 for unexpected errors.
+        if isinstance(e, HTTPException):
+            raise e
+        print(f"Error during ownership check: {e}")
+        raise HTTPException(status_code=500, detail="An error occurred while verifying equipment ownership.")
+
+    # If authorized, proceed with the update.
+    update_dict = update_data.model_dump(exclude_unset=True)
+    
+    # TODO: Add collision checking logic for ru_position and rack_side if needed.
 
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
+    
     if response.data:
         return response.data[0]
+    
+    # This part should ideally not be reached if the initial check passes, but serves as a fallback.
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])

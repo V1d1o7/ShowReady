@@ -104,7 +104,9 @@ class RackEquipmentInstance(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
-    ip_address: Optional[str] = None # New field
+    ip_address: Optional[str] = None 
+    x_pos: Optional[int] = None 
+    y_pos: Optional[int] = None 
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
@@ -115,7 +117,9 @@ class RackEquipmentInstanceCreate(BaseModel):
 class RackEquipmentInstanceUpdate(BaseModel):
     ru_position: Optional[int] = None
     rack_side: Optional[str] = None
-    ip_address: Optional[str] = None # Updated field
+    ip_address: Optional[str] = None
+    x_pos: Optional[int] = None 
+    y_pos: Optional[int] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
     id: uuid.UUID
@@ -124,7 +128,9 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
-    ip_address: Optional[str] = None # New field
+    ip_address: Optional[str] = None
+    x_pos: Optional[int] = None 
+    y_pos: Optional[int] = None
     equipment_templates: Optional[EquipmentTemplate] = None
 
 class Rack(BaseModel):
