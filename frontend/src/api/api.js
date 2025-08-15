@@ -83,21 +83,37 @@ export const api = {
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
         body: JSON.stringify(equipmentData),
     }).then(handleResponse),
-    
-    // --- ADD THESE TWO ---
-    deleteAdminFolder: async (folderId) => fetch(`/api/admin/folders/${folderId}`, { 
-        method: 'DELETE', 
-        headers: await getAuthHeader() 
+    deleteAdminFolder: async (folderId) => fetch(`/api/admin/folders/${folderId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
     }),
-    deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, { 
-        method: 'DELETE', 
-        headers: await getAuthHeader() 
+    deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
     }),
-
-
-
-
-
-
     
+    // --- New Wire Diagram Endpoints ---
+    getConnectionsForShow: async (showName) => fetch(`/api/connections/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    createConnection: async (connectionData) => fetch('/api/connections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(connectionData),
+    }).then(handleResponse),
+    updateConnection: async (connectionId, updateData) => fetch(`/api/connections/${connectionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(updateData),
+    }).then(handleResponse),
+    deleteConnection: async (connectionId) => fetch(`/api/connections/${connectionId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
+    }),
+    
+    // UPDATED: This was the missing function.
+    updateEquipmentInstance: async (instanceId, updateData) => fetch(`/api/racks/equipment/${instanceId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(updateData),
+    }).then(handleResponse),
+
 };

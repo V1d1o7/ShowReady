@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { FileText, Box, Info, ArrowLeft, Server } from 'lucide-react';
+import { FileText, Box, Info, ArrowLeft, Server, GitBranch } from 'lucide-react';
 import ShowInfoView from './ShowInfoView';
 import LoomLabelView from './LoomLabelView';
 import CaseLabelView from './CaseLabelView';
 import RackBuilderView from './RackBuilderView';
+import WireDiagramView from './WireDiagramView';
 
 
 const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
@@ -14,6 +15,7 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
         { id: 'loom', label: 'Loom Labels', icon: FileText },
         { id: 'case', label: 'Case Labels', icon: Box },
         { id: 'rack', label: 'Rack Builder', icon: Server },
+        { id: 'wire-diagram', label: 'Wire Diagram', icon: GitBranch },
     ];
 
     if (isLoading || !showData) {
@@ -40,6 +42,7 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
                 {activeTab === 'loom' && <LoomLabelView showData={showData} onSave={onSave} />}
                 {activeTab === 'case' && <CaseLabelView showData={showData} onSave={onSave} />}
                 {activeTab === 'rack' && <RackBuilderView showName={showName} />}
+                {activeTab === 'wire-diagram' && <WireDiagramView showName={showName} />}
             </main>
         </div>
     );

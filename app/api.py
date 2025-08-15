@@ -10,7 +10,8 @@ import uuid
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
-    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate
+    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
+    Connection, ConnectionCreate, ConnectionUpdate, PortTemplate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
@@ -71,6 +72,7 @@ async def create_default_folder(folder_data: FolderCreate, admin_user = Depends(
         raise HTTPException(status_code=500, detail="Failed to create folder.")
     return response.data[0]
 
+# UPDATED: Explicitly convert port IDs to strings for Supabase JSONB insert
 @router.post("/admin/equipment", tags=["Admin"], response_model=EquipmentTemplate)
 async def create_default_equipment(
     equipment_data: EquipmentTemplateCreate,
@@ -78,11 +80,15 @@ async def create_default_equipment(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Creates a new default equipment template."""
+    # Convert Pydantic UUID objects back to strings for database insertion
+    ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
+
     insert_data = {
         "model_number": equipment_data.model_number,
         "manufacturer": equipment_data.manufacturer,
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
+        "ports": ports_data,
         "is_default": True,
     }
     if equipment_data.folder_id:
@@ -349,9 +355,22 @@ async def add_equipment_to_rack(
         return response.data[0]
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
 
-@router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
-async def move_equipment_in_rack(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.put("/racks/equipment/{instance_id}", tags=["Racks"])
+async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates the position, side, or IP address of a rack equipment instance."""
     update_dict = update_data.model_dump(exclude_unset=True)
+    # Check if a user owns the rack before updating.
+    check_owner = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
+    if check_owner.data:
+        rack_id = check_owner.data['rack_id']
+        is_owner = supabase.table('racks').select('user_id').eq('id', rack_id).eq('user_id', str(user.id)).single().execute()
+        if not is_owner.data:
+            raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
+    
+    # Check for position conflicts before updating
+    if update_dict.get('ru_position') is not None or update_dict.get('rack_side') is not None:
+        pass # TODO: Add collision checking logic here
+
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
     if response.data:
         return response.data[0]
@@ -359,6 +378,14 @@ async def move_equipment_in_rack(instance_id: uuid.UUID, update_data: RackEquipm
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
 async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # Check if a user owns the rack before deleting.
+    check_owner = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
+    if check_owner.data:
+        rack_id = check_owner.data['rack_id']
+        is_owner = supabase.table('racks').select('user_id').eq('id', rack_id).eq('user_id', str(user.id)).single().execute()
+        if not is_owner.data:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this equipment instance.")
+            
     supabase.table('rack_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
 
@@ -372,6 +399,76 @@ async def get_library(user = Depends(get_user), supabase: Client = Depends(get_s
         return { "folders": folders_response.data, "equipment": equipment_response.data }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
+
+# --- Wire Diagram Endpoints ---
+@router.post("/connections", tags=["Wire Diagram"])
+async def create_connection(connection_data: ConnectionCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new connection between two equipment ports."""
+    try:
+        # Check that both devices are in a rack owned by the user
+        source_device_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(connection_data.source_device_id)).single().execute()
+        dest_device_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(connection_data.destination_device_id)).single().execute()
+        
+        if not source_device_res.data or not dest_device_res.data:
+            raise HTTPException(status_code=404, detail="Source or destination device not found.")
+            
+        show_id_res = supabase.table('racks').select('show_name, user_id').eq('id', source_device_res.data['rack_id']).single().execute()
+        if not show_id_res.data or show_id_res.data['user_id'] != str(user.id):
+            raise HTTPException(status_code=403, detail="Not authorized to create a connection in this show.")
+
+        insert_data = connection_data.model_dump()
+        insert_data['show_id'] = show_id_res.data['show_name']
+        
+        response = supabase.table('connections').insert(insert_data).execute()
+        if response.data:
+            return response.data[0]
+        raise HTTPException(status_code=500, detail="Failed to create connection.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/connections/{show_name}", tags=["Wire Diagram"])
+async def get_connections_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all connections for a specific show."""
+    try:
+        response = supabase.table('connections').select('*').eq('show_id', show_name).execute()
+        if not response.data:
+            return []
+        
+        # We also need to get the equipment info for the wire diagram view
+        connections = response.data
+        device_ids = {c['source_device_id'] for c in connections} | {c['destination_device_id'] for c in connections}
+        equipment_res = supabase.table('rack_equipment_instances').select('id, instance_name, ip_address, equipment_templates(model_number, ports)').in_('id', list(device_ids)).execute()
+        equipment_map = {e['id']: e for e in equipment_res.data}
+        
+        return {"connections": connections, "equipment": equipment_map}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch connections: {str(e)}")
+
+@router.put("/connections/{connection_id}", tags=["Wire Diagram"])
+async def update_connection(connection_id: uuid.UUID, update_data: ConnectionUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates a connection's details."""
+    try:
+        update_dict = update_data.model_dump(exclude_unset=True)
+        response = supabase.table('connections').update(update_dict).eq('id', str(connection_id)).execute()
+        if response.data:
+            return response.data[0]
+        raise HTTPException(status_code=404, detail="Connection not found or update failed.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/connections/{connection_id}", status_code=204, tags=["Wire Diagram"])
+async def delete_connection(connection_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes a specific connection."""
+    # Check if a user owns the show before deleting.
+    conn_res = supabase.table('connections').select('show_id').eq('id', str(connection_id)).single().execute()
+    if conn_res.data:
+        show_name = conn_res.data['show_id']
+        is_owner = supabase.table('shows').select('user_id').eq('name', show_name).eq('user_id', str(user.id)).single().execute()
+        if not is_owner.data:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this connection.")
+            
+    supabase.table('connections').delete().eq('id', str(connection_id)).execute()
+    return
 
 # --- File Upload Endpoint ---
 @router.post("/upload/logo", tags=["File Upload"])

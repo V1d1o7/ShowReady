@@ -68,6 +68,13 @@ class PanelLayout(BaseModel):
     background_svg: str
     connectors: List[Dict]
 
+# New model for defining a port on an equipment template
+class PortTemplate(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    label: str
+    type: str  # 'input' or 'output'
+    connector_type: str # 'HDMI', 'SDI', 'XLR', 'CAT6', 'RJ45' etc.
+
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     user_id: Optional[uuid.UUID] = None
@@ -77,14 +84,17 @@ class EquipmentTemplate(BaseModel):
     width: str = 'full'
     power_consumption_watts: Optional[int] = None
     panels: List[PanelLayout] = Field(default_factory=list)
+    ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
 
+# Updated create model to include ports
 class EquipmentTemplateCreate(BaseModel):
     model_number: str
     manufacturer: str
     ru_height: int
     width: str = 'full'
+    ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
 
 class RackEquipmentInstance(BaseModel):
@@ -94,18 +104,18 @@ class RackEquipmentInstance(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
+    ip_address: Optional[str] = None # New field
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
     ru_position: int
-    # --- THIS IS THE FIX ---
-    # The instance_name is now optional from the client because the server generates it.
     instance_name: Optional[str] = None 
     rack_side: Optional[str] = None
 
 class RackEquipmentInstanceUpdate(BaseModel):
-    ru_position: int
+    ru_position: Optional[int] = None
     rack_side: Optional[str] = None
+    ip_address: Optional[str] = None # Updated field
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
     id: uuid.UUID
@@ -114,6 +124,7 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
+    ip_address: Optional[str] = None # New field
     equipment_templates: Optional[EquipmentTemplate] = None
 
 class Rack(BaseModel):
@@ -134,6 +145,36 @@ class RackUpdate(BaseModel):
     rack_name: Optional[str] = None
     ru_height: Optional[int] = None
     saved_to_library: Optional[bool] = None
+
+# New models for connections
+class Connection(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    show_id: uuid.UUID
+    source_device_id: uuid.UUID
+    source_port_id: uuid.UUID
+    destination_device_id: uuid.UUID
+    destination_port_id: uuid.UUID
+    cable_type: str
+    label: Optional[str] = None
+    length_ft: Optional[int] = None
+
+class ConnectionCreate(BaseModel):
+    source_device_id: uuid.UUID
+    source_port_id: uuid.UUID
+    destination_device_id: uuid.UUID
+    destination_port_id: uuid.UUID
+    cable_type: str
+    label: Optional[str] = None
+    length_ft: Optional[int] = None
+
+class ConnectionUpdate(BaseModel):
+    source_device_id: Optional[uuid.UUID] = None
+    source_port_id: Optional[uuid.UUID] = None
+    destination_device_id: Optional[uuid.UUID] = None
+    destination_port_id: Optional[uuid.UUID] = None
+    cable_type: Optional[str] = None
+    label: Optional[str] = None
+    length_ft: Optional[int] = None
 
 # --- Library Models ---
 class Folder(BaseModel):
