@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../api/api';
-import { v4 as uuidv4 } from 'uuid';
-import { Plus, Edit, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import Modal from '../components/Modal';
+import DeviceNode from '../components/DeviceNode'; // Import the new component
 
 // Connection editing modal
 const ConnectionEditModal = ({ isOpen, onClose, connection, onSave, onDelete }) => {
@@ -57,7 +57,7 @@ const ConnectionEditModal = ({ isOpen, onClose, connection, onSave, onDelete }) 
             <div className="flex justify-between items-center mt-6">
                 <button
                     onClick={onDelete}
-                    className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 rounded-lg font-bold"
+                    className="flex items-center gap-2 px-4 py-2 text-sm bg-red-600 hover:bg-red-500 rounded-lg font-bold"
                 >
                     <Trash2 size={16} /> Delete
                 </button>
@@ -74,7 +74,7 @@ const ConnectionEditModal = ({ isOpen, onClose, connection, onSave, onDelete }) 
     );
 };
 
-// New modal for editing device properties
+// Modal for editing device properties
 const EditDeviceModal = ({ isOpen, onClose, device, onSave }) => {
     const [ipAddress, setIpAddress] = useState('');
 
@@ -114,100 +114,6 @@ const EditDeviceModal = ({ isOpen, onClose, device, onSave }) => {
     );
 };
 
-
-const Port = ({ port, type, onMouseDown, onMouseUp, positionIndex }) => {
-    const isInput = type === 'input';
-    const portColor = { 'HDMI': 'bg-blue-500', 'SDI': 'bg-green-500', 'XLR': 'bg-red-500', 'CAT6': 'bg-yellow-500', 'RJ45': 'bg-yellow-500' }[port.connector_type] || 'bg-gray-500';
-
-    const portStyle = {
-        top: `${(positionIndex + 0.5) * 25}px`,
-    };
-
-    return (
-        <div
-            className={`absolute w-3 h-3 rounded-full border border-white cursor-pointer z-10 ${isInput ? 'left-0 -translate-x-1/2' : 'right-0 translate-x-1/2'} ${portColor}`}
-            data-port-id={port.id}
-            data-port-label={port.label}
-            data-connector-type={port.connector_type}
-            data-port-type={port.type}
-            onMouseDown={isInput ? null : onMouseDown}
-            onMouseUp={isInput ? onMouseUp : null}
-            title={`${port.label} (${port.connector_type})`}
-            style={portStyle}
-        />
-    );
-};
-
-
-const DeviceNode = ({ device, onPortMouseDown, onPortMouseUp, position, setPosition, onNodeClick }) => {
-    const nodeRef = useRef(null);
-
-    const handleMouseDown = (e) => {
-        if (!nodeRef.current) return;
-        const startX = e.clientX;
-        const startY = e.clientY;
-        const startLeft = nodeRef.current.offsetLeft;
-        const startTop = nodeRef.current.offsetTop;
-
-        const handleMouseMove = (moveEvent) => {
-            const dx = moveEvent.clientX - startX;
-            const dy = moveEvent.clientY - startY;
-            setPosition(device.id, startLeft + dx, startTop + dy);
-        };
-
-        const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            
-            // Save the new position to the database
-            const newPos = {
-                x_pos: nodeRef.current.offsetLeft,
-                y_pos: nodeRef.current.offsetTop,
-            };
-            api.updateEquipmentInstance(device.id, newPos).catch(error => {
-                console.error("Failed to save node position:", error);
-            });
-        };
-
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const ports = useMemo(() => {
-        // Sort ports by label to ensure a consistent order
-        return device.equipment_templates.ports.sort((a, b) => a.label.localeCompare(b.label));
-    }, [device.equipment_templates.ports]);
-    
-    const inputs = ports.filter(p => p.type === 'input');
-    const outputs = ports.filter(p => p.type === 'output');
-
-    return (
-        <div
-            ref={nodeRef}
-            className="absolute bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-4 w-64 cursor-grab active:cursor-grabbing"
-            style={{ left: position.x, top: position.y }}
-            onMouseDown={handleMouseDown}
-            onDoubleClick={() => onNodeClick(device)}
-            data-device-id={device.id}
-        >
-            <h3 className="font-bold text-lg text-white mb-1">{device.instance_name}</h3>
-            <p className="text-sm text-gray-400">{device.equipment_templates.model_number}</p>
-            {device.ip_address && (
-                <p className="text-xs text-gray-500">IP: {device.ip_address}</p>
-            )}
-
-            {/* Ports Section */}
-            <div className="absolute left-0 top-0 bottom-0 w-1/2 flex flex-col justify-around">
-                {inputs.map((port, index) => <Port key={port.id} port={port} type="input" onMouseUp={onPortMouseUp} positionIndex={index} />)}
-            </div>
-            <div className="absolute right-0 top-0 bottom-0 w-1/2 flex flex-col justify-around">
-                {outputs.map((port, index) => <Port key={port.id} port={port} type="output" onMouseDown={onPortMouseDown} positionIndex={index} />)}
-            </div>
-        </div>
-    );
-};
-
-
 const WireDiagramView = ({ showName }) => {
     const [equipment, setEquipment] = useState([]);
     const [connections, setConnections] = useState([]);
@@ -236,12 +142,11 @@ const WireDiagramView = ({ showName }) => {
             const connectionsData = await api.getConnectionsForShow(showName);
             setConnections(connectionsData.connections || []);
 
-            // Initialize positions if they don't exist yet, otherwise use saved positions
             const newPositions = {};
             allEquipment.forEach((item, index) => {
                 newPositions[item.id] = { 
-                    x: item.x_pos || 50, 
-                    y: item.y_pos || 50 + index * 100 
+                    x: item.x_pos || 50 + (index % 4 * 400), 
+                    y: item.y_pos || 50 + (Math.floor(index / 4) * 250)
                 };
             });
             setEquipmentPositions(newPositions);
@@ -266,22 +171,22 @@ const WireDiagramView = ({ showName }) => {
     };
 
     const handlePortMouseDown = (e) => {
-        const portId = e.target.dataset.portId;
-        const deviceId = e.target.closest('[data-device-id]').dataset.deviceId;
+        e.stopPropagation();
+        const portElement = e.target;
         const canvasRect = canvasRef.current.getBoundingClientRect();
-        const startPosition = {
-            x: e.target.getBoundingClientRect().left - canvasRect.left,
-            y: e.target.getBoundingClientRect().top - canvasRect.top
-        };
 
         setDrawingConnection({
-            start: startPosition,
-            end: startPosition,
-            sourceDeviceId: deviceId,
-            sourcePortId: portId,
-            connectorType: e.target.dataset.connectorType,
-            label: e.target.dataset.portLabel,
-            type: e.target.dataset.portType
+            sourceDeviceId: portElement.dataset.deviceId,
+            sourcePortId: portElement.dataset.portId,
+            connectorType: portElement.dataset.connectorType,
+            startPos: {
+                x: portElement.getBoundingClientRect().left - canvasRect.left + (portElement.clientWidth / 2),
+                y: portElement.getBoundingClientRect().top - canvasRect.top + (portElement.clientHeight / 2),
+            },
+            endPos: {
+                x: e.clientX - canvasRect.left,
+                y: e.clientY - canvasRect.top,
+            }
         });
     };
 
@@ -290,28 +195,30 @@ const WireDiagramView = ({ showName }) => {
         const canvasRect = canvasRef.current.getBoundingClientRect();
         setDrawingConnection(prev => ({
             ...prev,
-            end: { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top }
+            endPos: { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top }
         }));
     };
 
     const handlePortMouseUp = async (e) => {
+        e.stopPropagation();
         if (!drawingConnection) return;
-        const destinationPortId = e.target.dataset.portId;
-        const destinationDeviceId = e.target.closest('[data-device-id]').dataset.deviceId;
-        const destinationPortType = e.target.dataset.portType;
-        const destinationConnectorType = e.target.dataset.connectorType;
 
-        // Validation checks
-        if (drawingConnection.sourceDeviceId === destinationDeviceId) {
-            alert("Cannot connect a port to the same device.");
+        const destPortElement = e.target;
+        const destinationPortId = destPortElement.dataset.portId;
+        const destinationDeviceId = destPortElement.dataset.deviceId;
+        const destinationPortType = destPortElement.dataset.portType;
+        const destinationConnectorType = destPortElement.dataset.connectorType;
+
+        if (!destinationDeviceId || !destinationPortId) {
             setDrawingConnection(null);
             return;
         }
-        if (drawingConnection.type === destinationPortType) {
-            alert("Cannot connect an input to an input or an output to an output.");
+
+        if (drawingConnection.sourceDeviceId === destinationDeviceId || 'output' === destinationPortType) {
             setDrawingConnection(null);
             return;
         }
+
         if (drawingConnection.connectorType !== destinationConnectorType) {
             alert(`Cannot connect a ${drawingConnection.connectorType} port to a ${destinationConnectorType} port.`);
             setDrawingConnection(null);
@@ -319,18 +226,16 @@ const WireDiagramView = ({ showName }) => {
         }
 
         const newConnectionData = {
-            show_id: showName,
             source_device_id: drawingConnection.sourceDeviceId,
             source_port_id: drawingConnection.sourcePortId,
             destination_device_id: destinationDeviceId,
             destination_port_id: destinationPortId,
-            cable_type: drawingConnection.connectorType,
-            label: `Cable from ${drawingConnection.label}`
+            cable_type: drawingConnection.connectorType
         };
 
         try {
             await api.createConnection(newConnectionData);
-            fetchData(); // Refresh connections list
+            await fetchData();
         } catch (err) {
             console.error("Failed to create connection:", err);
             alert(`Error creating connection: ${err.message}`);
@@ -338,26 +243,35 @@ const WireDiagramView = ({ showName }) => {
             setDrawingConnection(null);
         }
     };
-    
-    const getPathData = (connection) => {
-        const startDevice = equipment.find(e => e.id === connection.source_device_id);
-        const endDevice = equipment.find(e => e.id === connection.destination_device_id);
-        
-        if (!startDevice || !endDevice || !equipmentPositions[startDevice.id] || !equipmentPositions[endDevice.id]) return null;
-        
-        const sortedStartPorts = startDevice.equipment_templates.ports.sort((a, b) => a.label.localeCompare(b.label));
-        const startPortIndex = sortedStartPorts.findIndex(p => p.id === connection.source_port_id);
-        
-        const sortedEndPorts = endDevice.equipment_templates.ports.sort((a, b) => a.label.localeCompare(b.label));
-        const endPortIndex = sortedEndPorts.findIndex(p => p.id === connection.destination_port_id);
 
-        const startX = equipmentPositions[startDevice.id].x + 256; 
-        const startY = equipmentPositions[startDevice.id].y + (startPortIndex + 0.5) * 25 + 40;
-        const endX = equipmentPositions[endDevice.id].x;
-        const endY = equipmentPositions[endDevice.id].y + (endPortIndex + 0.5) * 25 + 40;
+    const getPathForConnection = (connection) => {
+        if (!canvasRef.current) return null;
+        
+        const startEl = document.getElementById(`port-${connection.source_device_id}-${connection.source_port_id}`);
+        const endEl = document.getElementById(`port-${connection.destination_device_id}-${connection.destination_port_id}`);
 
-        return `M${startX},${startY} L${endX},${endY}`;
+        if (!startEl || !endEl) return null;
+        
+        const canvasRect = canvasRef.current.getBoundingClientRect();
+        const startRect = startEl.getBoundingClientRect();
+        const endRect = endEl.getBoundingClientRect();
+        
+        const startX = startRect.left - canvasRect.left + (startRect.width / 2);
+        const startY = startRect.top - canvasRect.top + (startRect.height / 2);
+        const endX = endRect.left - canvasRect.left + (endRect.width / 2);
+        const endY = endRect.top - canvasRect.top + (endRect.height / 2);
+
+        const handleOffset = Math.max(60, Math.abs(startX - endX) * 0.4);
+        
+        return `M ${startX} ${startY} C ${startX + handleOffset} ${startY}, ${endX - handleOffset} ${endY}, ${endX} ${endY}`;
     };
+    
+    const getPathForDrawing = () => {
+        if (!drawingConnection) return null;
+        const { startPos, endPos } = drawingConnection;
+        const handleOffset = Math.max(60, Math.abs(startPos.x - endPos.x) * 0.4);
+        return `M ${startPos.x} ${startPos.y} C ${startPos.x + handleOffset} ${startPos.y}, ${endPos.x - handleOffset} ${endPos.y}, ${endPos.x} ${endPos.y}`;
+    }
 
     const handleEditConnection = (conn) => {
         setEditingConnection(conn);
@@ -368,7 +282,7 @@ const WireDiagramView = ({ showName }) => {
         if (!editingConnection) return;
         try {
             await api.updateConnection(editingConnection.id, updatedData);
-            fetchData();
+            await fetchData();
         } catch (err) {
             console.error("Failed to update connection:", err);
             alert(`Error updating connection: ${err.message}`);
@@ -381,7 +295,7 @@ const WireDiagramView = ({ showName }) => {
         if (!window.confirm("Are you sure you want to delete this connection?")) return;
         try {
             await api.deleteConnection(editingConnection.id);
-            fetchData();
+            await fetchData();
         } catch (err) {
             console.error("Failed to delete connection:", err);
             alert(`Error deleting connection: ${err.message}`);
@@ -398,7 +312,6 @@ const WireDiagramView = ({ showName }) => {
     const handleSaveDevice = async (deviceId, updatedData) => {
         try {
             await api.updateEquipmentInstance(deviceId, updatedData);
-            // Optimistically update the UI
             setEquipment(prev => prev.map(item => item.id === deviceId ? { ...item, ...updatedData } : item));
         } catch (err) {
             console.error("Failed to update device:", err);
@@ -419,57 +332,49 @@ const WireDiagramView = ({ showName }) => {
 
     return (
         <div className="flex h-[calc(100vh-220px)]">
-            {/* Main Diagram Canvas */}
             <div 
-                ref={canvasRef}
-                className="flex-grow bg-gray-900/50 rounded-xl p-4 overflow-auto relative"
+                className="flex-grow overflow-auto rounded-xl bg-gray-800/50"
                 onMouseMove={handleMouseMove}
-                onMouseLeave={() => setDrawingConnection(null)}
                 onMouseUp={() => setDrawingConnection(null)}
             >
-                <h2 className="text-xl font-bold mb-4 text-white">Wire Diagram for {showName}</h2>
-                
-                {/* SVG for drawing connections */}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                    {connections.map(conn => {
-                        const pathData = getPathData(conn);
-                        return pathData ? <path key={conn.id} d={pathData} stroke="white" fill="none" strokeWidth="2" /> : null;
-                    })}
-                    {drawingConnection && (
-                        <line
-                            x1={drawingConnection.start.x}
-                            y1={drawingConnection.start.y}
-                            x2={drawingConnection.end.x}
-                            y2={drawingConnection.end.y}
-                            stroke="rgba(251, 191, 36, 0.8)"
-                            strokeWidth="2"
-                            strokeDasharray="5,5"
-                        />
-                    )}
-                </svg>
+                <div 
+                    ref={canvasRef}
+                    className="p-4 relative"
+                    style={{ width: 4000, height: 4000 }}
+                >
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                        {connections.map(conn => {
+                            const pathData = getPathForConnection(conn);
+                            return pathData ? <path key={conn.id} d={pathData} stroke="#9ca3af" fill="none" strokeWidth="2" /> : null;
+                        })}
+                        {drawingConnection && (
+                            <path d={getPathForDrawing()} stroke="#f59e0b" fill="none" strokeWidth="2" strokeDasharray="6,4" />
+                        )}
+                    </svg>
 
-                {/* Equipment Nodes */}
-                {equipment.length > 0 ? (
-                    equipment.map(item => (
-                        <DeviceNode 
-                            key={item.id} 
-                            device={item} 
-                            onPortMouseDown={handlePortMouseDown} 
-                            onPortMouseUp={handlePortMouseUp}
-                            position={equipmentPositions[item.id] || {x: 0, y: 0}}
-                            setPosition={setPosition}
-                            onNodeClick={handleEditDevice}
-                        />
-                    ))
-                ) : (
-                    <p className="text-center text-gray-500">No equipment found. Add some in the Rack Builder to get started.</p>
-                )}
+                    {equipment.length > 0 ? (
+                        equipment.map(item => (
+                            <DeviceNode 
+                                key={item.id} 
+                                device={item} 
+                                onPortMouseDown={handlePortMouseDown} 
+                                onPortMouseUp={handlePortMouseUp}
+                                position={equipmentPositions[item.id] || {x: 50, y: 50}}
+                                setPosition={setPosition}
+                                onNodeClick={handleEditDevice}
+                            />
+                        ))
+                    ) : (
+                        <p className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-gray-500">
+                            No equipment found. Add some in the Rack Builder to get started.
+                        </p>
+                    )}
+                </div>
             </div>
 
-            {/* Connection List Sidebar */}
-            <div className="w-80 ml-6 p-4 bg-gray-900/50 rounded-xl overflow-y-auto">
+            <div className="w-80 ml-6 p-4 bg-gray-800/50 rounded-xl overflow-y-auto flex flex-col">
                 <h2 className="text-xl font-bold mb-4 text-white">Connections</h2>
-                <ul className="space-y-2">
+                <ul className="space-y-2 flex-grow">
                     {connections.length > 0 ? (
                         connections.map(conn => (
                             <li 
@@ -479,7 +384,7 @@ const WireDiagramView = ({ showName }) => {
                             >
                                 <p className="font-bold">{conn.label || 'Unnamed Cable'}</p>
                                 <p className="text-gray-400 text-xs">
-                                    From {conn.source_device_id.split('-')[0]} to {conn.destination_device_id.split('-')[0]}
+                                    {(equipment.find(e => e.id === conn.source_device_id) || {}).instance_name} → {(equipment.find(e => e.id === conn.destination_device_id) || {}).instance_name}
                                 </p>
                                 <p className="text-gray-500 text-xs mt-1">
                                     Type: {conn.cable_type}

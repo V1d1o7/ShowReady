@@ -116,4 +116,15 @@ export const api = {
         body: JSON.stringify(updateData),
     }).then(handleResponse),
 
+    updateAdminFolder: async (folderId, folderData) => fetch(`/api/admin/folders/${folderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(folderData),
+    }).then(handleResponse),
+    updateAdminEquipment: async (equipmentId, equipmentData) => fetch(`/api/admin/equipment/${equipmentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(equipmentData),
+    }).then(handleResponse),
+
 };

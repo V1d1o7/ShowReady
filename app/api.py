@@ -7,11 +7,13 @@ import io
 from pydantic import BaseModel
 import uuid
 
+# Import all necessary models
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
-    Connection, ConnectionCreate, ConnectionUpdate, PortTemplate
+    Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
+    FolderUpdate, EquipmentTemplateUpdate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
@@ -72,7 +74,6 @@ async def create_default_folder(folder_data: FolderCreate, admin_user = Depends(
         raise HTTPException(status_code=500, detail="Failed to create folder.")
     return response.data[0]
 
-# UPDATED: Explicitly convert port IDs to strings for Supabase JSONB insert
 @router.post("/admin/equipment", tags=["Admin"], response_model=EquipmentTemplate)
 async def create_default_equipment(
     equipment_data: EquipmentTemplateCreate,
@@ -80,7 +81,6 @@ async def create_default_equipment(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Creates a new default equipment template."""
-    # Convert Pydantic UUID objects back to strings for database insertion
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
 
     insert_data = {
@@ -116,31 +116,29 @@ async def get_admin_library(admin_user = Depends(get_admin_user), supabase: Clie
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
 async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves the profile for the authenticated user. If not found, it creates one."""
+    """Retrieves the profile for the authenticated user."""
     try:
         response = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+        
+        if not response.data:
+            user_meta = user.user_metadata or {}
+            profile_to_create = {
+                'id': str(user.id),
+                'first_name': user_meta.get('first_name'),
+                'last_name': user_meta.get('last_name'),
+                'company_name': user_meta.get('company_name'),
+                'production_role': user_meta.get('production_role'),
+                'production_role_other': user_meta.get('production_role_other'),
+            }
+            insert_response = supabase.table('profiles').insert(profile_to_create).execute()
+            if insert_response.data:
+                return insert_response.data[0]
+            else:
+                raise HTTPException(status_code=500, detail="Failed to create user profile.")
+
         return response.data
     except Exception as e:
-        if 'PGRST116' in str(e) or 'The result contains 0 rows' in str(e):
-            try:
-                user_meta = user.user_metadata
-                profile_to_create = {
-                    'id': str(user.id),
-                    'first_name': user_meta.get('first_name'),
-                    'last_name': user_meta.get('last_name'),
-                    'company_name': user_meta.get('company_name'),
-                    'production_role': user_meta.get('production_role'),
-                    'production_role_other': user_meta.get('production_role_other'),
-                }
-                insert_response = supabase.table('profiles').insert(profile_to_create).execute()
-                if insert_response.data:
-                    return insert_response.data[0]
-                else:
-                    raise HTTPException(status_code=500, detail="Failed to create user profile after not finding one.")
-            except Exception as creation_error:
-                raise HTTPException(status_code=500, detail=f"Profile creation failed: {str(creation_error)}")
-        else:
-            raise HTTPException(status_code=500, detail=f"An unexpected error occurred while fetching profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
 async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -360,9 +358,7 @@ async def add_equipment_to_rack(
 async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates the position, side, or IP address of a rack equipment instance."""
     
-    # First, verify the equipment instance exists and the user has permission.
     try:
-        # Fetch the instance and the associated rack's user_id in one go
         owner_check_res = supabase.table('rack_equipment_instances').select('racks(user_id)').eq('id', str(instance_id)).single().execute()
         
         if not owner_check_res.data or not owner_check_res.data.get('racks'):
@@ -372,28 +368,22 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
             raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
 
     except Exception as e:
-        # Re-raise HTTP exceptions, otherwise log and raise a 500 for unexpected errors.
         if isinstance(e, HTTPException):
             raise e
         print(f"Error during ownership check: {e}")
         raise HTTPException(status_code=500, detail="An error occurred while verifying equipment ownership.")
 
-    # If authorized, proceed with the update.
     update_dict = update_data.model_dump(exclude_unset=True)
     
-    # TODO: Add collision checking logic for ru_position and rack_side if needed.
-
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
     
     if response.data:
         return response.data[0]
     
-    # This part should ideally not be reached if the initial check passes, but serves as a fallback.
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
 async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # Check if a user owns the rack before deleting.
     check_owner = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
     if check_owner.data:
         rack_id = check_owner.data['rack_id']
@@ -420,7 +410,6 @@ async def get_library(user = Depends(get_user), supabase: Client = Depends(get_s
 async def create_connection(connection_data: ConnectionCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new connection between two equipment ports."""
     try:
-        # Check that both devices are in a rack owned by the user
         source_device_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(connection_data.source_device_id)).single().execute()
         dest_device_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(connection_data.destination_device_id)).single().execute()
         
@@ -446,14 +435,13 @@ async def get_connections_for_show(show_name: str, user = Depends(get_user), sup
     """Retrieves all connections for a specific show."""
     try:
         response = supabase.table('connections').select('*').eq('show_id', show_name).execute()
-        if not response.data:
-            return []
+        connections = response.data or []
         
-        # We also need to get the equipment info for the wire diagram view
-        connections = response.data
         device_ids = {c['source_device_id'] for c in connections} | {c['destination_device_id'] for c in connections}
-        equipment_res = supabase.table('rack_equipment_instances').select('id, instance_name, ip_address, equipment_templates(model_number, ports)').in_('id', list(device_ids)).execute()
-        equipment_map = {e['id']: e for e in equipment_res.data}
+        equipment_map = {}
+        if device_ids:
+            equipment_res = supabase.table('rack_equipment_instances').select('id, instance_name, ip_address, equipment_templates(model_number, ports)').in_('id', list(device_ids)).execute()
+            equipment_map = {e['id']: e for e in equipment_res.data}
         
         return {"connections": connections, "equipment": equipment_map}
     except Exception as e:
@@ -474,7 +462,6 @@ async def update_connection(connection_id: uuid.UUID, update_data: ConnectionUpd
 @router.delete("/connections/{connection_id}", status_code=204, tags=["Wire Diagram"])
 async def delete_connection(connection_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Deletes a specific connection."""
-    # Check if a user owns the show before deleting.
     conn_res = supabase.table('connections').select('show_id').eq('id', str(connection_id)).single().execute()
     if conn_res.data:
         show_name = conn_res.data['show_id']
@@ -546,17 +533,14 @@ async def delete_default_folder(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Deletes a default library folder if it is empty."""
-    # Check for subfolders
     subfolder_res = supabase.table('folders').select('id', count='exact').eq('parent_id', str(folder_id)).execute()
     if subfolder_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete a folder that contains subfolders.")
 
-    # Check for equipment
     equipment_res = supabase.table('equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
     if equipment_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete a folder that contains equipment.")
 
-    # If empty, proceed with deletion
     supabase.table('folders').delete().eq('id', str(folder_id)).eq('is_default', True).execute()
     return
 
@@ -569,3 +553,41 @@ async def delete_default_equipment(
     """Admin: Deletes a default equipment template."""
     supabase.table('equipment_templates').delete().eq('id', str(equipment_id)).eq('is_default', True).execute()
     return
+    
+@router.put("/admin/folders/{folder_id}", tags=["Admin"], response_model=Folder)
+async def update_admin_folder(
+    folder_id: uuid.UUID,
+    folder_data: FolderUpdate,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Updates a default library folder, e.g., to change its parent."""
+    update_dict = folder_data.model_dump(exclude_unset=True)
+    
+    if 'parent_id' in update_dict and update_dict['parent_id'] is not None:
+        update_dict['parent_id'] = str(update_dict['parent_id'])
+
+    response = supabase.table('folders').update(update_dict).eq('id', str(folder_id)).eq('is_default', True).execute()
+
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Folder not found or not a default folder.")
+    return response.data[0]
+
+@router.put("/admin/equipment/{equipment_id}", tags=["Admin"], response_model=EquipmentTemplate)
+async def update_admin_equipment(
+    equipment_id: uuid.UUID,
+    equipment_data: EquipmentTemplateUpdate,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Updates a default equipment template, e.g., to change its folder."""
+    update_dict = equipment_data.model_dump(exclude_unset=True)
+
+    if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
+        update_dict['folder_id'] = str(update_dict['folder_id'])
+    
+    response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('is_default', True).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Equipment not found or not a default template.")
+    return response.data[0]

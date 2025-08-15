@@ -3,20 +3,23 @@ import Modal from './Modal';
 import InputField from './InputField';
 import { Plus } from 'lucide-react';
 import PortManagerModal from './PortManagerModal';
-import FolderOptions from './FolderOptions'; // This import is new
 
-const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
-    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '' });
+const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
+    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full' });
     const [ports, setPorts] = useState([]);
     const [isPortModalOpen, setIsPortModalOpen] = useState(false);
 
-    // Reset form state when the modal opens
     useEffect(() => {
-        if (isOpen) {
-            setFormData({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '' });
-            setPorts([]);
+        if (equipment) {
+            setFormData({
+                model_number: equipment.model_number || '',
+                manufacturer: equipment.manufacturer || '',
+                ru_height: equipment.ru_height || 1,
+                width: equipment.width || 'full',
+            });
+            setPorts(equipment.ports || []);
         }
-    }, [isOpen]);
+    }, [equipment]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -27,21 +30,17 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
         e.preventDefault();
         const dataToSubmit = { 
             ...formData, 
-            ru_height: parseInt(formData.ru_height, 10), 
-            folder_id: formData.folder_id || null,
+            ru_height: parseInt(formData.ru_height, 10),
             ports: ports
         };
         onSubmit(dataToSubmit);
     };
 
-    const handleOpenPortModal = (e) => {
-        e.preventDefault();
-        setIsPortModalOpen(true);
-    }
+    if (!equipment) return null;
 
     return (
         <>
-            <Modal isOpen={isOpen} onClose={onClose} title="Create New Equipment Template">
+            <Modal isOpen={isOpen} onClose={onClose} title={`Edit Equipment: ${equipment.model_number}`}>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <InputField label="Model Number" name="model_number" value={formData.model_number} onChange={handleChange} required autoFocus />
                     <InputField label="Manufacturer" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
@@ -55,15 +54,7 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
                             </select>
                         </div>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1.5">Parent Folder (Optional)</label>
-                        <select name="folder_id" value={formData.folder_id} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                            <option value="">None (Root Level)</option>
-                            <FolderOptions folders={folderTree} />
-                        </select>
-                    </div>
 
-                    {/* Port Management Section */}
                     <div className="border-t border-gray-700 pt-4">
                         <h3 className="text-md font-bold text-white mb-2">Ports ({ports.length})</h3>
                         <div className="flex flex-wrap gap-2 mb-4">
@@ -73,14 +64,14 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
                                 </div>
                             ))}
                         </div>
-                        <button onClick={handleOpenPortModal} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
+                        <button onClick={(e) => { e.preventDefault(); setIsPortModalOpen(true); }} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
                             <Plus size={16} /> Manage Ports
                         </button>
                     </div>
 
                     <div className="flex justify-end gap-4 pt-4">
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
-                        <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Create Equipment</button>
+                        <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Save Changes</button>
                     </div>
                 </form>
             </Modal>
@@ -94,4 +85,4 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
     );
 };
 
-export default NewEquipmentModal;
+export default EditEquipmentModal;

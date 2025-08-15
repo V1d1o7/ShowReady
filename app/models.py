@@ -195,3 +195,16 @@ class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[uuid.UUID] = None
     nomenclature_prefix: Optional[str] = None
+
+class FolderUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[uuid.UUID] = None
+    nomenclature_prefix: Optional[str] = None
+
+class EquipmentTemplateUpdate(BaseModel):
+    model_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    ru_height: Optional[int] = None
+    width: Optional[str] = None
+    ports: Optional[List[PortTemplate]] = None
+    folder_id: Optional[uuid.UUID] = None
