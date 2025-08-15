@@ -61,6 +61,7 @@ async def create_default_folder(folder_data: FolderCreate, admin_user = Depends(
     insert_data = {
         "name": folder_data.name,
         "is_default": True,
+        "nomenclature_prefix": folder_data.nomenclature_prefix
     }
     if folder_data.parent_id:
         insert_data["parent_id"] = str(folder_data.parent_id)
@@ -77,11 +78,11 @@ async def create_default_equipment(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Creates a new default equipment template."""
-    # ROBUST FIX: Manually construct the dictionary to match the database schema.
     insert_data = {
         "model_number": equipment_data.model_number,
         "manufacturer": equipment_data.manufacturer,
         "ru_height": equipment_data.ru_height,
+        "width": equipment_data.width,
         "is_default": True,
     }
     if equipment_data.folder_id:
@@ -285,21 +286,65 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
     return response.data[0]
 
 # --- Equipment Endpoints ---
-@router.get("/equipment", response_model=List[EquipmentTemplate], tags=["Racks"])
-async def get_equipment_templates(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('equipment_templates').select('*').or_(f'user_id.eq.{user.id},user_id.is.null').execute()
-    return response.data
-
 @router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
-async def add_equipment_to_rack(rack_id: uuid.UUID, equipment_data: RackEquipmentInstanceCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    rack_response = supabase.table('racks').select('id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
-    if not rack_response.data:
+async def add_equipment_to_rack(
+    rack_id: uuid.UUID, 
+    equipment_data: RackEquipmentInstanceCreate, 
+    user = Depends(get_user), 
+    supabase: Client = Depends(get_supabase_client)
+):
+    rack_res = supabase.table('racks').select('id, ru_height').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
+    if not rack_res.data:
         raise HTTPException(status_code=404, detail="Rack not found or access denied")
 
-    full_equipment_data = equipment_data.model_dump(mode='json')
-    full_equipment_data['rack_id'] = str(rack_id)
+    template_res = supabase.table('equipment_templates').select('*, folders(nomenclature_prefix)').eq('id', str(equipment_data.template_id)).single().execute()
+    if not template_res.data:
+        raise HTTPException(status_code=404, detail="Equipment template not found")
+        
+    template = template_res.data
     
-    response = supabase.table('rack_equipment_instances').insert(full_equipment_data).execute()
+    existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(width, ru_height)').eq('rack_id', str(rack_id)).execute()
+    existing_equipment = existing_equipment_res.data
+
+    new_item_end = equipment_data.ru_position + template['ru_height'] - 1
+    if new_item_end > rack_res.data['ru_height']:
+        raise HTTPException(status_code=400, detail="Equipment does not fit in the rack at this position.")
+
+    for item in existing_equipment:
+        item_end = item['ru_position'] + item['equipment_templates']['ru_height'] - 1
+        if max(equipment_data.ru_position, item['ru_position']) <= min(new_item_end, item_end):
+            is_new_full = template['width'] == 'full'
+            is_item_full = item['equipment_templates']['width'] == 'full'
+            
+            if is_new_full or is_item_full:
+                raise HTTPException(status_code=409, detail="A full-width item conflicts with the desired placement.")
+            if equipment_data.rack_side == item['rack_side']:
+                raise HTTPException(status_code=409, detail=f"The {equipment_data.rack_side} side is already occupied in this RU range.")
+
+    prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
+    base_name = prefix if prefix else template['model_number']
+    
+    highest_num = 0
+    for item in existing_equipment:
+        if item['instance_name'].startswith(base_name + "-"):
+            try:
+                num = int(item['instance_name'].split('-')[-1])
+                if num > highest_num:
+                    highest_num = num
+            except (ValueError, IndexError):
+                continue
+    
+    new_instance_name = f"{base_name}-{highest_num + 1}"
+
+    insert_data = {
+        "rack_id": str(rack_id),
+        "template_id": str(equipment_data.template_id),
+        "ru_position": equipment_data.ru_position,
+        "rack_side": equipment_data.rack_side,
+        "instance_name": new_instance_name
+    }
+    
+    response = supabase.table('rack_equipment_instances').insert(insert_data).execute()
     if response.data:
         return response.data[0]
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
@@ -381,3 +426,34 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
 
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+
+@router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])
+async def delete_default_folder(
+    folder_id: uuid.UUID,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Deletes a default library folder if it is empty."""
+    # Check for subfolders
+    subfolder_res = supabase.table('folders').select('id', count='exact').eq('parent_id', str(folder_id)).execute()
+    if subfolder_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a folder that contains subfolders.")
+
+    # Check for equipment
+    equipment_res = supabase.table('equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
+    if equipment_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a folder that contains equipment.")
+
+    # If empty, proceed with deletion
+    supabase.table('folders').delete().eq('id', str(folder_id)).eq('is_default', True).execute()
+    return
+
+@router.delete("/admin/equipment/{equipment_id}", status_code=204, tags=["Admin"])
+async def delete_default_equipment(
+    equipment_id: uuid.UUID,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Deletes a default equipment template."""
+    supabase.table('equipment_templates').delete().eq('id', str(equipment_id)).eq('is_default', True).execute()
+    return

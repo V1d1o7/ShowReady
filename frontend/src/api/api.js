@@ -70,9 +70,8 @@ export const api = {
     addEquipmentToRack: async (rackId, equipmentData) => fetch(`/api/racks/${rackId}/equipment`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(equipmentData) }).then(handleResponse),
     getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
     getLibrary: async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse),
-    moveEquipmentInRack: async (instanceId, newPosition) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify({ ru_position: newPosition }) }).then(handleResponse),
+    moveEquipmentInRack: async (instanceId, newPositionData) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(newPositionData) }).then(handleResponse),
     deleteEquipmentFromRack: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    getAdminFolders: async () => fetch('/api/admin/folders', { headers: await getAuthHeader() }).then(handleResponse),
     getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
     createAdminFolder: async (folderData) => fetch('/api/admin/folders', {
         method: 'POST',
@@ -84,4 +83,21 @@ export const api = {
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
         body: JSON.stringify(equipmentData),
     }).then(handleResponse),
+    
+    // --- ADD THESE TWO ---
+    deleteAdminFolder: async (folderId) => fetch(`/api/admin/folders/${folderId}`, { 
+        method: 'DELETE', 
+        headers: await getAuthHeader() 
+    }),
+    deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, { 
+        method: 'DELETE', 
+        headers: await getAuthHeader() 
+    }),
+
+
+
+
+
+
+    
 };

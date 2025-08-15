@@ -64,9 +64,9 @@ class ConnectorTemplate(BaseModel):
 
 class PanelLayout(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    view: str  # 'front' or 'rear'
+    view: str
     background_svg: str
-    connectors: List[Dict] # { "connector_template_id": uuid, "x": int, "y": int, "instance_name": str }
+    connectors: List[Dict]
 
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -74,19 +74,18 @@ class EquipmentTemplate(BaseModel):
     model_number: str
     manufacturer: str
     ru_height: int
+    width: str = 'full'
     power_consumption_watts: Optional[int] = None
     panels: List[PanelLayout] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
 
-# This new model correctly represents an equipment instance with its template data nested inside.
-class RackEquipmentInstanceWithTemplate(BaseModel):
-    id: uuid.UUID
-    rack_id: uuid.UUID
-    template_id: uuid.UUID
-    ru_position: int
-    instance_name: str
-    equipment_templates: Optional[EquipmentTemplate] = None
+class EquipmentTemplateCreate(BaseModel):
+    model_number: str
+    manufacturer: str
+    ru_height: int
+    width: str = 'full'
+    folder_id: Optional[uuid.UUID] = None
 
 class RackEquipmentInstance(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -94,16 +93,29 @@ class RackEquipmentInstance(BaseModel):
     template_id: uuid.UUID
     ru_position: int
     instance_name: str
+    rack_side: Optional[str] = None
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
     ru_position: int
-    instance_name: str
+    # --- THIS IS THE FIX ---
+    # The instance_name is now optional from the client because the server generates it.
+    instance_name: Optional[str] = None 
+    rack_side: Optional[str] = None
 
 class RackEquipmentInstanceUpdate(BaseModel):
     ru_position: int
+    rack_side: Optional[str] = None
 
-# This new model ensures the full equipment data is sent to the frontend.
+class RackEquipmentInstanceWithTemplate(BaseModel):
+    id: uuid.UUID
+    rack_id: uuid.UUID
+    template_id: uuid.UUID
+    ru_position: int
+    instance_name: str
+    rack_side: Optional[str] = None
+    equipment_templates: Optional[EquipmentTemplate] = None
+
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     show_name: str
@@ -130,13 +142,9 @@ class Folder(BaseModel):
     parent_id: Optional[uuid.UUID] = None
     name: str
     is_default: bool = False
+    nomenclature_prefix: Optional[str] = None
 
 class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[uuid.UUID] = None
-
-class EquipmentTemplateCreate(BaseModel):
-    model_number: str
-    manufacturer: str
-    ru_height: int
-    folder_id: Optional[uuid.UUID] = None
+    nomenclature_prefix: Optional[str] = None
