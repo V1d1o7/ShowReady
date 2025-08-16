@@ -1,15 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
-import { useDraggable } from '@dnd-kit/core';
 
-const PlacedEquipmentItem = ({ item, onDelete }) => {
+const PlacedEquipmentItem = ({ item, onDelete, onDragStart }) => {
+    const [isDragging, setIsDragging] = useState(false);
     const template = item.equipment_templates || {};
     const isHalfWidth = template.width === 'half';
 
-    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-        id: `placed-equipment-${item.id}`,
-        data: { type: 'placed-equipment', item },
-    });
+    const handleDragStart = (e) => {
+        setIsDragging(true);
+        onDragStart(e, item, false); // isNew = false
+    };
+
+    const handleDragEnd = () => setIsDragging(false);
 
     const bottomPosition = (item.ru_position - 1) * 1.5;
     const itemHeight = (template.ru_height || 1) * 1.5;
@@ -19,9 +21,9 @@ const PlacedEquipmentItem = ({ item, onDelete }) => {
 
     return (
         <div
-            ref={setNodeRef}
-            {...listeners}
-            {...attributes}
+            draggable
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
             className={`absolute ${widthClass} ${positionClass} bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-center p-1 cursor-grab group`}
             style={{
                 height: `${itemHeight}rem`,
@@ -30,7 +32,7 @@ const PlacedEquipmentItem = ({ item, onDelete }) => {
                 opacity: isDragging ? 0.5 : 1,
             }}
         >
-            <span className="truncate px-2 pointer-events-none">{item.instance_name}</span>
+            <span className="truncate px-2">{item.instance_name}</span>
             <button
                 onClick={(e) => {
                     e.stopPropagation();

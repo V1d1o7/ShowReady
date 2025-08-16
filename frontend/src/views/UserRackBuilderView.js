@@ -1,14 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { api } from '../api/api';
-import { Plus, Library, HardDrive, Copy } from 'lucide-react';
+import { Plus, Library, HardDrive } from 'lucide-react';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import RackComponent from '../components/RackComponent';
-import PlacedEquipmentItem from '../components/PlacedEquipmentItem';
 
 const UserRackBuilderView = ({ onUpdate }) => {
     const [racks, setRacks] = useState([]);
@@ -19,10 +17,8 @@ const UserRackBuilderView = ({ onUpdate }) => {
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
     const [selectedRackId, setSelectedRackId] = useState(null);
     const [activeRack, setActiveRack] = useState(null);
-    const [activeDragItem, setActiveDragItem] = useState(null);
+    const [draggedItem, setDraggedItem] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
-
-    const sensors = useSensors(useSensor(PointerSensor));
 
     const fetchData = useCallback(async () => {
         try {
@@ -30,8 +26,8 @@ const UserRackBuilderView = ({ onUpdate }) => {
                 api.getLibrary(),
                 api.getLibraryRacks()
             ]);
-            
-            setLibrary(fullLibrary);
+
+            setLibrary(fullLibrary || { folders: [], equipment: [] });
             setRacks(racksData);
 
             if (selectedRackId) {
@@ -110,9 +106,6 @@ const UserRackBuilderView = ({ onUpdate }) => {
     
     const handleLoadRackFromLibrary = async (templateRackId) => {
         try {
-            // Note: This needs to be modified since there is no `showName` in the UserLibrary view.
-            // The API call to load a rack from library is intended for a show.
-            // A library rack is created directly in the library context.
             await api.copyRackFromLibrary(templateRackId);
             fetchData();
         } catch (error) {
@@ -121,7 +114,7 @@ const UserRackBuilderView = ({ onUpdate }) => {
         }
         setIsRackLibraryOpen(false);
     };
-    
+
     const handleAddEquipment = async (item, ru_position, rack_side) => {
         if (!activeRack) return;
         const payload = {
@@ -163,30 +156,20 @@ const UserRackBuilderView = ({ onUpdate }) => {
             alert(`Error: ${error.message}`);
         }
     };
-    
-    const handleDragStart = (event) => {
-        const { type, item } = event.active.data.current;
-        setActiveDragItem({ type, item, isNew: type === 'equipment' });
+
+    const handleDrop = (data, ru_position, side) => {
+        if (data.isNew) {
+            handleAddEquipment(data.item, ru_position, side);
+        } else {
+            handleMoveEquipment(data.item, ru_position, side);
+        }
     };
 
-    const handleDragEnd = (event) => {
-        setActiveDragItem(null);
-        const { active, over } = event;
-
-        if (!over || active.id === over.id) return;
-        
-        const draggedData = active.data.current;
-        const dropData = over.data.current;
-        
-        // Handling drops from library to rack
-        if (draggedData.type === 'equipment' && dropData.type === 'rack-ru') {
-            handleAddEquipment(draggedData.item, dropData.ru, dropData.side);
-        }
-        
-        // Handling drops within the same rack
-        if (draggedData.type === 'placed-equipment' && dropData.type === 'rack-ru') {
-             handleMoveEquipment(draggedData.item, dropData.ru, dropData.side);
-        }
+    const handleDragStart = (e, item, isNew = false) => {
+        const template = isNew ? item : item.equipment_templates;
+        const data = { isNew, item, template };
+        e.dataTransfer.setData('application/json', JSON.stringify(data));
+        setDraggedItem(data);
     };
     
     const handleContextMenu = (e, item) => {
@@ -228,71 +211,67 @@ const UserRackBuilderView = ({ onUpdate }) => {
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="flex gap-6 h-[calc(100vh-250px)]">
-                <RackList
-                    racks={racks}
-                    onSelectRack={handleSelectRack}
-                    onNewRack={() => setIsNewRackModalOpen(true)}
-                    onDeleteRack={handleDeleteRack}
-                    onUpdateRack={handleUpdateRack}
-                    selectedRackId={selectedRackId}
-                />
-                <div className="flex-grow overflow-x-auto pb-4 flex justify-center gap-8">
-                    {activeRack ? (
-                        <>
-                            <RackComponent
-                                key={`${activeRack.id}-front`}
-                                rack={activeRack}
-                                view="front"
-                                onDelete={handleDeleteEquipment}
-                            />
-                            <RackComponent
-                                key={`${activeRack.id}-rear`}
-                                rack={activeRack}
-                                view="rear"
-                                onDelete={handleDeleteEquipment}
-                            />
-                        </>
-                    ) : (
-                        <div className="flex-grow flex flex-col items-center justify-center text-center text-gray-500">
-                            <HardDrive size={48} className="mb-4" />
-                            <h3 className="text-lg font-bold">No Rack Selected</h3>
-                            <p>Select a rack from the left panel to begin, or create a new one.</p>
-                        </div>
-                    )}
+        <div className="flex gap-6 h-[calc(100vh-250px)]">
+            <RackList
+                racks={racks}
+                onSelectRack={handleSelectRack}
+                onNewRack={() => setIsNewRackModalOpen(true)}
+                onDeleteRack={handleDeleteRack}
+                onUpdateRack={handleUpdateRack}
+                selectedRackId={selectedRackId}
+            />
+            <div className="flex-grow overflow-x-auto pb-4 flex justify-center gap-8">
+                {activeRack ? (
+                    <>
+                        <RackComponent
+                            key={`${activeRack.id}-front`}
+                            rack={activeRack}
+                            view="front"
+                            onDrop={handleDrop}
+                            onDelete={handleDeleteEquipment}
+                            onDragStart={(e, item) => handleDragStart(e, item, false)}
+                            draggedItem={draggedItem}
+                        />
+                        <RackComponent
+                            key={`${activeRack.id}-rear`}
+                            rack={activeRack}
+                            view="rear"
+                            onDrop={handleDrop}
+                            onDelete={handleDeleteEquipment}
+                            onDragStart={(e, item) => handleDragStart(e, item, false)}
+                            draggedItem={draggedItem}
+                        />
+                    </>
+                ) : (
+                    <div className="flex-grow flex flex-col items-center justify-center text-center text-gray-500">
+                        <HardDrive size={48} className="mb-4" />
+                        <h3 className="text-lg font-bold">No Rack Selected</h3>
+                        <p>Select a rack from the left panel to begin, or create a new one.</p>
+                    </div>
+                )}
+            </div>
+            <div className="w-80 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white">Library</h2>
+                    <button onClick={() => setIsNewEquipModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
+                        <Plus size={16} /> New
+                    </button>
                 </div>
-                <div className="w-80 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
-                    <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-xl font-bold text-white">Library</h2>
-                        <button onClick={() => setIsNewEquipModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
-                            <Plus size={16} /> New
-                        </button>
-                    </div>
-                    <div className="flex-grow overflow-y-auto pr-2">
-                        <UserTreeView library={library} onContextMenu={handleContextMenu} />
-                    </div>
-                    <div className="pt-4 border-t border-gray-700">
-                        <button onClick={() => setIsRackLibraryOpen(true)} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                            <Library size={16} /> Load from Rack Library
-                        </button>
-                    </div>
+                <div className="flex-grow overflow-y-auto pr-2">
+                    <UserTreeView library={library} onContextMenu={handleContextMenu} onDragStart={(e, item) => handleDragStart(e, item, true)} />
+                </div>
+                <div className="pt-4 border-t border-gray-700">
+                    <button onClick={() => setIsRackLibraryOpen(true)} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                        <Library size={16} /> Load from Rack Library
+                    </button>
                 </div>
             </div>
             
-            <DragOverlay>
-                {activeDragItem && (
-                    <div className="bg-gray-700 p-2 rounded-md text-sm shadow-lg pointer-events-none">
-                        {activeDragItem.item.model_number || activeDragItem.item.name}
-                    </div>
-                )}
-            </DragOverlay>
-
             {contextMenu && (
                 <div className="absolute z-50 bg-gray-800 border border-gray-700 rounded-md shadow-lg p-2 text-white" style={{ top: contextMenu.y, left: contextMenu.x }}>
                     {contextMenu.item.is_default && (
                         <button onClick={handleCopyToLibrary} className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-700 rounded">
-                            <Copy size={14} /> Copy to My Library
+                             Copy to My Library
                         </button>
                     )}
                 </div>
@@ -301,7 +280,7 @@ const UserRackBuilderView = ({ onUpdate }) => {
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
-        </DndContext>
+        </div>
     );
 };
 
