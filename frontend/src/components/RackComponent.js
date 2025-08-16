@@ -1,10 +1,22 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
+import { useDroppable } from '@dnd-kit/core';
 import PlacedEquipmentItem from './PlacedEquipmentItem';
+import { api } from '../api/api';
 
-const RackComponent = ({ rack, onDrop, onDelete, onDragStart, draggedItem }) => {
-    const [dragOverInfo, setDragOverInfo] = useState(null); // { ru, side }
+const RackComponent = ({ rack, onUpdate }) => {
+    
+    const handleDeleteEquipment = async (instanceId) => {
+        if (!window.confirm("Are you sure you want to remove this equipment?")) return;
+        try {
+            await api.deleteEquipmentFromRack(instanceId);
+            onUpdate(); // Trigger a re-fetch in the parent
+        } catch (error) {
+            console.error("Failed to delete equipment:", error);
+            alert(`Error deleting equipment: ${error.message}`);
+        }
+    };
 
-    // Create a map of occupied slots for quick lookup: "RU-SIDE" -> true
+    // Create a map of occupied slots for quick visual feedback
     const occupiedSlots = useMemo(() => {
         const slots = new Map();
         (rack.equipment || []).forEach(item => {
@@ -13,121 +25,64 @@ const RackComponent = ({ rack, onDrop, onDelete, onDragStart, draggedItem }) => 
             for (let i = 0; i < height; i++) {
                 const currentRu = item.ru_position + i;
                 if (template.width === 'full') {
-                    slots.set(`${currentRu}-left`, item.id);
-                    slots.set(`${currentRu}-right`, item.id);
+                    slots.set(`${currentRu}-left`, true);
+                    slots.set(`${currentRu}-right`, true);
                 } else if (item.rack_side) {
-                    slots.set(`${currentRu}-${item.rack_side}`, item.id);
+                    slots.set(`${currentRu}-${item.rack_side}`, true);
                 }
             }
         });
         return slots;
     }, [rack.equipment]);
 
-    const isOccupied = (startRu, endRu, side, excludeId) => {
-        for (let ru = startRu; ru <= endRu; ru++) {
-            const occupantId = occupiedSlots.get(`${ru}-${side}`);
-            if (occupantId && occupantId !== excludeId) {
-                return true;
+    const DropZone = ({ ru, side }) => {
+        const { isOver, setNodeRef } = useDroppable({
+            id: `rack-${rack.id}-ru-${ru}-side-${side}`,
+            data: {
+                rackId: rack.id,
+                ruPosition: ru,
+                side: side
             }
-        }
-        return false;
-    };
+        });
 
-    const handleDragOver = (e, ru, side) => {
-        e.preventDefault();
-        if (draggedItem) {
-            setDragOverInfo({ ru, side });
-        }
-    };
-
-    const handleDrop = (e, ru, side) => {
-        e.preventDefault();
-        const data = JSON.parse(e.dataTransfer.getData('application/json'));
-        const item = data.item;
-        const template = item.equipment_templates || item;
-        const itemHeight = template.ru_height || 1;
-        const dropPosition = ru - itemHeight + 1;
+        const isOccupied = occupiedSlots.has(`${ru}-${side}`);
         
-        if (dropPosition < 1) {
-             console.error("Drop failed: Item too tall for this position.");
-        } else {
-            onDrop(data, dropPosition, side);
-        }
-        
-        setDragOverInfo(null);
-    };
-
-    const getHighlightStyle = () => {
-        if (!dragOverInfo || !draggedItem) return { display: 'none' };
-
-        const { ru, side } = dragOverInfo;
-        const item = draggedItem.item;
-        const template = item.equipment_templates || item;
-
-        const itemHeight = template.ru_height || 1;
-        const isHalf = template.width === 'half';
-        const dropPosition = ru - itemHeight + 1;
-
-        if (dropPosition < 1) return { display: 'none' };
-
-        let isInvalid = false;
-        if (isHalf) {
-            if (isOccupied(dropPosition, ru, side, draggedItem.isNew ? null : item.id)) {
-                isInvalid = true;
-            }
-        } else { // Full width item
-            if (isOccupied(dropPosition, ru, 'left', draggedItem.isNew ? null : item.id) || 
-                isOccupied(dropPosition, ru, 'right', draggedItem.isNew ? null : item.id)) {
-                isInvalid = true;
-            }
-        }
-
-        return {
-            display: 'block',
-            position: 'absolute',
-            left: isHalf && side === 'right' ? '50%' : '0',
-            width: isHalf ? '50%' : '100%',
-            bottom: `${(dropPosition - 1) * 1.5}rem`,
-            height: `${itemHeight * 1.5}rem`,
-            backgroundColor: isInvalid ? 'rgba(239, 68, 68, 0.8)' : 'rgba(59, 130, 246, 0.8)',
-            border: `1px dashed ${isInvalid ? '#EF4444' : '#3B82F6'}`,
-            zIndex: 10,
-        };
+        return (
+            <div 
+                ref={setNodeRef} 
+                className={`h-full transition-colors ${isOver ? 'bg-amber-500/30' : ''} ${isOccupied ? 'bg-red-500/10' : ''}`}
+            />
+        );
     };
 
     return (
-        <div className="w-full bg-gray-900/50 p-4 rounded-lg flex gap-4">
-            {/* RU Labels */}
-            <div className="flex flex-col-reverse justify-end">
-                {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-right pr-2 select-none">{i + 1}</div>)}
-            </div>
-
-            <div className="flex-grow border-2 border-gray-600 rounded-md relative" onDragLeave={() => setDragOverInfo(null)}>
-                {/* Drop Zones */}
-                {Array.from({ length: rack.ru_height }, (_, i) => {
-                    const ru = rack.ru_height - i;
-                    return (
-                        <div key={ru} className="h-6 border-b border-gray-700/50 flex">
-                            <div className="w-1/2 h-full" onDragOver={(e) => handleDragOver(e, ru, 'left')} onDrop={(e) => handleDrop(e, ru, 'left')} />
-                            <div className="w-1/2 h-full border-l border-dashed border-gray-800" onDragOver={(e) => handleDragOver(e, ru, 'right')} onDrop={(e) => handleDrop(e, ru, 'right')} />
-                        </div>
-                    );
-                })}
-
-                {/* Placed Equipment */}
-                <div className="absolute inset-0 pointer-events-none">
-                    {(rack.equipment || []).map(item => (
-                        <div key={item.id} className="pointer-events-auto">
-                            <PlacedEquipmentItem item={item} onDragStart={onDragStart} onDelete={onDelete} />
-                        </div>
-                    ))}
-                    <div style={getHighlightStyle()} />
+        <div className="flex-shrink-0 w-[300px] bg-gray-900/50 p-4 rounded-lg flex flex-col">
+            <h3 className="text-lg font-bold text-white text-center mb-4">{rack.rack_name} ({rack.ru_height}RU)</h3>
+            <div className="flex-grow flex gap-4">
+                {/* RU Labels */}
+                <div className="flex flex-col-reverse justify-end">
+                    {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-right pr-2 select-none">{i + 1}</div>)}
                 </div>
-            </div>
-            
-            {/* RU Labels */}
-            <div className="flex flex-col-reverse justify-end">
-                {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-left pl-2 select-none">{i + 1}</div>)}
+
+                <div className="flex-grow border-2 border-gray-600 rounded-md relative">
+                    {/* Drop Zones */}
+                    {Array.from({ length: rack.ru_height }, (_, i) => {
+                        const ru = rack.ru_height - i;
+                        return (
+                            <div key={ru} className="h-6 border-b border-gray-700/50 flex">
+                                <div className="w-1/2 h-full"><DropZone ru={ru} side="left" /></div>
+                                <div className="w-1/2 h-full border-l border-dashed border-gray-800"><DropZone ru={ru} side="right" /></div>
+                            </div>
+                        );
+                    })}
+
+                    {/* Placed Equipment */}
+                    <div className="absolute inset-0">
+                        {(rack.equipment || []).map(item => (
+                            <PlacedEquipmentItem key={item.id} item={item} onDelete={handleDeleteEquipment} />
+                        ))}
+                    </div>
+                </div>
             </div>
         </div>
     );

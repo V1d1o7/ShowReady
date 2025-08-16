@@ -1,242 +1,224 @@
-import React, { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { api } from '../api/api';
-import TreeView from './TreeView';
 import RackComponent from '../components/RackComponent';
 import NewRackModal from '../components/NewRackModal';
+import { Plus, Library } from 'lucide-react';
+import TreeView from './TreeView';
+import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
+import RackLibraryModal from '../components/RackLibraryModal';
 
 const RackBuilderView = ({ showName }) => {
     const [racks, setRacks] = useState([]);
-    const [activeRack, setActiveRack] = useState(null);
+    const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [isLoading, setIsLoading] = useState(true);
+    const [activeDragItem, setActiveDragItem] = useState(null);
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
-    
-    const [libraryFolders, setLibraryFolders] = useState([]);
-    const [libraryEquipment, setLibraryEquipment] = useState([]);
-    const [draggedItem, setDraggedItem] = useState(null);
+    const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
+    const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
+    const [contextMenu, setContextMenu] = useState(null);
+    const sensors = useSensors(useSensor(PointerSensor));
 
-    const fetchRackDetails = async (rackId) => {
+    const fetchData = useCallback(async () => {
+        // Don't set loading to true on refetch, just on initial load
         try {
-            const detailedRack = await api.getRackDetails(rackId);
-            setActiveRack(detailedRack);
+            const [racksData, libraryData] = await Promise.all([
+                api.getRacksForShow(showName),
+                api.getLibrary()
+            ]);
+            setRacks(racksData);
+            setLibrary(libraryData);
         } catch (error) {
-            console.error("Failed to fetch rack details:", error);
-            setActiveRack(null); 
+            console.error("Failed to fetch rack builder data:", error);
+        } finally {
+            setIsLoading(false);
         }
-    };
+    }, [showName]);
 
     useEffect(() => {
-        const loadInitialData = async () => {
-            setIsLoading(true);
-            try {
-                const [racksData, libraryData] = await Promise.all([
-                    api.getRacksForShow(showName),
-                    api.getLibrary()
-                ]);
-                
-                setRacks(racksData || []);
-                setLibraryFolders(libraryData?.folders || []);
-                setLibraryEquipment(libraryData?.equipment || []);
+        fetchData();
+        const handleClickOutside = () => setContextMenu(null);
+        window.addEventListener('click', handleClickOutside);
+        return () => window.removeEventListener('click', handleClickOutside);
+    }, [fetchData]);
 
-                if (racksData && racksData.length > 0) {
-                    await fetchRackDetails(racksData[0].id);
-                }
-            } catch (error) {
-                console.error("Failed to load initial data:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        loadInitialData();
-    }, [showName]);
-    
-    const handleSelectRack = async (rack) => {
-        setIsLoading(true);
-        await fetchRackDetails(rack.id);
-        setIsLoading(false);
-    };
-    
-    const handleCreateRack = async ({ rackName, ruHeight }) => {
+    const handleCreateRack = async (rackData) => {
         try {
-            const newRack = await api.createRack({ rack_name: rackName, ru_height: parseInt(ruHeight, 10), show_name: showName });
-            setRacks(prev => [...prev, newRack]);
-            setActiveRack({ ...newRack, equipment: [] });
+            await api.createRack({ ...rackData, ru_height: parseInt(rackData.ruHeight, 10), show_name: showName });
+            fetchData();
         } catch (error) {
             console.error("Failed to create rack:", error);
+            alert(`Error: ${error.message}`);
         }
         setIsNewRackModalOpen(false);
     };
-    
-    const handleAddEquipment = async (item, ru_position, rack_side) => {
-        if (!activeRack) return;
 
-        // --- OPTIMISTIC UI UPDATE FOR ADDING ---
-
-        // 1. Create a temporary client-side ID for the new item.
-        const tempId = `temp-${Date.now()}`;
-        
-        // 2. Generate a temporary instance name based on client-side data (will be replaced by server's name).
-        const parentFolder = libraryFolders.find(f => f.id === item.folder_id);
-        const prefix = parentFolder?.nomenclature_prefix;
-        const base_name = prefix || item.model_number;
-        const existingCount = (activeRack.equipment || []).filter(eq => 
-            eq.instance_name.startsWith(base_name + '-')
-        ).length;
-        const tempInstanceName = `${base_name}-${existingCount + 1}`;
-
-        // 3. Create the temporary optimistic item.
-        const optimisticItem = {
-            id: tempId,
-            rack_id: activeRack.id,
-            template_id: item.id,
-            ru_position: ru_position,
-            rack_side: item.width === 'half' ? rack_side : null,
-            instance_name: tempInstanceName,
-            equipment_templates: item // The template data is already in the dragged item
-        };
-
-        // 4. Update the UI immediately.
-        setActiveRack(prev => ({...prev, equipment: [...prev.equipment, optimisticItem]}));
-
-        // 5. Call the API in the background.
+    const handleCreateUserEquipment = async (equipmentData) => {
         try {
-            const newInstanceData = {
-                template_id: item.id,
-                ru_position: ru_position,
-                rack_side: item.width === 'half' ? rack_side : null,
-            };
-            const savedEquipment = await api.addEquipmentToRack(activeRack.id, newInstanceData);
-            
-            // 6. Once successful, replace the temporary item with the real one from the server.
-            setActiveRack(prev => ({
-                ...prev,
-                equipment: prev.equipment.map(eq => 
-                    eq.id === tempId ? { ...savedEquipment, equipment_templates: item } : eq
-                )
-            }));
-
-        } catch (error) { 
-            console.error("Failed to add equipment:", error); 
-            alert(`Error adding equipment: ${error.message}`);
-            // 7. On error, remove the temporary item.
-            setActiveRack(prev => ({
-                ...prev,
-                equipment: prev.equipment.filter(eq => eq.id !== tempId)
-            }));
+            await api.createUserEquipment(equipmentData);
+            fetchData();
+        } catch (error) {
+            console.error("Failed to create user equipment:", error);
+            alert(`Error: ${error.message}`);
         }
+        setIsNewEquipModalOpen(false);
     };
 
-    const handleMoveEquipment = async (item, new_ru_position, rack_side) => {
-        if (!activeRack) return;
-
-        const originalRackState = activeRack;
-        const isHalf = item.equipment_templates.width === 'half';
-
-        setActiveRack(prevRack => ({
-            ...prevRack,
-            equipment: prevRack.equipment.map(eq => 
-                eq.id === item.id 
-                ? { ...eq, ru_position: new_ru_position, rack_side: isHalf ? rack_side : null }
-                : eq
-            )
-        }));
-
+    const handleLoadRackFromLibrary = async (templateRackId) => {
         try {
-            await api.moveEquipmentInRack(item.id, { 
-                ru_position: new_ru_position,
-                rack_side: isHalf ? rack_side : null
-            });
+            await api.loadRackFromLibrary({ template_rack_id: templateRackId, show_name: showName });
+            fetchData();
         } catch (error) {
-            console.error("Failed to move equipment:", error);
-            alert(`Error moving equipment: ${error.message}. Reverting change.`);
-            setActiveRack(originalRackState);
+            console.error("Failed to load rack from library:", error);
+            alert(`Error: ${error.message}`);
         }
+        setIsRackLibraryOpen(false);
     };
     
-    const handleDeleteEquipment = async (instanceId) => {
-        if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
+    const handleDragStart = (event) => {
+        setActiveDragItem(event.active.data.current);
+    };
 
-        const originalRackState = activeRack;
-        
-        setActiveRack(prev => ({
-            ...prev,
-            equipment: prev.equipment.filter(eq => eq.id !== instanceId)
-        }));
+    const handleDragEnd = async (event) => {
+        const { active, over } = event;
+        setActiveDragItem(null);
 
+        if (!over || !over.data.current) return;
+
+        const draggedData = active.data.current;
+        const dropData = over.data.current;
+
+        if (draggedData.type === 'library-item') {
+            try {
+                await api.addEquipmentToRack(dropData.rackId, {
+                    template_id: draggedData.item.id,
+                    ru_position: dropData.ruPosition,
+                    rack_side: dropData.side
+                });
+                fetchData();
+            } catch (error) {
+                console.error("Failed to add equipment:", error);
+                alert(`Error adding equipment: ${error.message}`);
+            }
+        }
+    };
+
+    const handleContextMenu = (e, item) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, item: item });
+    };
+
+    const handleCopyToLibrary = async () => {
+        if (!contextMenu) return;
+        const { item } = contextMenu;
         try {
-            await api.deleteEquipmentFromRack(instanceId);
+            await api.copyEquipmentToLibrary({ template_id: item.id, folder_id: null });
+            fetchData();
+            alert(`${item.model_number} copied to your library!`);
         } catch (error) {
-            console.error("Failed to delete equipment:", error);
-            alert(`Error deleting equipment: ${error.message}. Reverting change.`);
-            setActiveRack(originalRackState);
+            console.error("Failed to copy equipment:", error);
+            alert(`Error: ${error.message}`);
         }
+        setContextMenu(null);
     };
 
-    const handleDrop = (data, ru_position, side) => {
-        if (data.isNew) {
-            handleAddEquipment(data.item, ru_position, side);
-        } else {
-            handleMoveEquipment(data.item, ru_position, side);
-        }
-    };
+    const unifiedTree = useMemo(() => {
+        const showReadyRoot = { id: 'showready-root', name: 'ShowReady Library', children: [] };
+        const userRoot = { id: 'user-root', name: 'My Library', children: [] };
+        const itemsById = {};
 
-    const handleDragStart = (e, item, isNew = false) => {
-        const template = isNew ? item : item.equipment_templates;
-        const data = { isNew, item, template };
-        e.dataTransfer.setData('application/json', JSON.stringify(data));
-        setDraggedItem(data);
-    };
+        [...library.folders, ...library.equipment].forEach(item => {
+            itemsById[item.id] = { ...item, children: [] };
+        });
+
+        Object.values(itemsById).forEach(item => {
+            const parentId = item.parent_id || item.folder_id;
+            if (parentId && itemsById[parentId]) {
+                itemsById[parentId].children.push(item);
+            } else {
+                if (item.is_default) {
+                    showReadyRoot.children.push(item);
+                } else {
+                    userRoot.children.push(item);
+                }
+            }
+        });
+        return [showReadyRoot, userRoot];
+    }, [library]);
+
+    const userFolderTree = useMemo(() => {
+        const userFolders = library.folders.filter(f => !f.is_default);
+        const itemsById = {};
+        userFolders.forEach(item => { itemsById[item.id] = { ...item, children: [] }; });
+        const roots = [];
+        Object.values(itemsById).forEach(item => {
+            if (item.parent_id && itemsById[item.parent_id]) {
+                itemsById[item.parent_id].children.push(item);
+            } else {
+                roots.push(item);
+            }
+        });
+        return roots;
+    }, [library.folders]);
+
+    if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <>
-            <div className="grid grid-cols-12 gap-6 h-[calc(100vh-220px)]">
-                <div className="col-span-2 bg-gray-800/50 p-4 rounded-xl flex flex-col">
-                    <h2 className="text-lg font-bold text-white mb-4">Racks</h2>
-                    <div className="flex-grow overflow-y-auto">
-                        {(isLoading && !activeRack) ? <p>Loading racks...</p> : (
-                            <ul>
-                                {racks.map(rack =>
-                                    <li key={rack.id}
-                                        onClick={() => handleSelectRack(rack)}
-                                        className={`p-2 rounded-md cursor-pointer ${activeRack?.id === rack.id ? 'bg-amber-500 text-black' : 'hover:bg-gray-700'}`}>
-                                        {rack.rack_name}
-                                    </li>
-                                )}
-                            </ul>
-                        )}
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <div className="flex h-[calc(100vh-220px)] gap-6">
+                <div className="w-80 flex flex-col bg-gray-800/50 p-4 rounded-xl">
+                    <div className="flex justify-between items-center mb-4">
+                        <h2 className="text-xl font-bold text-white">Library</h2>
+                        <button onClick={() => setIsNewEquipModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
+                            <Plus size={16} /> New
+                        </button>
                     </div>
-                    <button onClick={() => setIsNewRackModalOpen(true)} className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
-                        <Plus size={16} /> New Rack
-                    </button>
+                    <div className="flex-grow overflow-y-auto pr-2">
+                        <TreeView treeData={unifiedTree} onContextMenu={handleContextMenu} />
+                    </div>
+                    <div className="pt-4 border-t border-gray-700">
+                         <button onClick={() => setIsRackLibraryOpen(true)} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                            <Library size={16} /> Load from Rack Library
+                        </button>
+                    </div>
                 </div>
 
-                <div className="col-span-7 bg-gray-800/50 p-4 rounded-xl overflow-y-auto">
-                    {isLoading && !activeRack ? <p className="text-gray-500 text-center mt-10">Loading...</p> : activeRack ? (
-                        <RackComponent 
-                            rack={activeRack} 
-                            onDrop={handleDrop} 
-                            onDelete={handleDeleteEquipment}
-                            onDragStart={(e, item) => handleDragStart(e, item, false)}
-                            draggedItem={draggedItem}
-                        />
-                    ) : (
-                        <p className="text-gray-500 text-center mt-10">Select or create a rack to begin.</p>
-                    )}
-                </div>
-
-                <div className="col-span-3 bg-gray-800/50 p-4 rounded-xl flex flex-col">
-                    <h2 className="text-lg font-bold text-white mb-4">Equipment Library</h2>
-                    <div className="flex-grow overflow-y-auto">
-                        <TreeView
-                            folders={libraryFolders}
-                            equipment={libraryEquipment}
-                            onDragStart={(e, item) => handleDragStart(e, item, true)}
-                        />
+                <div className="flex-grow flex gap-6 overflow-x-auto pb-4">
+                    {racks.map(rack => (
+                        <RackComponent key={rack.id} rack={rack} onUpdate={fetchData} />
+                    ))}
+                    <div className="flex-shrink-0">
+                        <button onClick={() => setIsNewRackModalOpen(true)} className="w-48 h-full flex flex-col items-center justify-center bg-gray-800/50 rounded-xl border-2 border-dashed border-gray-600 hover:border-amber-500 hover:bg-gray-800 transition-colors">
+                            <Plus size={48} className="text-gray-500 mb-2" />
+                            <span className="font-bold text-white">Add New Rack</span>
+                        </button>
                     </div>
                 </div>
             </div>
+
+            <DragOverlay>
+                {activeDragItem && (
+                    <div className="bg-gray-700 p-2 rounded-md text-sm shadow-lg pointer-events-none">
+                        {activeDragItem.item.model_number || activeDragItem.item.name}
+                    </div>
+                )}
+            </DragOverlay>
+
+            {contextMenu && (
+                <div className="absolute z-50 bg-gray-800 border border-gray-700 rounded-md shadow-lg p-2 text-white" style={{ top: contextMenu.y, left: contextMenu.x }}>
+                    {contextMenu.item.is_default && (
+                        <button onClick={handleCopyToLibrary} className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-700 rounded">
+                            Copy to My Library
+                        </button>
+                    )}
+                </div>
+            )}
+            
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
-        </>
+            <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
+            <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
+        </DndContext>
     );
 };
 

@@ -9,6 +9,7 @@ import ShowView from './views/ShowView';
 import AccountView from './views/AccountView';
 import AdvancedSSOView from './views/AdvancedSSOView';
 import AdminView from './views/AdminView';
+import UserLibraryView from './views/UserLibraryView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -85,6 +86,11 @@ const MainLayout = ({ session, profile }) => {
                 <Route path="/show/:showName" element={<ShowWrapper />} />
                 <Route path="/account" element={<AccountView onBack={() => navigate('/')} user={session.user} onNavigate={(path) => navigate(`/${path}`)} profile={profile} />} />
                 <Route path="/sso-setup" element={<AdvancedSSOView onBack={() => navigate('/account')} />} />
+                <Route path="/library" element={
+                    <ProtectedRoute>
+                        <UserLibraryView />
+                    </ProtectedRoute>
+                    } />
                 <Route
                     path="/admin"
                     element={
@@ -98,6 +104,7 @@ const MainLayout = ({ session, profile }) => {
                 isOpen={isNewShowModalOpen}
                 onClose={() => setIsNewShowModalOpen(false)}
                 onSubmit={handleCreateShow}
+            
             />
         </>
     );

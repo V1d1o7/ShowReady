@@ -208,3 +208,11 @@ class EquipmentTemplateUpdate(BaseModel):
     width: Optional[str] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
+    
+class EquipmentCopy(BaseModel):
+    template_id: uuid.UUID
+    folder_id: Optional[uuid.UUID] = None
+
+class RackLoad(BaseModel):
+    template_rack_id: uuid.UUID
+    show_name: str

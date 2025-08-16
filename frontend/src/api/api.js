@@ -126,5 +126,26 @@ export const api = {
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
         body: JSON.stringify(equipmentData),
     }).then(handleResponse),
+    createUserFolder: async (folderData) => fetch('/api/library/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(folderData),
+    }).then(handleResponse),
+    createUserEquipment: async (equipmentData) => fetch('/api/library/equipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(equipmentData),
+    }).then(handleResponse),
+    copyEquipmentToLibrary: async (copyData) => fetch('/api/library/copy_equipment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(copyData),
+    }).then(handleResponse),
+    getLibraryRacks: async () => fetch(`/api/racks?from_library=true`, { headers: await getAuthHeader() }).then(handleResponse),
+    loadRackFromLibrary: async (data) => fetch('/api/racks/load_from_library', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(data),
+    }).then(handleResponse),
 
 };

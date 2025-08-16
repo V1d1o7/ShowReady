@@ -7,13 +7,13 @@ import io
 from pydantic import BaseModel
 import uuid
 
-# Import all necessary models
+# Import all necessary models, including the previously missing ones
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
-    FolderUpdate, EquipmentTemplateUpdate
+    FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
@@ -289,6 +289,58 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
         raise HTTPException(status_code=404, detail="Rack not found to update")
     return response.data[0]
 
+@router.post("/racks/load_from_library", response_model=Rack, tags=["Racks"])
+async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Loads a rack from the user's library into a show."""
+    try:
+        template_res = supabase.table('racks').select('*').eq('id', str(load_data.template_rack_id)).eq('user_id', str(user.id)).eq('saved_to_library', True).single().execute()
+        if not template_res.data:
+            raise HTTPException(status_code=404, detail="Library rack not found.")
+        template_rack = template_res.data
+
+        template_equip_res = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(template_rack['id'])).execute()
+        template_equipment = template_equip_res.data
+
+        new_rack_data = {
+            "rack_name": f"{template_rack['rack_name']} (Copy)",
+            "ru_height": template_rack['ru_height'],
+            "show_name": load_data.show_name,
+            "user_id": str(user.id),
+            "saved_to_library": False
+        }
+        new_rack_res = supabase.table('racks').insert(new_rack_data).execute()
+        if not new_rack_res.data:
+            raise HTTPException(status_code=500, detail="Failed to create new rack copy.")
+        new_rack = new_rack_res.data[0]
+
+        if template_equipment:
+            new_equipment_to_create = [
+                {
+                    "rack_id": new_rack['id'],
+                    "template_id": item['template_id'],
+                    "ru_position": item['ru_position'],
+                    "instance_name": item['instance_name'],
+                    "rack_side": item['rack_side'],
+                    "ip_address": item['ip_address'],
+                    "x_pos": item['x_pos'],
+                    "y_pos": item['y_pos']
+                } for item in template_equipment
+            ]
+            
+            new_equip_res = supabase.table('rack_equipment_instances').insert(new_equipment_to_create).execute()
+            if not new_equip_res.data:
+                supabase.table('racks').delete().eq('id', new_rack['id']).execute()
+                raise HTTPException(status_code=500, detail="Failed to copy equipment to new rack.")
+            
+            new_rack['equipment'] = new_equip_res.data
+        else:
+            new_rack['equipment'] = []
+
+        return new_rack
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- Equipment Endpoints ---
 @router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
 async def add_equipment_to_rack(
@@ -404,6 +456,68 @@ async def get_library(user = Depends(get_user), supabase: Client = Depends(get_s
         return { "folders": folders_response.data, "equipment": equipment_response.data }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
+
+@router.post("/library/folders", tags=["Library"], response_model=Folder)
+async def create_user_folder(folder_data: FolderCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new folder in the user's personal library."""
+    insert_data = {
+        "name": folder_data.name,
+        "is_default": False,
+        "user_id": str(user.id),
+        "nomenclature_prefix": folder_data.nomenclature_prefix
+    }
+    if folder_data.parent_id:
+        insert_data["parent_id"] = str(folder_data.parent_id)
+
+    response = supabase.table('folders').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create folder.")
+    return response.data[0]
+
+@router.post("/library/equipment", tags=["Library"], response_model=EquipmentTemplate)
+async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new equipment template in the user's personal library."""
+    ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
+    insert_data = {
+        "model_number": equipment_data.model_number,
+        "manufacturer": equipment_data.manufacturer,
+        "ru_height": equipment_data.ru_height,
+        "width": equipment_data.width,
+        "ports": ports_data,
+        "is_default": False,
+        "user_id": str(user.id)
+    }
+    if equipment_data.folder_id:
+        insert_data["folder_id"] = str(equipment_data.folder_id)
+        
+    response = supabase.table('equipment_templates').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create equipment template.")
+    return response.data[0]
+
+@router.post("/library/copy_equipment", tags=["Library"], response_model=EquipmentTemplate)
+async def copy_equipment_to_user_library(copy_data: EquipmentCopy, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Copies a default equipment template to the user's library."""
+    original_res = supabase.table('equipment_templates').select('*').eq('id', str(copy_data.template_id)).eq('is_default', True).single().execute()
+    if not original_res.data:
+        raise HTTPException(status_code=404, detail="Default equipment template not found.")
+    
+    original_template = original_res.data
+    new_template_data = {
+        "model_number": f"{original_template['model_number']} (Copy)",
+        "manufacturer": original_template['manufacturer'],
+        "ru_height": original_template['ru_height'],
+        "width": original_template['width'],
+        "ports": original_template['ports'],
+        "is_default": False,
+        "user_id": str(user.id),
+        "folder_id": str(copy_data.folder_id) if copy_data.folder_id else None
+    }
+    
+    response = supabase.table('equipment_templates').insert(new_template_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to copy equipment to user library.")
+    return response.data[0]
 
 # --- Wire Diagram Endpoints ---
 @router.post("/connections", tags=["Wire Diagram"])
