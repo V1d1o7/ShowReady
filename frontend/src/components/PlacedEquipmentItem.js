@@ -13,8 +13,8 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart }) => {
 
     const handleDragEnd = () => setIsDragging(false);
 
-    const bottomPosition = (item.ru_position - 1) * 1.5;
-    const itemHeight = (template.ru_height || 1) * 1.5;
+    const bottomPosition = (item.ru_position - 1) * 25; // Use 25px to match the RU height
+    const itemHeight = (template.ru_height || 1) * 25; // Use 25px to match the RU height
 
     const widthClass = isHalfWidth ? 'w-1/2' : 'w-full';
     const positionClass = item.rack_side && item.rack_side.endsWith('-right') ? 'left-1/2' : 'left-0';
@@ -26,8 +26,8 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart }) => {
             onDragEnd={handleDragEnd}
             className={`absolute ${widthClass} ${positionClass} bg-blue-500/30 border border-blue-400 rounded-sm text-white text-xs flex items-center justify-center p-1 cursor-grab group`}
             style={{
-                height: `${itemHeight}rem`,
-                bottom: `${bottomPosition}rem`,
+                height: `${itemHeight}px`,
+                bottom: `${bottomPosition}px`,
                 zIndex: 20,
                 opacity: isDragging ? 0.5 : 1,
             }}
@@ -36,7 +36,7 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart }) => {
             <button
                 onClick={(e) => {
                     e.stopPropagation();
-                    onDelete();
+                    onDelete(item.id);
                 }}
                 className="absolute right-0 pr-2 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
             >

@@ -8,7 +8,7 @@ import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import RackComponent from '../components/RackComponent';
 
-const RackBuilderView = ({ showName }) => {
+const RackBuilderView = ({ onUpdate }) => {
     const [racks, setRacks] = useState([]);
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [isLoading, setIsLoading] = useState(true);
@@ -20,79 +20,63 @@ const RackBuilderView = ({ showName }) => {
     const [draggedItem, setDraggedItem] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
 
-    const fetchData = useCallback(async (rackToSelectId = null) => {
-        setIsLoading(true);
+    const fetchData = useCallback(async () => {
         try {
-            const [racksData, fullLibrary] = await Promise.all([
-                api.getRacksForShow(showName),
-                api.getLibrary()
+            const [fullLibrary, racksData] = await Promise.all([
+                api.getLibrary(),
+                api.getLibraryRacks()
             ]);
 
-            setRacks(racksData || []);
             setLibrary(fullLibrary || { folders: [], equipment: [] });
+            setRacks(racksData);
 
-            let nextRackId = rackToSelectId;
-
-            if (!nextRackId && racksData && racksData.length > 0) {
-                const currentRackExists = selectedRackId && racksData.some(r => r.id === selectedRackId);
-                nextRackId = currentRackExists ? selectedRackId : racksData[0].id;
-            }
-            
-            if (nextRackId) {
-                const detailedRack = await api.getRackDetails(nextRackId);
+            if (selectedRackId) {
+                const detailedRack = await api.getRackDetails(selectedRackId);
                 setActiveRack(detailedRack);
-                setSelectedRackId(nextRackId);
+            } else if (racksData.length > 0) {
+                const initialRackId = racksData[0].id;
+                setSelectedRackId(initialRackId);
+                const detailedRack = await api.getRackDetails(initialRackId);
+                setActiveRack(detailedRack);
             } else {
                 setActiveRack(null);
-                setSelectedRackId(null);
             }
 
         } catch (error) {
-            console.error("Failed to fetch initial data:", error);
+            console.error("Failed to fetch user library:", error);
         } finally {
             setIsLoading(false);
         }
-    }, [showName, selectedRackId]);
+    }, [selectedRackId]);
 
     useEffect(() => {
         fetchData();
         const handleClickOutside = () => setContextMenu(null);
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
-    }, [showName]);
+    }, [fetchData]);
 
-    const handleSelectRack = async (rackId) => {
-        if (selectedRackId === rackId) return;
+    const handleSelectRack = (rackId) => {
         setSelectedRackId(rackId);
-        setIsLoading(true);
-        try {
-            const detailedRack = await api.getRackDetails(rackId);
-            setActiveRack(detailedRack);
-        } catch (error) {
-            console.error("Failed to fetch rack details:", error);
-            setActiveRack(null);
-        } finally {
-            setIsLoading(false);
-        }
     };
-    
-    const handleCreateRack = async ({ rackName, ruHeight }) => {
+
+    const handleCreateRack = async (rackData) => {
         try {
-            const newRack = await api.createRack({ rack_name: rackName, ru_height: parseInt(ruHeight, 10), show_name: showName });
-            await fetchData(newRack.id);
+            const newRack = await api.createRack({ rack_name: rackData.rackName, ru_height: parseInt(rackData.ruHeight, 10), saved_to_library: true });
+            await fetchData();
+            setSelectedRackId(newRack.id);
         } catch (error) {
-            console.error("Failed to create rack:", error);
-            alert(`Error creating rack: ${error.message}`);
+            console.error("Failed to create rack template:", error);
+            alert(`Error: ${error.message}`);
         }
         setIsNewRackModalOpen(false);
     };
 
     const handleDeleteRack = async (rackId) => {
-        if (!window.confirm("Are you sure you want to delete this rack?")) return;
+        if (!window.confirm("Are you sure you want to delete this rack template?")) return;
         try {
             await api.deleteRack(rackId);
-            setSelectedRackId(null); 
-            await fetchData();
+            onUpdate();
         } catch (error) {
             console.error("Failed to delete rack:", error);
             alert(`Error: ${error.message}`);
@@ -102,17 +86,17 @@ const RackBuilderView = ({ showName }) => {
     const handleUpdateRack = async (rackId, rackData) => {
         try {
             await api.updateRack(rackId, rackData);
-            await fetchData(rackId);
+            onUpdate();
         } catch (error) {
             console.error("Failed to update rack:", error)
             alert(`Error: ${error.message}`);
         }
     };
-    
+
     const handleCreateUserEquipment = async (equipmentData) => {
         try {
             await api.createUserEquipment(equipmentData);
-            await fetchData(selectedRackId);
+            fetchData();
         } catch (error) {
             console.error("Failed to create user equipment:", error);
             alert(`Error: ${error.message}`);
@@ -122,8 +106,8 @@ const RackBuilderView = ({ showName }) => {
     
     const handleLoadRackFromLibrary = async (templateRackId) => {
         try {
-            const newRack = await api.copyRackFromLibrary(templateRackId, showName);
-            await fetchData(newRack.id);
+            await api.copyRackFromLibrary(templateRackId);
+            fetchData();
         } catch (error) {
             console.error("Failed to load rack from library:", error);
             alert(`Error: ${error.message}`);
@@ -131,68 +115,45 @@ const RackBuilderView = ({ showName }) => {
         setIsRackLibraryOpen(false);
     };
 
-    const handleAddEquipment = async (item, ru_position, rack_side_view) => {
+    const handleAddEquipment = async (item, ru_position, rack_side) => {
         if (!activeRack) return;
-
-        const tempId = `temp-${Date.now()}`;
-        const parentFolder = library.folders.find(f => f.id === item.folder_id);
-        const prefix = parentFolder?.nomenclature_prefix;
-        const base_name = prefix || item.model_number;
-        const existingCount = (activeRack.equipment || []).filter(eq => eq.instance_name.startsWith(base_name + '-')).length;
-        const tempInstanceName = `${base_name}-${existingCount + 1}`;
-
-        const optimisticItem = {
-            id: tempId,
-            rack_id: activeRack.id,
+        const payload = {
             template_id: item.id,
-            ru_position: ru_position,
-            rack_side: rack_side_view,
-            instance_name: tempInstanceName,
-            equipment_templates: item
+            ru_position,
+            rack_side,
         };
-        setActiveRack(prev => ({...prev, equipment: [...prev.equipment, optimisticItem]}));
-
         try {
-            const newInstanceData = { template_id: item.id, ru_position, rack_side: rack_side_view };
-            const savedEquipment = await api.addEquipmentToRack(activeRack.id, newInstanceData);
-            setActiveRack(prev => ({
-                ...prev,
-                equipment: prev.equipment.map(eq => eq.id === tempId ? savedEquipment : eq)
-            }));
-        } catch (error) { 
-            console.error("Failed to add equipment:", error); 
-            alert(`Error adding equipment: ${error.message}`);
-            setActiveRack(prev => ({ ...prev, equipment: prev.equipment.filter(eq => eq.id !== tempId) }));
+            await api.addEquipmentToRack(activeRack.id, payload);
+            await fetchData();
+        } catch (error) {
+            console.error("Failed to add equipment to rack", error);
+            alert(`Error: ${error.message || 'Could not add equipment.'}`);
         }
     };
 
-    const handleMoveEquipment = async (item, new_ru_position, rack_side_view) => {
+    const handleMoveEquipment = async (item, new_ru_position, rack_side) => {
         if (!activeRack) return;
-        const originalRackState = activeRack;
-        
-        setActiveRack(prevRack => ({
-            ...prevRack,
-            equipment: prevRack.equipment.map(eq => eq.id === item.id ? { ...eq, ru_position: new_ru_position, rack_side: rack_side_view } : eq)
-        }));
+        const payload = {
+            ru_position: new_ru_position,
+            rack_side,
+        };
         try {
-            await api.updateEquipmentInstance(item.id, { ru_position: new_ru_position, rack_side: rack_side_view });
+            await api.updateEquipmentInstance(item.id, payload);
+            await fetchData();
         } catch (error) {
-            console.error("Failed to move equipment:", error);
-            alert(`Error moving equipment: ${error.message}. Reverting change.`);
-            setActiveRack(originalRackState);
+            console.error("Failed to move equipment", error);
+            alert(`Error: ${error.message || 'Could not move equipment.'}`);
         }
     };
     
-    const handleDeleteEquipmentOnRack = async (instanceId) => {
+    const handleDeleteEquipment = async (instanceId) => {
         if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
-        const originalRackState = activeRack;
-        setActiveRack(prev => ({ ...prev, equipment: prev.equipment.filter(eq => eq.id !== instanceId) }));
         try {
             await api.deleteEquipmentFromRack(instanceId);
+            await fetchData();
         } catch (error) {
             console.error("Failed to delete equipment:", error);
-            alert(`Error deleting equipment: ${error.message}. Reverting change.`);
-            setActiveRack(originalRackState);
+            alert(`Error: ${error.message}`);
         }
     };
 
@@ -222,7 +183,7 @@ const RackBuilderView = ({ showName }) => {
         const { item } = contextMenu;
         try {
             await api.copyEquipmentToLibrary({ template_id: item.id, folder_id: null });
-            await fetchData(selectedRackId);
+            fetchData();
             alert(`${item.model_number} copied to your library!`);
         } catch (error) {
             console.error("Failed to copy equipment:", error);
@@ -231,8 +192,9 @@ const RackBuilderView = ({ showName }) => {
         setContextMenu(null);
     };
 
+    const userFolders = useMemo(() => library.folders.filter(f => !f.is_default), [library.folders]);
+
     const userFolderTree = useMemo(() => {
-        const userFolders = library.folders.filter(f => !f.is_default);
         const itemsById = {};
         userFolders.forEach(item => { itemsById[item.id] = { ...item, children: [] }; });
         const roots = [];
@@ -244,9 +206,9 @@ const RackBuilderView = ({ showName }) => {
             }
         });
         return roots;
-    }, [library.folders]);
+    }, [userFolders]);
 
-    if (isLoading && !activeRack) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
+    if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
         <div className="flex gap-6 h-[calc(100vh-250px)]">
@@ -266,7 +228,7 @@ const RackBuilderView = ({ showName }) => {
                             rack={activeRack}
                             view="front"
                             onDrop={handleDrop}
-                            onDelete={handleDeleteEquipmentOnRack}
+                            onDelete={handleDeleteEquipment}
                             onDragStart={(e, item) => handleDragStart(e, item, false)}
                             draggedItem={draggedItem}
                         />
@@ -275,7 +237,7 @@ const RackBuilderView = ({ showName }) => {
                             rack={activeRack}
                             view="rear"
                             onDrop={handleDrop}
-                            onDelete={handleDeleteEquipmentOnRack}
+                            onDelete={handleDeleteEquipment}
                             onDragStart={(e, item) => handleDragStart(e, item, false)}
                             draggedItem={draggedItem}
                         />
@@ -283,8 +245,8 @@ const RackBuilderView = ({ showName }) => {
                 ) : (
                     <div className="flex-grow flex flex-col items-center justify-center text-center text-gray-500">
                         <HardDrive size={48} className="mb-4" />
-                        <h3 className="text-lg font-bold">No Racks in Show</h3>
-                        <p>Create a new rack to begin building your show.</p>
+                        <h3 className="text-lg font-bold">No Rack Selected</h3>
+                        <p>Select a rack from the left panel to begin, or create a new one.</p>
                     </div>
                 )}
             </div>
