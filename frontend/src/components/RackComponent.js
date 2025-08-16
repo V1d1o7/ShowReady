@@ -13,7 +13,6 @@ const RackComponent = ({ rack, view, onDrop, onDelete, onDragStart, draggedItem 
             for (let i = 0; i < height; i++) {
                 const currentRu = item.ru_position + i;
                 if (template.width === 'full') {
-                    // A full-width item on the 'front' view occupies both 'front-left' and 'front-right'
                     const baseSide = item.rack_side ? item.rack_side.split('-')[0] : view;
                     slots.set(`${currentRu}-${baseSide}-left`, item.id);
                     slots.set(`${currentRu}-${baseSide}-right`, item.id);
@@ -36,9 +35,10 @@ const RackComponent = ({ rack, view, onDrop, onDelete, onDragStart, draggedItem 
     };
 
     const handleDragOver = (e, ru, side) => {
-        // This is the crucial check. If we are dragging a valid item, allow the drop.
+        // This is the crucial fix. Always prevent default to signal a valid drop target.
+        e.preventDefault();
+        // The visual feedback is handled by the state update below.
         if (draggedItem) {
-            e.preventDefault();
             setDragOverInfo({ ru, side });
         }
     };

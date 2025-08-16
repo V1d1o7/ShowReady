@@ -41,6 +41,7 @@ const UserRackBuilderView = ({ library, racks, selectedRackId, onSelectRack, onN
         const template = isNew ? item : item.equipment_templates;
         const data = { isNew, item, template };
         e.dataTransfer.setData('application/json', JSON.stringify(data));
+        e.dataTransfer.effectAllowed = 'move';
         // A slight delay allows the dataTransfer to be set before the state update, making the process more reliable.
         setTimeout(() => setDraggedItem(data), 0);
     };
