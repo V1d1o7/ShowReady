@@ -1,20 +1,21 @@
-import React, { useState } from 'react';
-import { Folder as FolderIcon, ChevronRight, ChevronDown } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useDraggable } from '@dnd-kit/core';
+import { Folder as FolderIcon, ChevronRight, ChevronDown, GripVertical } from 'lucide-react';
 
-// Draggable component for library equipment
-const DraggableEquipment = ({ item, onDragStart, onContextMenu }) => {
-    const handleDragStart = (e) => {
-        // This is the native HTML drag and drop event
-        e.stopPropagation();
-        onDragStart(e, item);
-    };
+const DraggableEquipment = ({ item, onContextMenu }) => {
+    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+        id: `equipment-${item.id}`,
+        data: { type: 'equipment', item }
+    });
 
     return (
         <div 
-            draggable
-            onDragStart={handleDragStart}
+            ref={setNodeRef}
+            {...listeners}
+            {...attributes}
             onContextMenu={(e) => onContextMenu && onContextMenu(e, item)}
-            className="p-2 my-1 bg-gray-700 rounded-md cursor-grab active:cursor-grabbing"
+            className="p-2 my-1 bg-gray-700 rounded-md cursor-grab"
+            style={{ opacity: isDragging ? 0.5 : 1 }}
         >
             <p className="font-bold text-sm truncate pointer-events-none">{item.model_number}</p>
             <p className="text-xs text-gray-400 pointer-events-none">{item.manufacturer} - {item.ru_height}RU</p>
@@ -22,8 +23,7 @@ const DraggableEquipment = ({ item, onDragStart, onContextMenu }) => {
     );
 };
 
-// Main TreeView component
-const TreeView = ({ treeData, onDragStart, onContextMenu }) => {
+const TreeView = ({ treeData, onContextMenu }) => {
     const [expandedFolders, setExpandedFolders] = useState({});
 
     const toggleFolder = (folderId) => {
@@ -32,9 +32,9 @@ const TreeView = ({ treeData, onDragStart, onContextMenu }) => {
 
     const renderNode = (node) => {
         const isFolder = 'children' in node;
+        const isRootFolder = node.id === 'showready-root' || node.id === 'user-root';
 
         if (isFolder) {
-            const isRootFolder = node.id === 'showready-root' || node.id === 'user-root';
             return (
                 <li key={node.id} className={isRootFolder ? 'mt-4 first:mt-0' : ''}>
                     <div
@@ -54,17 +54,20 @@ const TreeView = ({ treeData, onDragStart, onContextMenu }) => {
             );
         }
 
-        // It's an equipment item
         return (
             <li key={node.id}>
                 <DraggableEquipment 
                     item={node} 
-                    onDragStart={onDragStart} 
                     onContextMenu={onContextMenu} 
                 />
             </li>
         );
     };
+    
+    // Auto-expand root folders on initial load
+    useEffect(() => {
+        setExpandedFolders(prev => ({...prev, 'showready-root': true, 'user-root': true}));
+    }, []);
 
     return <ul>{treeData.map(node => renderNode(node))}</ul>;
 };
