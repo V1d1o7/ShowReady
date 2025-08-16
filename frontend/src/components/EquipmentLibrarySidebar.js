@@ -1,25 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { useDraggable } from '@dnd-kit/core';
 import { Folder as FolderIcon, ChevronRight, ChevronDown, Copy } from 'lucide-react';
 import { api } from '../api/api';
 
-const DraggableEquipment = ({ equipment, onContextMenu }) => {
-    const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-        id: `template-${equipment.id}`,
-        data: { type: 'equipment-template', template: equipment },
-    });
-
-    const style = {
-        opacity: isDragging ? 0.5 : 1,
-        touchAction: 'none',
+const DraggableEquipment = ({ equipment, onDragStart, onContextMenu }) => {
+    const handleDragStart = (e) => {
+        e.stopPropagation();
+        onDragStart(e, equipment);
     };
 
     return (
         <div
-            ref={setNodeRef}
-            style={style}
-            {...listeners}
-            {...attributes}
+            draggable
+            onDragStart={handleDragStart}
             onContextMenu={(e) => onContextMenu(e, equipment)}
             className="p-2 my-1 bg-gray-700 rounded-md cursor-grab hover:bg-gray-600 group"
         >
@@ -29,7 +21,7 @@ const DraggableEquipment = ({ equipment, onContextMenu }) => {
     );
 };
 
-const Folder = ({ folder, allEquipment, expandedFolders, toggleFolder, onContextMenu }) => {
+const Folder = ({ folder, allEquipment, expandedFolders, toggleFolder, onDragStart, onContextMenu }) => {
     const isExpanded = expandedFolders[folder.id];
 
     return (
@@ -51,12 +43,13 @@ const Folder = ({ folder, allEquipment, expandedFolders, toggleFolder, onContext
                             allEquipment={allEquipment}
                             expandedFolders={expandedFolders}
                             toggleFolder={toggleFolder}
+                            onDragStart={onDragStart}
                             onContextMenu={onContextMenu}
                         />
                     ))}
                     {allEquipment
                         .filter(e => e.folder_id === folder.id)
-                        .map(e => <DraggableEquipment key={e.id} equipment={e} onContextMenu={onContextMenu} />)
+                        .map(e => <DraggableEquipment key={e.id} equipment={e} onDragStart={onDragStart} onContextMenu={onContextMenu} />)
                     }
                 </ul>
             )}
@@ -65,7 +58,7 @@ const Folder = ({ folder, allEquipment, expandedFolders, toggleFolder, onContext
 };
 
 
-const EquipmentLibrarySidebar = ({ library, onLibraryUpdate }) => {
+const EquipmentLibrarySidebar = ({ library, onDragStart, onLibraryUpdate }) => {
     const [expandedFolders, setExpandedFolders] = useState({});
     const [contextMenu, setContextMenu] = useState(null);
 
@@ -120,11 +113,13 @@ const EquipmentLibrarySidebar = ({ library, onLibraryUpdate }) => {
             }
         });
 
-        setExpandedFolders(prev => ({...prev, 'showready-root': true, 'user-root': true}));
+        // Automatically expand the root folders
+        if (!expandedFolders['showready-root']) {
+            setExpandedFolders(prev => ({...prev, 'showready-root': true, 'user-root': true}));
+        }
 
-        // Updated order here
         return [showReadyRoot, userRoot];
-    }, [library]);
+    }, [library, expandedFolders]);
 
     return (
         <div className="w-80 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
@@ -141,17 +136,18 @@ const EquipmentLibrarySidebar = ({ library, onLibraryUpdate }) => {
                             </div>
                             {expandedFolders[root.id] && (
                                 <ul className="pl-4">
-                                    {root.children.filter(c => c.children).map(child => (
+                                    {root.children.filter(c => 'children' in c).map(child => (
                                          <Folder
                                             key={child.id}
                                             folder={child}
                                             allEquipment={library.equipment}
                                             expandedFolders={expandedFolders}
                                             toggleFolder={toggleFolder}
+                                            onDragStart={onDragStart}
                                             onContextMenu={handleContextMenu}
                                         />
                                     ))}
-                                    {root.children.filter(c => !c.children).map(e => <DraggableEquipment key={e.id} equipment={e} onContextMenu={handleContextMenu} />)}
+                                    {root.children.filter(c => !('children' in c)).map(e => <DraggableEquipment key={e.id} equipment={e} onDragStart={onDragStart} onContextMenu={handleContextMenu} />)}
                                 </ul>
                             )}
                         </li>

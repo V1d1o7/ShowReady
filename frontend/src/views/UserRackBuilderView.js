@@ -1,70 +1,102 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { api } from '../api/api';
-import RackComponent from '../components/RackComponent';
 import EquipmentLibrarySidebar from '../components/EquipmentLibrarySidebar';
 import RackList from '../components/RackList';
-import NewRackModal from '../components/NewRackModal';
 import { HardDrive } from 'lucide-react';
-import PlacedEquipmentItem from '../components/PlacedEquipmentItem'; // Import for DragOverlay
+import RackComponent from '../components/RackComponent';
 
 const UserRackBuilderView = ({ library, racks, selectedRackId, onSelectRack, onNewRack, onUpdate }) => {
-    const [activeDragItem, setActiveDragItem] = useState(null);
-    const [expandedFolders, setExpandedFolders] = useState({});
-    const sensors = useSensors(useSensor(PointerSensor));
+    const [draggedItem, setDraggedItem] = useState(null);
+    const [activeRack, setActiveRack] = useState(null);
+    const [isLoadingRack, setIsLoadingRack] = useState(false);
 
-    const handleDragStart = (event) => {
-        setActiveDragItem(event.active.data.current);
+    const fetchRackDetails = useCallback(async (rackId) => {
+        if (!rackId) {
+            setActiveRack(null);
+            return;
+        }
+        setIsLoadingRack(true);
+        try {
+            const detailedRack = await api.getRackDetails(rackId);
+            setActiveRack(detailedRack);
+        } catch (error) {
+            console.error("Failed to fetch rack details:", error);
+            setActiveRack(null);
+        } finally {
+            setIsLoadingRack(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (selectedRackId) {
+            fetchRackDetails(selectedRackId);
+        } else if (racks.length > 0 && !selectedRackId) {
+            onSelectRack(racks[0].id);
+        } else {
+            setActiveRack(null);
+        }
+    }, [selectedRackId, racks, fetchRackDetails, onSelectRack]);
+
+    const handleDragStart = (e, item, isNew = false) => {
+        const template = isNew ? item : item.equipment_templates;
+        const data = { isNew, item, template };
+        e.dataTransfer.setData('application/json', JSON.stringify(data));
+        // A slight delay allows the dataTransfer to be set before the state update, making the process more reliable.
+        setTimeout(() => setDraggedItem(data), 0);
     };
 
-    const handleDragEnd = async ({ active, over }) => {
-        setActiveDragItem(null);
-        if (!over) return;
+    const handleDragEnd = () => {
+        setDraggedItem(null);
+    };
 
-        const activeType = active.data.current.type;
-        const overData = over.data.current;
-        const overType = overData.type;
-
-        // Case 1: Dragging a new template from the library to a rack slot
-        if (activeType === 'equipment-template' && overType === 'ru-slot') {
-            const template = active.data.current.template;
-            const { rackId, ru, side } = overData;
-            try {
-                await api.addEquipmentToRack(rackId, {
-                    template_id: template.id,
-                    ru_position: ru,
-                    rack_side: side,
-                });
-                onUpdate();
-            } catch (error) {
-                console.error("Failed to add equipment to rack", error);
-                alert(`Error: ${error.message}`);
-            }
-        }
-
-        // Case 2: Moving an existing item within or between racks
-        if (activeType === 'placed-item' && overType === 'ru-slot') {
-            const item = active.data.current.item;
-            const { ru, side } = overData;
-            // Prevent dropping on the same spot
-            if (item.ru_position === ru && item.rack_side === side) {
-                return;
-            }
-            try {
-                await api.updateEquipmentInstance(item.id, {
-                    ru_position: ru,
-                    rack_side: side,
-                });
-                onUpdate();
-            } catch (error) {
-                console.error("Failed to move equipment", error);
-                alert(`Error: ${error.message}`);
-            }
+    const handleAddEquipment = async (item, ru_position, rack_side) => {
+        if (!activeRack) return;
+        const payload = {
+            template_id: item.id,
+            ru_position,
+            rack_side,
+        };
+        try {
+            await api.addEquipmentToRack(activeRack.id, payload);
+            await fetchRackDetails(activeRack.id); // Refetch to get the updated state
+        } catch (error) {
+            console.error("Failed to add equipment to rack", error);
+            alert(`Error: ${error.message || 'Could not add equipment.'}`);
         }
     };
 
-    const toggleFolder = (folderId) => {
-        setExpandedFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
+    const handleMoveEquipment = async (item, new_ru_position, rack_side) => {
+        if (!activeRack) return;
+        const payload = {
+            ru_position: new_ru_position,
+            rack_side,
+        };
+        try {
+            await api.updateEquipmentInstance(item.id, payload);
+            await fetchRackDetails(activeRack.id);
+        } catch (error) {
+            console.error("Failed to move equipment", error);
+            alert(`Error: ${error.message || 'Could not move equipment.'}`);
+        }
+    };
+
+    const handleDeleteEquipment = async (instanceId) => {
+        if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
+        try {
+            await api.deleteEquipmentFromRack(instanceId);
+            await fetchRackDetails(activeRack.id);
+        } catch (error) {
+            console.error("Failed to delete equipment:", error);
+            alert(`Error: ${error.message}`);
+        }
+    };
+
+    const handleDrop = (data, ru_position, side) => {
+        if (data.isNew) {
+            handleAddEquipment(data.item, ru_position, side);
+        } else {
+            handleMoveEquipment(data.item, ru_position, side);
+        }
     };
 
     const handleDeleteRack = async (rackId) => {
@@ -89,97 +121,53 @@ const UserRackBuilderView = ({ library, racks, selectedRackId, onSelectRack, onN
     };
 
     return (
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-            <div className="flex gap-6 h-[calc(100vh-250px)]">
-                <RackList 
-                    racks={racks}
-                    onSelectRack={onSelectRack}
-                    onNewRack={onNewRack}
-                    onDeleteRack={handleDeleteRack}
-                    onUpdateRack={handleUpdateRack}
-                    selectedRackId={selectedRackId}
-                />
-                <UserRackBuilderViewContent
-                    selectedRackId={selectedRackId}
-                    onUpdate={onUpdate}
-                />
-                <EquipmentLibrarySidebar
-                    library={library}
-                    expandedFolders={expandedFolders}
-                    toggleFolder={toggleFolder}
-                    onLibraryUpdate={onUpdate}
-                />
-            </div>
-            <DragOverlay>
-                {activeDragItem?.type === 'equipment-template' ? (
-                    <div className="p-2 bg-gray-900 border border-amber-500 rounded-md shadow-lg">
-                        <p className="font-bold text-sm text-white">{activeDragItem.template.model_number}</p>
-                        <p className="text-xs text-gray-400">{activeDragItem.template.ru_height}RU</p>
-                    </div>
-                ) : null}
-                {activeDragItem?.type === 'placed-item' ? (
-                    <PlacedEquipmentItem item={activeDragItem.item} isOverlay />
-                ) : null}
-            </DragOverlay>
-        </DndContext>
-    );
-};
-
-const UserRackBuilderViewContent = ({ selectedRackId, onUpdate }) => {
-    const [rack, setRack] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-
-    useEffect(() => {
-        const fetchRackDetails = async () => {
-            if (!selectedRackId) {
-                setRack(null);
-                return;
-            }
-            setIsLoading(true);
-            try {
-                const rackData = await api.getRackDetails(selectedRackId);
-                setRack(rackData);
-            } catch (error) {
-                console.error("Failed to fetch rack details:", error);
-                setRack(null);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchRackDetails();
-    }, [selectedRackId]);
-
-    if (isLoading) {
-        return <div className="flex-grow flex items-center justify-center text-gray-500">Loading Rack...</div>;
-    }
-
-    if (!selectedRackId) {
-        return (
-            <div className="flex-grow flex flex-col items-center justify-center text-center text-gray-500">
-                <HardDrive size={48} className="mb-4" />
-                <h3 className="text-lg font-bold">No Rack Selected</h3>
-                <p>Select a rack from the left panel to begin, or create a new one.</p>
-            </div>
-        )
-    }
-
-    if (!rack) {
-        return null;
-    }
-
-    return (
-        <div className="flex-grow overflow-x-auto pb-4 flex justify-center gap-8">
-            <RackComponent
-                key={`${rack.id}-front`}
-                rack={rack}
-                view="front"
-                onUpdate={onUpdate}
+        <div className="flex gap-6 h-[calc(100vh-250px)]" onDragEnd={handleDragEnd}>
+            <RackList
+                racks={racks}
+                onSelectRack={onSelectRack}
+                onNewRack={onNewRack}
+                onDeleteRack={handleDeleteRack}
+                onUpdateRack={handleUpdateRack}
+                selectedRackId={selectedRackId}
             />
-            <RackComponent
-                key={`${rack.id}-rear`}
-                rack={rack}
-                view="rear"
-                onUpdate={onUpdate}
+
+            <div className="flex-grow overflow-x-auto pb-4 flex justify-center gap-8">
+                {isLoadingRack ? (
+                    <div className="flex-grow flex items-center justify-center text-gray-500">Loading Rack...</div>
+                ) : activeRack ? (
+                    <>
+                        <RackComponent
+                            key={`${activeRack.id}-front`}
+                            rack={activeRack}
+                            view="front"
+                            onDrop={handleDrop}
+                            onDelete={handleDeleteEquipment}
+                            onDragStart={(e, item) => handleDragStart(e, item, false)}
+                            draggedItem={draggedItem}
+                        />
+                        <RackComponent
+                            key={`${activeRack.id}-rear`}
+                            rack={activeRack}
+                            view="rear"
+                            onDrop={handleDrop}
+                            onDelete={handleDeleteEquipment}
+                            onDragStart={(e, item) => handleDragStart(e, item, false)}
+                            draggedItem={draggedItem}
+                        />
+                    </>
+                ) : (
+                    <div className="flex-grow flex flex-col items-center justify-center text-center text-gray-500">
+                        <HardDrive size={48} className="mb-4" />
+                        <h3 className="text-lg font-bold">No Rack Selected</h3>
+                        <p>Select a rack from the left panel to begin, or create a new one.</p>
+                    </div>
+                )}
+            </div>
+
+            <EquipmentLibrarySidebar
+                library={library}
+                onDragStart={(e, item) => handleDragStart(e, item, true)}
+                onLibraryUpdate={onUpdate}
             />
         </div>
     );
