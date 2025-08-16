@@ -87,14 +87,14 @@ const MainLayout = ({ session, profile }) => {
                 <Route path="/account" element={<AccountView onBack={() => navigate('/')} user={session.user} onNavigate={(path) => navigate(`/${path}`)} profile={profile} />} />
                 <Route path="/sso-setup" element={<AdvancedSSOView onBack={() => navigate('/account')} />} />
                 <Route path="/library" element={
-                    <ProtectedRoute>
+                    <ProtectedRoute profile={profile}>
                         <UserLibraryView />
                     </ProtectedRoute>
                     } />
                 <Route
                     path="/admin"
                     element={
-                        <ProtectedRoute profile={profile}>
+                        <ProtectedRoute profile={profile} adminOnly={true}>
                             <AdminView onBack={() => navigate('/account')} />
                         </ProtectedRoute>
                     }

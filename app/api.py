@@ -13,7 +13,8 @@ from .models import (
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
-    FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad
+    FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
+    UserFolderUpdate, UserEquipmentTemplateUpdate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
@@ -250,7 +251,12 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         full_rack_data = rack_data.model_dump()
         full_rack_data['user_id'] = str(user.id)
         
+        # If no show_name is provided, it's a library rack template
+        if not full_rack_data.get('show_name'):
+            full_rack_data['saved_to_library'] = True
+
         response = supabase.table('racks').insert(full_rack_data).execute()
+
         if response.data:
             new_rack = response.data[0]
             new_rack['equipment'] = []
@@ -258,6 +264,7 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         raise HTTPException(status_code=500, detail="Failed to create rack.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/racks", response_model=List[Rack], tags=["Racks"])
 async def list_racks(show_name: Optional[str] = None, from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -288,6 +295,16 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
     if not response.data:
         raise HTTPException(status_code=404, detail="Rack not found to update")
     return response.data[0]
+
+@router.delete("/racks/{rack_id}", status_code=204, tags=["Racks"])
+async def delete_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # Verify the user owns the rack before deleting
+    rack_to_delete = supabase.table('racks').select('id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
+    if not rack_to_delete.data:
+        raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to delete it.")
+
+    supabase.table('racks').delete().eq('id', str(rack_id)).execute()
+    return
 
 @router.post("/racks/load_from_library", response_model=Rack, tags=["Racks"])
 async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -457,7 +474,7 @@ async def get_library(user = Depends(get_user), supabase: Client = Depends(get_s
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
 
-@router.post("/library/folders", tags=["Library"], response_model=Folder)
+@router.post("/library/folders", tags=["User Library"], response_model=Folder)
 async def create_user_folder(folder_data: FolderCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new folder in the user's personal library."""
     insert_data = {
@@ -474,7 +491,41 @@ async def create_user_folder(folder_data: FolderCreate, user = Depends(get_user)
         raise HTTPException(status_code=500, detail="Failed to create folder.")
     return response.data[0]
 
-@router.post("/library/equipment", tags=["Library"], response_model=EquipmentTemplate)
+@router.put("/library/folders/{folder_id}", tags=["User Library"], response_model=Folder)
+async def update_user_folder(folder_id: uuid.UUID, folder_data: UserFolderUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates a folder in the user's personal library."""
+    update_dict = folder_data.model_dump(exclude_unset=True)
+    if 'parent_id' in update_dict and update_dict['parent_id'] is not None:
+        update_dict['parent_id'] = str(update_dict['parent_id'])
+
+    response = supabase.table('folders').update(update_dict).eq('id', str(folder_id)).eq('user_id', str(user.id)).execute()
+
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Folder not found or you do not have permission to edit it.")
+    return response.data[0]
+
+@router.delete("/library/folders/{folder_id}", status_code=204, tags=["User Library"])
+async def delete_user_folder(folder_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes a folder from the user's personal library."""
+    
+    # Check ownership
+    folder_to_delete = supabase.table('folders').select('id').eq('id', str(folder_id)).eq('user_id', str(user.id)).single().execute()
+    if not folder_to_delete.data:
+        raise HTTPException(status_code=404, detail="Folder not found or you do not have permission to delete it.")
+
+    # Check for contents
+    subfolder_res = supabase.table('folders').select('id', count='exact').eq('parent_id', str(folder_id)).execute()
+    if subfolder_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a folder that contains subfolders.")
+
+    equipment_res = supabase.table('equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
+    if equipment_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a folder that contains equipment.")
+        
+    supabase.table('folders').delete().eq('id', str(folder_id)).eq('user_id', str(user.id)).execute()
+    return
+
+@router.post("/library/equipment", tags=["User Library"], response_model=EquipmentTemplate)
 async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new equipment template in the user's personal library."""
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
@@ -494,6 +545,25 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create equipment template.")
     return response.data[0]
+
+@router.put("/library/equipment/{equipment_id}", tags=["User Library"], response_model=EquipmentTemplate)
+async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEquipmentTemplateUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates an equipment template in the user's personal library."""
+    update_dict = equipment_data.model_dump(exclude_unset=True)
+    if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
+        update_dict['folder_id'] = str(update_dict['folder_id'])
+
+    response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('user_id', str(user.id)).execute()
+
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Equipment not found or you do not have permission to edit it.")
+    return response.data[0]
+
+@router.delete("/library/equipment/{equipment_id}", status_code=204, tags=["User Library"])
+async def delete_user_equipment(equipment_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes an equipment template from the user's personal library."""
+    supabase.table('equipment_templates').delete().eq('id', str(equipment_id)).eq('user_id', str(user.id)).execute()
+    return
 
 @router.post("/library/copy_equipment", tags=["Library"], response_model=EquipmentTemplate)
 async def copy_equipment_to_user_library(copy_data: EquipmentCopy, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

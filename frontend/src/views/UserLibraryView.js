@@ -1,82 +1,113 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
-import { ArrowLeft, Plus, Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, GripVertical, Edit, HardDrive, Package } from 'lucide-react';
+import { ArrowLeft, Plus, Package, HardDrive } from 'lucide-react';
 import { api } from '../api/api';
 import Card from '../components/Card';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
-// We'll need new modals similar to the admin ones, let's create them inline for simplicity for now
-import Modal from '../components/Modal';
-import InputField from '../components/InputField';
-import FolderOptions from '../components/FolderOptions';
-import TreeView from './TreeView';
-
-// A simple modal for creating a new folder in the user library
-const NewUserFolderModal = ({ isOpen, onClose, onSubmit, userFolderTree }) => {
-    const [name, setName] = useState('');
-    const [parentId, setParentId] = useState('');
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        onSubmit({ name, parent_id: parentId || null });
-        setName('');
-        setParentId('');
-    };
-
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Create New Folder in Your Library">
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <InputField label="Folder Name" type="text" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
-                <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Parent Folder (Optional)</label>
-                    <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                        <option value="">None (Root Level)</option>
-                        <FolderOptions folders={userFolderTree} />
-                    </select>
-                </div>
-                <div className="flex justify-end gap-4 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
-                    <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Create</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
+import NewUserFolderModal from '../components/NewUserFolderModal';
+import EditUserFolderModal from '../components/EditUserFolderModal';
+import EditUserEquipmentModal from '../components/EditUserEquipmentModal';
+import UserTreeView from '../components/UserTreeView';
+import UserRackBuilderView from './UserRackBuilderView';
+import RackList from '../components/RackList';
+import NewRackModal from '../components/NewRackModal';
 
 const UserLibraryView = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('equipment');
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
+    const [racks, setRacks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
     const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
+    const [isRackModalOpen, setIsRackModalOpen] = useState(false);
+    const [activeDragItem, setActiveDragItem] = useState(null);
+    const [editingItem, setEditingItem] = useState(null);
+    const [selectedRackId, setSelectedRackId] = useState(null);
     
-    const fetchUserLibrary = useCallback(async () => {
+    const sensors = useSensors(useSensor(PointerSensor));
+    
+    const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
-            // The getLibrary endpoint fetches both default and user items.
-            // We filter here to get only the user's items.
-            const fullLibrary = await api.getLibrary();
-            const userLibrary = {
-                folders: fullLibrary.folders.filter(f => !f.is_default),
-                equipment: fullLibrary.equipment.filter(e => !e.is_default),
-            };
-            setLibrary(userLibrary);
+            const [fullLibrary, racksData] = await Promise.all([
+                api.getLibrary(),
+                api.getLibraryRacks()
+            ]);
+            
+            setLibrary(fullLibrary);
+            setRacks(racksData);
+
+            if (!selectedRackId && racksData.length > 0) {
+                setSelectedRackId(racksData[0].id);
+            } else if (racksData.length === 0) {
+                setSelectedRackId(null);
+            }
+
         } catch (error) {
             console.error("Failed to fetch user library:", error);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [selectedRackId]);
 
     useEffect(() => {
-        fetchUserLibrary();
-    }, [fetchUserLibrary]);
+        fetchData();
+    }, [fetchData]);
+
+    const handleDragStart = (event) => {
+        setActiveDragItem(event.active.data.current);
+    };
+    
+    const handleDragEnd = async ({ active, over }) => {
+        setActiveDragItem(null);
+        if (!over) return;
+
+        const activeType = active.data.current.type;
+        const overType = over.data.current.type;
+
+        if (activeType === 'equipment-template' && overType === 'ru-slot') {
+            const { rackId, ru, side } = over.data.current;
+            const template = active.data.current.template;
+            try {
+                await api.addEquipmentToRack(rackId, { template_id: template.id, ru_position: ru, rack_side: side });
+                fetchData();
+            } catch (error) {
+                console.error("Failed to add equipment", error);
+                alert(`Error: ${error.message}`);
+            }
+            return;
+        }
+
+        if (overType === 'folder' && !over.data.current.item.is_default) {
+            const activeItem = active.data.current.item;
+            const overItem = over.data.current.item;
+
+            if (activeType === 'equipment' && activeItem.folder_id !== overItem.id) {
+                try { 
+                    await api.updateUserEquipment(activeItem.id, { folder_id: overItem.id });
+                    fetchData();
+                } catch (error) { 
+                    console.error("Failed to move equipment", error); 
+                    alert(`Error: ${error.message}`); 
+                }
+            } else if (activeType === 'folder' && activeItem.parent_id !== overItem.id) {
+                 try { 
+                    await api.updateUserFolder(activeItem.id, { parent_id: overItem.id }); 
+                    fetchData();
+                } catch (error) { 
+                    console.error("Failed to move folder", error); 
+                    alert(`Error: ${error.message}`); 
+                }
+            }
+        }
+    };
 
     const handleCreateFolder = async (folderData) => {
         try {
             await api.createUserFolder(folderData);
-            await fetchUserLibrary();
+            fetchData();
         } catch (error) {
             console.error("Failed to create folder", error);
             alert(`Error: ${error.message}`);
@@ -87,17 +118,73 @@ const UserLibraryView = () => {
     const handleCreateEquipment = async (equipmentData) => {
         try {
             await api.createUserEquipment(equipmentData);
-            await fetchUserLibrary();
+            fetchData();
         } catch (error) {
             console.error("Failed to create equipment", error);
             alert(`Error: ${error.message}`);
         }
         setIsEquipmentModalOpen(false);
     };
+    
+    const handleCreateRack = async (rackData) => {
+        try {
+            const newRack = await api.createRack({ rack_name: rackData.rackName, ru_height: parseInt(rackData.ruHeight, 10), saved_to_library: true });
+            await fetchData();
+            setSelectedRackId(newRack.id);
+        } catch (error) {
+            console.error("Failed to create rack template:", error);
+            alert(`Error: ${error.message}`);
+        }
+        setIsRackModalOpen(false);
+    };
+
+    const handleDeleteFolder = async (folderId) => {
+        if (!window.confirm("Are you sure? This will also delete all equipment and subfolders inside.")) return;
+        try { 
+            await api.deleteUserFolder(folderId); 
+            fetchData();
+        } catch(error) { 
+            console.error("Failed to delete folder", error); 
+            alert(`Error: ${error.message}`);
+        }
+    };
+
+    const handleDeleteEquipment = async (equipmentId) => {
+        if (!window.confirm("Are you sure?")) return;
+        try { 
+            await api.deleteUserEquipment(equipmentId);
+            fetchData();
+        } catch(error) { 
+            console.error("Failed to delete equipment", error); 
+            alert(`Error: ${error.message}`);
+        }
+    };
+    
+    const handleEditItem = (item, type) => {
+        setEditingItem({ ...item, type });
+    };
+
+    const handleUpdateItem = async (updatedData) => {
+        if (!editingItem) return;
+        try {
+            if (editingItem.type === 'folder') {
+                await api.updateUserFolder(editingItem.id, updatedData);
+            } else {
+                await api.updateUserEquipment(editingItem.id, updatedData);
+            }
+            fetchData();
+        } catch(error) {
+            console.error("Failed to update item", error);
+            alert(`Error: ${error.message}`);
+        } finally {
+            setEditingItem(null);
+        }
+    };
 
     const userFolderTree = useMemo(() => {
+        const userFolders = library.folders.filter(f => !f.is_default);
         const itemsById = {};
-        library.folders.forEach(item => { itemsById[item.id] = { ...item, children: [] }; });
+        userFolders.forEach(item => { itemsById[item.id] = { ...item, children: [] }; });
         const roots = [];
         Object.values(itemsById).forEach(item => {
             if (item.parent_id && itemsById[item.parent_id]) {
@@ -109,28 +196,9 @@ const UserLibraryView = () => {
         return roots;
     }, [library.folders]);
 
-    const userLibraryTree = useMemo(() => {
-        // We create a single root for the user's library tree view
-        const root = { id: 'user-root', name: 'My Library', children: [] };
-        const itemsById = {};
-        [...library.folders, ...library.equipment].forEach(item => {
-            itemsById[item.id] = { ...item, children: [] };
-        });
-        Object.values(itemsById).forEach(item => {
-            const parentId = item.parent_id || item.folder_id;
-            if (parentId && itemsById[parentId]) {
-                itemsById[parentId].children.push(item);
-            } else {
-                root.children.push(item);
-            }
-        });
-        return [root];
-    }, [library]);
-
-
     return (
         <>
-            <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+            <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
                 <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                     <div className="flex items-center gap-4">
                         <button onClick={() => navigate('/account')} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20} /></button>
@@ -138,7 +206,6 @@ const UserLibraryView = () => {
                     </div>
                 </header>
 
-                {/* Tab Navigation */}
                 <div className="flex border-b border-gray-700 mb-6">
                     <button onClick={() => setActiveTab('equipment')} className={`flex items-center gap-2 px-4 py-3 font-bold ${activeTab === 'equipment' ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <Package size={18} /> Equipment Library
@@ -150,59 +217,92 @@ const UserLibraryView = () => {
 
                 <main>
                     {activeTab === 'equipment' && (
-                        <Card>
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-xl font-bold text-white">My Custom Equipment</h2>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setIsFolderModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                                        <Plus size={16} /> New Folder
-                                    </button>
-                                    <button onClick={() => setIsEquipmentModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
-                                        <Plus size={16} /> New Equipment
-                                    </button>
+                         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                            <Card className="max-w-4xl mx-auto">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-xl font-bold text-white">My Custom Equipment</h2>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setIsFolderModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                                            <Plus size={16} /> New Folder
+                                        </button>
+                                        <button onClick={() => setIsEquipmentModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
+                                            <Plus size={16} /> New Equipment
+                                        </button>
+                                    </div>
                                 </div>
-                            </div>
-                            <div className="p-4 bg-gray-900/50 rounded-lg min-h-[300px]">
-                                {isLoading ? (
-                                    <p>Loading library...</p>
-                                ) : (
-                                    <TreeView treeData={userLibraryTree} />
-                                    // In the next phase, we will add full drag-drop and edit/delete here.
-                                )}
-                            </div>
-                        </Card>
+                                <div className="p-4 bg-gray-900/50 rounded-lg min-h-[300px]">
+                                    {isLoading ? (
+                                        <p>Loading library...</p>
+                                    ) : (
+                                        <UserTreeView 
+                                            folders={library.folders.filter(f => !f.is_default)}
+                                            equipment={library.equipment.filter(e => !e.is_default)}
+                                            onDeleteFolder={handleDeleteFolder} 
+                                            onDeleteEquipment={handleDeleteEquipment} 
+                                            onEditItem={handleEditItem}
+                                        />
+                                    )}
+                                </div>
+                            </Card>
+                            <DragOverlay>
+                                {activeDragItem ? (
+                                    <div className="bg-gray-700 p-2 rounded-md text-sm shadow-lg">
+                                        {activeDragItem.name || activeDragItem.model_number}
+                                    </div>
+                                ) : null}
+                            </DragOverlay>
+                        </DndContext>
                     )}
 
                     {activeTab === 'racks' && (
-                        <Card>
-                             <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-xl font-bold text-white">My Saved Racks</h2>
-                                <div className="flex gap-2">
-                                    <button className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
-                                        <Plus size={16} /> New Rack Template
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="p-4 bg-gray-900/50 rounded-lg min-h-[300px] flex items-center justify-center">
-                                <p className="text-gray-500">Rack Library management will be built here in the next phase.</p>
-                            </div>
-                        </Card>
+                        <UserRackBuilderView 
+                            library={library}
+                            racks={racks}
+                            selectedRackId={selectedRackId}
+                            onSelectRack={setSelectedRackId}
+                            onNewRack={() => setIsRackModalOpen(true)}
+                            onUpdate={fetchData} 
+                        />
                     )}
                 </main>
             </div>
-
-            <NewUserFolderModal 
-                isOpen={isFolderModalOpen} 
-                onClose={() => setIsFolderModalOpen(false)} 
-                onSubmit={handleCreateFolder} 
-                userFolderTree={userFolderTree} 
+            
+            <NewUserFolderModal
+                isOpen={isFolderModalOpen}
+                onClose={() => setIsFolderModalOpen(false)}
+                onSubmit={handleCreateFolder}
+                userFolderTree={userFolderTree}
             />
-            <NewUserEquipmentModal 
-                isOpen={isEquipmentModalOpen} 
-                onClose={() => setIsEquipmentModalOpen(false)} 
-                onSubmit={handleCreateEquipment} 
-                userFolderTree={userFolderTree} 
+            <NewUserEquipmentModal
+                isOpen={isEquipmentModalOpen}
+                onClose={() => setIsEquipmentModalOpen(false)}
+                onSubmit={handleCreateEquipment}
+                userFolderTree={userFolderTree}
             />
+             <NewRackModal 
+                isOpen={isRackModalOpen} 
+                onClose={() => setIsRackModalOpen(false)} 
+                onSubmit={handleCreateRack} 
+            />
+            
+            {editingItem && editingItem.type === 'folder' && (
+                <EditUserFolderModal 
+                    isOpen={!!editingItem} 
+                    onClose={() => setEditingItem(null)} 
+                    onSubmit={handleUpdateItem} 
+                    folder={editingItem} 
+                    userFolderTree={userFolderTree}
+                />
+            )}
+            {editingItem && editingItem.type === 'equipment' && (
+                <EditUserEquipmentModal 
+                    isOpen={!!editingItem} 
+                    onClose={() => setEditingItem(null)} 
+                    onSubmit={handleUpdateItem} 
+                    equipment={editingItem} 
+                    userFolderTree={userFolderTree}
+                />
+            )}
         </>
     );
 };

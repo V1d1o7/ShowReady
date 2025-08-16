@@ -67,6 +67,8 @@ export const api = {
     createRack: async (rackData) => fetch('/api/racks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(rackData) }).then(handleResponse),
     getRacksForShow: async (showName) => fetch(`/api/racks?show_name=${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
     getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    updateRack: async (rackId, rackData) => fetch(`/api/racks/${rackId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(rackData) }).then(handleResponse),
+    deleteRack: async (rackId) => fetch(`/api/racks/${rackId}`, { method: 'DELETE', headers: await getAuthHeader() }),
     addEquipmentToRack: async (rackId, equipmentData) => fetch(`/api/racks/${rackId}/equipment`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(equipmentData) }).then(handleResponse),
     getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
     getLibrary: async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse),
@@ -109,7 +111,6 @@ export const api = {
         headers: await getAuthHeader()
     }),
     
-    // UPDATED: This was the missing function.
     updateEquipmentInstance: async (instanceId, updateData) => fetch(`/api/racks/equipment/${instanceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
@@ -131,11 +132,29 @@ export const api = {
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
         body: JSON.stringify(folderData),
     }).then(handleResponse),
+    updateUserFolder: async (folderId, folderData) => fetch(`/api/library/folders/${folderId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(folderData),
+    }).then(handleResponse),
+    deleteUserFolder: async (folderId) => fetch(`/api/library/folders/${folderId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
+    }),
     createUserEquipment: async (equipmentData) => fetch('/api/library/equipment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
         body: JSON.stringify(equipmentData),
     }).then(handleResponse),
+    updateUserEquipment: async (equipmentId, equipmentData) => fetch(`/api/library/equipment/${equipmentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
+        body: JSON.stringify(equipmentData),
+    }).then(handleResponse),
+    deleteUserEquipment: async (equipmentId) => fetch(`/api/library/equipment/${equipmentId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
+    }),
     copyEquipmentToLibrary: async (copyData) => fetch('/api/library/copy_equipment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },

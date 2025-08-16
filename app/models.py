@@ -104,21 +104,21 @@ class RackEquipmentInstance(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
-    ip_address: Optional[str] = None 
-    x_pos: Optional[int] = None 
-    y_pos: Optional[int] = None 
+    ip_address: Optional[str] = None
+    x_pos: Optional[int] = None
+    y_pos: Optional[int] = None
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
     ru_position: int
-    instance_name: Optional[str] = None 
+    instance_name: Optional[str] = None
     rack_side: Optional[str] = None
 
 class RackEquipmentInstanceUpdate(BaseModel):
     ru_position: Optional[int] = None
     rack_side: Optional[str] = None
     ip_address: Optional[str] = None
-    x_pos: Optional[int] = None 
+    x_pos: Optional[int] = None
     y_pos: Optional[int] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
@@ -129,13 +129,13 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     instance_name: str
     rack_side: Optional[str] = None
     ip_address: Optional[str] = None
-    x_pos: Optional[int] = None 
+    x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     equipment_templates: Optional[EquipmentTemplate] = None
 
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    show_name: str
+    show_name: Optional[str] = None
     user_id: uuid.UUID
     rack_name: str
     ru_height: int
@@ -145,7 +145,7 @@ class Rack(BaseModel):
 class RackCreate(BaseModel):
     rack_name: str
     ru_height: int
-    show_name: str
+    show_name: Optional[str] = None
 
 class RackUpdate(BaseModel):
     rack_name: Optional[str] = None
@@ -201,6 +201,12 @@ class FolderUpdate(BaseModel):
     parent_id: Optional[uuid.UUID] = None
     nomenclature_prefix: Optional[str] = None
 
+class UserFolderUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[uuid.UUID] = None
+    nomenclature_prefix: Optional[str] = None
+
+
 class EquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
     manufacturer: Optional[str] = None
@@ -209,6 +215,14 @@ class EquipmentTemplateUpdate(BaseModel):
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
     
+class UserEquipmentTemplateUpdate(BaseModel):
+    model_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    ru_height: Optional[int] = None
+    width: Optional[str] = None
+    ports: Optional[List[PortTemplate]] = None
+    folder_id: Optional[uuid.UUID] = None
+
 class EquipmentCopy(BaseModel):
     template_id: uuid.UUID
     folder_id: Optional[uuid.UUID] = None
