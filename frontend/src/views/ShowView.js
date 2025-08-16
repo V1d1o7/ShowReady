@@ -20,8 +20,13 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
         return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Show...</div></div>;
     }
 
+    // Conditionally set the container class based on the active tab
+    const containerClass = activeTab === 'rack'
+        ? "p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto"
+        : "p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto";
+
     return (
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+        <div className={containerClass}>
             <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                 <div className="flex items-center gap-4">
                     <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20} /></button>

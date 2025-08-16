@@ -160,9 +160,9 @@ export const api = {
         body: JSON.stringify(copyData),
     }).then(handleResponse),
     getLibraryRacks: async () => fetch(`/api/racks?from_library=true`, { headers: await getAuthHeader() }).then(handleResponse),
-    copyRackFromLibrary: async (rackId, showName) => fetch('/api/racks/copy_from_library', {
+    copyRackFromLibrary: async (rackId, showName) => fetch('/api/racks/load_from_library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
-        body: JSON.stringify({ rack_id: rackId, show_name: showName }),
+        body: JSON.stringify({ template_rack_id: rackId, show_name: showName }),
     }).then(handleResponse),
 };

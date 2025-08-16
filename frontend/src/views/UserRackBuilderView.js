@@ -211,7 +211,7 @@ const UserRackBuilderView = ({ onUpdate }) => {
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <div className="flex gap-6 h-[calc(100vh-250px)]">
+        <div className="flex justify-between h-[calc(100vh-250px)]">
             <RackList
                 racks={racks}
                 onSelectRack={handleSelectRack}
@@ -220,7 +220,7 @@ const UserRackBuilderView = ({ onUpdate }) => {
                 onUpdateRack={handleUpdateRack}
                 selectedRackId={selectedRackId}
             />
-            <div className="flex-grow overflow-x-auto pb-4 flex justify-center gap-8">
+            <div className="overflow-x-auto pb-4 flex justify-center gap-8">
                 {activeRack ? (
                     <>
                         <RackComponent
@@ -243,14 +243,14 @@ const UserRackBuilderView = ({ onUpdate }) => {
                         />
                     </>
                 ) : (
-                    <div className="flex-grow flex flex-col items-center justify-center text-center text-gray-500">
+                    <div className="flex flex-col items-center justify-center text-center text-gray-500 w-[732px]">
                         <HardDrive size={48} className="mb-4" />
                         <h3 className="text-lg font-bold">No Rack Selected</h3>
                         <p>Select a rack from the left panel to begin, or create a new one.</p>
                     </div>
                 )}
             </div>
-            <div className="w-80 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
+            <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-white">Library</h2>
                     <button onClick={() => setIsNewEquipModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">

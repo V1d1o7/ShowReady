@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Plus, Edit, Trash2, Save } from 'lucide-react';
-import EditRackModal from './EditRackModal'; // We'll create this next
+import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId }) => {
+const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, showName }) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -14,14 +14,8 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
         <>
             <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
                 <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-lg font-bold text-white">My Racks</h3>
+                    <h3 className="text-lg font-bold text-white">{'Show Racks'}</h3>
                     <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => alert('Save functionality to be implemented!')} // Placeholder for now
-                            className="p-2 text-gray-400 hover:text-amber-400 hover:bg-gray-700 rounded-md transition-colors"
-                        >
-                            <Save size={18} />
-                        </button>
                         <button
                             onClick={onNewRack}
                             className="p-2 text-gray-400 hover:text-amber-400 hover:bg-gray-700 rounded-md transition-colors"
