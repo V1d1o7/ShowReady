@@ -251,7 +251,6 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         full_rack_data = rack_data.model_dump()
         full_rack_data['user_id'] = str(user.id)
         
-        # If no show_name is provided, it's a library rack template
         if not full_rack_data.get('show_name'):
             full_rack_data['saved_to_library'] = True
 
@@ -298,7 +297,6 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
 
 @router.delete("/racks/{rack_id}", status_code=204, tags=["Racks"])
 async def delete_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # Verify the user owns the rack before deleting
     rack_to_delete = supabase.table('racks').select('id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
     if not rack_to_delete.data:
         raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to delete it.")
@@ -383,16 +381,22 @@ async def add_equipment_to_rack(
     if new_item_end > rack_res.data['ru_height']:
         raise HTTPException(status_code=400, detail="Equipment does not fit in the rack at this position.")
 
+    # --- THIS IS THE FIX ---
+    # New validation logic: An RU is either occupied or it isn't. An item on the front
+    # occupies that RU for both front and back.
+    desired_start = equipment_data.ru_position
+    desired_end = desired_start + template['ru_height'] - 1
+
     for item in existing_equipment:
-        item_end = item['ru_position'] + item['equipment_templates']['ru_height'] - 1
-        if max(equipment_data.ru_position, item['ru_position']) <= min(new_item_end, item_end):
-            is_new_full = template['width'] == 'full'
-            is_item_full = item['equipment_templates']['width'] == 'full'
-            
-            if is_new_full or is_item_full:
-                raise HTTPException(status_code=409, detail="A full-width item conflicts with the desired placement.")
-            if equipment_data.rack_side == item['rack_side']:
-                raise HTTPException(status_code=409, detail=f"The {equipment_data.rack_side} side is already occupied in this RU range.")
+        item_template = item['equipment_templates']
+        existing_start = item['ru_position']
+        existing_end = existing_start + item_template['ru_height'] - 1
+        
+        if max(desired_start, existing_start) <= min(desired_end, existing_end):
+            raise HTTPException(
+                status_code=409, 
+                detail=f"Placement conflicts with {item.get('instance_name', 'Unnamed')} at RU {item['ru_position']}."
+            )
 
     prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
     base_name = prefix if prefix else template['model_number']
@@ -420,7 +424,11 @@ async def add_equipment_to_rack(
     
     response = supabase.table('rack_equipment_instances').insert(insert_data).execute()
     if response.data:
-        return response.data[0]
+        new_instance = response.data[0]
+        # Eagerly load the template data to match the GET endpoint's structure
+        new_instance['equipment_templates'] = template
+        return new_instance
+        
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
 
 @router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
@@ -428,28 +436,54 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
     """Updates the position, side, or IP address of a rack equipment instance."""
     
     try:
-        owner_check_res = supabase.table('rack_equipment_instances').select('racks(user_id)').eq('id', str(instance_id)).single().execute()
+        # Fetch the instance and its template and rack details
+        instance_res = supabase.table('rack_equipment_instances').select('*, racks(user_id, ru_height), equipment_templates(ru_height)').eq('id', str(instance_id)).single().execute()
         
-        if not owner_check_res.data or not owner_check_res.data.get('racks'):
+        if not instance_res.data or not instance_res.data.get('racks'):
             raise HTTPException(status_code=404, detail="Equipment instance not found.")
 
-        if str(owner_check_res.data['racks']['user_id']) != str(user.id):
+        if str(instance_res.data['racks']['user_id']) != str(user.id):
             raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
+
+        instance = instance_res.data
+        update_dict = update_data.model_dump(exclude_unset=True)
+
+        # If we are changing the position, we need to validate it
+        if 'ru_position' in update_dict:
+            new_ru_position = update_dict['ru_position']
+            ru_height = instance['equipment_templates']['ru_height']
+            rack_height = instance['racks']['ru_height']
+            
+            if (new_ru_position + ru_height - 1) > rack_height:
+                raise HTTPException(status_code=400, detail="Equipment does not fit at the new position.")
+
+            rack_id = instance['rack_id']
+            existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(ru_height)').eq('rack_id', str(rack_id)).neq('id', str(instance_id)).execute()
+            
+            desired_start = new_ru_position
+            desired_end = desired_start + ru_height - 1
+
+            for item in existing_equipment_res.data:
+                existing_start = item['ru_position']
+                existing_end = existing_start + item['equipment_templates']['ru_height'] - 1
+                if max(desired_start, existing_start) <= min(desired_end, existing_end):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Placement conflicts with {item.get('instance_name', 'Unnamed')} at RU {item['ru_position']}."
+                    )
 
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        print(f"Error during ownership check: {e}")
-        raise HTTPException(status_code=500, detail="An error occurred while verifying equipment ownership.")
+        raise HTTPException(status_code=500, detail="An error occurred during validation.")
 
-    update_dict = update_data.model_dump(exclude_unset=True)
-    
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
     
     if response.data:
         return response.data[0]
     
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
+
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
 async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -508,12 +542,10 @@ async def update_user_folder(folder_id: uuid.UUID, folder_data: UserFolderUpdate
 async def delete_user_folder(folder_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Deletes a folder from the user's personal library."""
     
-    # Check ownership
     folder_to_delete = supabase.table('folders').select('id').eq('id', str(folder_id)).eq('user_id', str(user.id)).single().execute()
     if not folder_to_delete.data:
         raise HTTPException(status_code=404, detail="Folder not found or you do not have permission to delete it.")
 
-    # Check for contents
     subfolder_res = supabase.table('folders').select('id', count='exact').eq('parent_id', str(folder_id)).execute()
     if subfolder_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete a folder that contains subfolders.")

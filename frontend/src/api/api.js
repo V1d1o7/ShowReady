@@ -94,7 +94,6 @@ export const api = {
         headers: await getAuthHeader()
     }),
     
-    // --- New Wire Diagram Endpoints ---
     getConnectionsForShow: async (showName) => fetch(`/api/connections/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
     createConnection: async (connectionData) => fetch('/api/connections', {
         method: 'POST',
@@ -161,10 +160,9 @@ export const api = {
         body: JSON.stringify(copyData),
     }).then(handleResponse),
     getLibraryRacks: async () => fetch(`/api/racks?from_library=true`, { headers: await getAuthHeader() }).then(handleResponse),
-    loadRackFromLibrary: async (data) => fetch('/api/racks/load_from_library', {
+    copyRackFromLibrary: async (rackId, showName) => fetch('/api/racks/copy_from_library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ rack_id: rackId, show_name: showName }),
     }).then(handleResponse),
-
 };

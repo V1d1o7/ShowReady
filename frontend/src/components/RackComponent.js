@@ -1,135 +1,71 @@
 import React, { useState, useMemo } from 'react';
 import PlacedEquipmentItem from './PlacedEquipmentItem';
-import { HardDrive } from 'lucide-react';
+
+const RackDropZone = ({ onDrop, ru, side }) => {
+    const [isOver, setIsOver] = useState(false);
+    return (
+        <div
+            onDragOver={(e) => { e.preventDefault(); setIsOver(true); }}
+            onDragLeave={() => setIsOver(false)}
+            onDrop={(e) => {
+                e.preventDefault();
+                setIsOver(false);
+                const data = JSON.parse(e.dataTransfer.getData('application/json'));
+                onDrop(data, ru, side);
+            }}
+            className={`h-full transition-colors ${isOver ? 'bg-amber-500/30' : 'bg-transparent'}`}
+        />
+    );
+};
 
 const RackComponent = ({ rack, view, onDrop, onDelete, onDragStart, draggedItem }) => {
-    const [dragOverInfo, setDragOverInfo] = useState(null); // { ru, side }
+    const equipmentInView = useMemo(() =>
+        (rack.equipment || []).filter(item => item.rack_side === view),
+        [rack.equipment, view]
+    );
 
-    const occupiedSlots = useMemo(() => {
-        const slots = new Map();
-        (rack.equipment || []).forEach(item => {
-            const template = item.equipment_templates || {};
-            const height = template.ru_height || 1;
-            for (let i = 0; i < height; i++) {
-                const currentRu = item.ru_position + i;
-                if (template.width === 'full') {
-                    const baseSide = item.rack_side ? item.rack_side.split('-')[0] : view;
-                    slots.set(`${currentRu}-${baseSide}-left`, item.id);
-                    slots.set(`${currentRu}-${baseSide}-right`, item.id);
-                } else if (item.rack_side) {
-                    slots.set(`${currentRu}-${item.rack_side}`, item.id);
-                }
-            }
+    const isRuOccupied = (ru) => {
+        return (rack.equipment || []).some(item => {
+            const template = item.equipment_templates;
+            if (!template) return false;
+            const start = item.ru_position;
+            const end = start + template.ru_height - 1;
+            return ru >= start && ru <= end;
         });
-        return slots;
-    }, [rack.equipment, view]);
-
-    const isOccupied = (startRu, endRu, side, excludeId) => {
-        for (let ru = startRu; ru <= endRu; ru++) {
-            const occupantId = occupiedSlots.get(`${ru}-${side}`);
-            if (occupantId && occupantId !== excludeId) {
-                return true;
-            }
-        }
-        return false;
     };
 
-    const handleDragOver = (e, ru, side) => {
-        e.preventDefault();
-        if (draggedItem) {
-            setDragOverInfo({ ru, side });
-        }
-    };
-
-    const handleDrop = (e, ru, side) => {
-        e.preventDefault();
-        const data = JSON.parse(e.dataTransfer.getData('application/json'));
-        const item = data.item;
-        const template = data.template;
-        const itemHeight = template.ru_height || 1;
-        const dropPosition = ru - itemHeight + 1;
-        
-        if (dropPosition < 1) {
-             console.error("Drop failed: Item too tall for this position.");
-        } else {
-            onDrop(data, dropPosition, side);
-        }
-        
-        setDragOverInfo(null);
-    };
-
-    const getHighlightStyle = () => {
-        if (!dragOverInfo || !draggedItem) return { display: 'none' };
-
-        const { ru, side } = dragOverInfo;
-        const item = draggedItem.item;
-        const template = draggedItem.template;
-
-        const itemHeight = template.ru_height || 1;
-        const isHalf = template.width === 'half';
-        const dropPosition = ru - itemHeight + 1;
-
-        if (dropPosition < 1) return { display: 'none' };
-
-        let isInvalid = false;
-        if (isHalf) {
-            if (isOccupied(dropPosition, ru, `${view}-${side}`, draggedItem.isNew ? null : item.id)) {
-                isInvalid = true;
-            }
-        } else { // Full width item
-            if (isOccupied(dropPosition, ru, `${view}-left`, draggedItem.isNew ? null : item.id) || 
-                isOccupied(dropPosition, ru, `${view}-right`, draggedItem.isNew ? null : item.id)) {
-                isInvalid = true;
-            }
-        }
-
-        return {
-            display: 'block',
-            position: 'absolute',
-            left: isHalf && side === 'right' ? '50%' : '0',
-            width: isHalf ? '50%' : '100%',
-            bottom: `${(dropPosition - 1) * 1.5}rem`,
-            height: `${itemHeight * 1.5}rem`,
-            backgroundColor: isInvalid ? 'rgba(239, 68, 68, 0.8)' : 'rgba(59, 130, 246, 0.8)',
-            border: `1px dashed ${isInvalid ? '#EF4444' : '#3B82F6'}`,
-            zIndex: 10,
-        };
-    };
-
-    return (
-        <div className="flex-shrink-0 w-[350px] bg-gray-800/50 p-4 rounded-xl flex flex-col">
-            <div className="flex justify-between items-center mb-4 gap-4">
-                <div className="flex items-center gap-2 min-w-0">
-                    <HardDrive className="text-amber-400 flex-shrink-0" />
-                    <h3 className="text-xl font-bold text-white truncate">{rack.rack_name}</h3>
-                </div>
-            </div>
-            <div className="flex-grow bg-gray-900/50 p-2 rounded-lg relative">
-                <h4 className="text-center font-bold mb-2 capitalize">{view}</h4>
-                <div className="relative bg-gray-800 rounded-md" onDragLeave={() => setDragOverInfo(null)}>
-                    {Array.from({ length: rack.ru_height }, (_, i) => {
-                        const ru = rack.ru_height - i;
-                        return (
-                            <div key={ru} className="h-6 border-b border-gray-700/50 flex">
-                                <div className="w-1/2 h-full" onDragOver={(e) => handleDragOver(e, ru, 'left')} onDrop={(e) => handleDrop(e, ru, 'left')} />
-                                <div className="w-1/2 h-full border-l border-dashed border-gray-800" onDragOver={(e) => handleDragOver(e, ru, 'right')} onDrop={(e) => handleDrop(e, ru, 'right')} />
-                            </div>
-                        );
-                    })}
-                    <div className="absolute inset-0">
-                        {rack.equipment
-                            .filter(item => item.rack_side?.startsWith(view))
-                            .map(item => (
-                                <PlacedEquipmentItem
-                                    key={item.id}
-                                    item={item}
-                                    onDelete={() => onDelete(item.id)}
-                                    onDragStart={onDragStart}
-                                />
-                            ))}
-                        <div style={getHighlightStyle()} />
+    const renderRUs = () => {
+        const rus = [];
+        for (let i = rack.ru_height; i >= 1; i--) {
+            const occupied = isRuOccupied(i);
+            rus.push(
+                <div key={i} className="flex items-center" style={{ height: '25px' }}>
+                    <div className="w-8 text-center text-xs text-gray-500 border-r border-gray-700">{i}</div>
+                    <div className="flex-grow h-full relative">
+                       {!occupied && <RackDropZone onDrop={onDrop} ru={i} side={view} />}
                     </div>
+                    <div className="w-8 text-center text-xs text-gray-500 border-l border-gray-700">{i}</div>
                 </div>
+            );
+        }
+        return rus;
+    };
+    
+    return (
+        <div className="bg-gray-800 rounded-lg p-4 w-[400px] flex-shrink-0">
+            <h3 className="text-lg font-bold text-center text-white mb-4 capitalize">{rack.rack_name} - {view} View</h3>
+            <div className="bg-gray-900 rounded-md border-2 border-gray-700 relative">
+                {renderRUs()}
+                {equipmentInView.map(item => (
+                    <PlacedEquipmentItem
+                        key={item.id}
+                        item={item}
+                        onDelete={onDelete}
+                        onDragStart={onDragStart}
+                        draggedItem={draggedItem}
+                        rackHeight={rack.ru_height}
+                    />
+                ))}
             </div>
         </div>
     );

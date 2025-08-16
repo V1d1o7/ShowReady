@@ -1,48 +1,77 @@
-import React, { useState } from 'react';
-import { FileText, Box, Info, ArrowLeft, Server, GitBranch } from 'lucide-react';
-import ShowInfoView from './ShowInfoView';
-import LoomLabelView from './LoomLabelView';
-import CaseLabelView from './CaseLabelView';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { api } from '../api/api';
+import { HardDrive, FileText, ChevronLeft } from 'lucide-react';
 import RackBuilderView from './RackBuilderView';
-import WireDiagramView from './WireDiagramView';
+import ShowInfoView from './ShowInfoView';
 
+const ShowView = () => {
+    const { showName } = useParams();
+    const navigate = useNavigate();
+    const [show, setShow] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('rack-builder');
 
-const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
-    const [activeTab, setActiveTab] = useState('info');
+    useEffect(() => {
+        const fetchShow = async () => {
+            try {
+                // *** THIS IS THE FIX ***
+                const showData = await api.getShow(showName);
+                setShow(showData);
+            } catch (error) {
+                console.error("Failed to fetch show details:", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchShow();
+    }, [showName]);
 
-    const tabs = [
-        { id: 'info', label: 'Show Info', icon: Info },
-        { id: 'loom', label: 'Loom Labels', icon: FileText },
-        { id: 'case', label: 'Case Labels', icon: Box },
-        { id: 'rack', label: 'Rack Builder', icon: Server },
-        { id: 'wire-diagram', label: 'Wire Diagram', icon: GitBranch },
-    ];
+    const handleTabClick = (tabName) => {
+        setActiveTab(tabName);
+    };
 
-    if (isLoading || !showData) {
-        return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Show...</div></div>;
+    if (isLoading) {
+        return <div className="p-8 text-center">Loading show...</div>;
+    }
+
+    if (!show) {
+        return <div className="p-8 text-center">Show not found.</div>;
     }
 
     return (
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-            <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
-                <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20} /></button>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">{showName}</h1>
-                </div>
+        <div className="px-4 sm:px-6 lg:px-8 py-8">
+            <header className="mb-8">
+                <button onClick={() => navigate('/dashboard')} className="flex items-center text-sm text-gray-400 hover:text-white mb-4">
+                    <ChevronLeft size={16} className="mr-1" />
+                    Back to Dashboard
+                </button>
+                <h1 className="text-4xl font-bold text-white">{show.show_name}</h1>
+                <p className="text-gray-400">{show.show_description}</p>
             </header>
-            <div className="flex border-b border-gray-700 mb-6">
-                {tabs.map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-4 py-3 text-sm font-bold transition-colors ${activeTab === tab.id ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400 hover:text-white'}`}>
-                        <tab.icon size={16} /> {tab.label}
-                    </button>
-                ))}
-            </div>
+
             <main>
-                {activeTab === 'info' && <ShowInfoView showData={showData} onSave={onSave} />}
-                {activeTab === 'loom' && <LoomLabelView showData={showData} onSave={onSave} />}
-                {activeTab === 'case' && <CaseLabelView showData={showData} onSave={onSave} />}
-                {activeTab === 'rack' && <RackBuilderView showName={showName} />}
-                {activeTab === 'wire-diagram' && <WireDiagramView showName={showName} />}
+                <div className="border-b border-gray-700 mb-6">
+                    <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                        <button
+                            onClick={() => handleTabClick('rack-builder')}
+                            className={`flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'rack-builder' ? 'border-amber-500 text-amber-500' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}
+                        >
+                           <HardDrive size={16} className="mr-2"/> Rack Builder
+                        </button>
+                        <button
+                            onClick={() => handleTabClick('show-info')}
+                            className={`flex items-center whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${activeTab === 'show-info' ? 'border-amber-500 text-amber-500' : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'}`}
+                        >
+                            <FileText size={16} className="mr-2"/> Show Info
+                        </button>
+                    </nav>
+                </div>
+
+                <div>
+                    {activeTab === 'rack-builder' && <RackBuilderView showName={showName} />}
+                    {activeTab === 'show-info' && <ShowInfoView showName={showName} />}
+                </div>
             </main>
         </div>
     );
