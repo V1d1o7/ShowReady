@@ -26,7 +26,7 @@ const PlacedEquipmentItem = ({ item, isOverlay = false, onDelete }) => {
     const itemHeight = (template.ru_height || 1) * 1.5;
 
     const widthClass = isHalfWidth ? 'w-1/2' : 'w-full';
-    const positionClass = item.rack_side === 'right' ? 'left-1/2' : 'left-0';
+    const positionClass = item.rack_side.endsWith('-right') ? 'left-1/2' : 'left-0';
 
     const style = {
         height: `${itemHeight}rem`,

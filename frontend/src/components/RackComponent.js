@@ -31,12 +31,10 @@ const RackComponent = ({ rack, view, onUpdate, onDelete, onSave }) => {
             const height = template.ru_height || 1;
             for (let i = 0; i < height; i++) {
                 const currentRu = item.ru_position + i;
-                // A full-width item occupies both left and right slots on its designated side (front or rear)
                 if (template.width === 'full') {
                     slots.set(`${currentRu}-${item.rack_side}-left`, true);
                     slots.set(`${currentRu}-${item.rack_side}-right`, true);
                 } else if (item.rack_side) {
-                    // A half-width item only occupies its specific slot
                     slots.set(`${currentRu}-${item.rack_side}`, true);
                 }
             }
@@ -118,8 +116,8 @@ const RackComponent = ({ rack, view, onUpdate, onDelete, onSave }) => {
                  <h4 className="text-center font-bold mb-2 capitalize">{view}</h4>
                  <div className="relative bg-gray-800 rounded-md">
                     {renderRUs(view)}
-                    <div className="absolute inset-0 pointer-events-none">
-                        {rack.equipment.filter(item => item.rack_side === view).map(item => (
+                    <div className="absolute inset-0">
+                        {rack.equipment.filter(item => item.rack_side && item.rack_side.startsWith(view)).map(item => (
                             <PlacedEquipmentItem 
                                 key={item.id} 
                                 item={item} 

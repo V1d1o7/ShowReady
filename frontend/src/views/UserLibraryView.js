@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { ArrowLeft, Plus, Package, HardDrive } from 'lucide-react';
 import { api } from '../api/api';
 import Card from '../components/Card';
@@ -22,11 +21,8 @@ const UserLibraryView = () => {
     const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
     const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
     const [isRackModalOpen, setIsRackModalOpen] = useState(false);
-    const [activeDragItem, setActiveDragItem] = useState(null);
     const [editingItem, setEditingItem] = useState(null);
     const [selectedRackId, setSelectedRackId] = useState(null);
-    
-    const sensors = useSensors(useSensor(PointerSensor));
     
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -55,54 +51,6 @@ const UserLibraryView = () => {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
-
-    const handleDragStart = (event) => {
-        setActiveDragItem(event.active.data.current);
-    };
-    
-    const handleDragEnd = async ({ active, over }) => {
-        setActiveDragItem(null);
-        if (!over) return;
-
-        const activeType = active.data.current.type;
-        const overType = over.data.current.type;
-
-        if (activeType === 'equipment-template' && overType === 'ru-slot') {
-            const { rackId, ru, side } = over.data.current;
-            const template = active.data.current.template;
-            try {
-                await api.addEquipmentToRack(rackId, { template_id: template.id, ru_position: ru, rack_side: side });
-                fetchData();
-            } catch (error) {
-                console.error("Failed to add equipment", error);
-                alert(`Error: ${error.message}`);
-            }
-            return;
-        }
-
-        if (overType === 'folder' && !over.data.current.item.is_default) {
-            const activeItem = active.data.current.item;
-            const overItem = over.data.current.item;
-
-            if (activeType === 'equipment' && activeItem.folder_id !== overItem.id) {
-                try { 
-                    await api.updateUserEquipment(activeItem.id, { folder_id: overItem.id });
-                    fetchData();
-                } catch (error) { 
-                    console.error("Failed to move equipment", error); 
-                    alert(`Error: ${error.message}`); 
-                }
-            } else if (activeType === 'folder' && activeItem.parent_id !== overItem.id) {
-                 try { 
-                    await api.updateUserFolder(activeItem.id, { parent_id: overItem.id }); 
-                    fetchData();
-                } catch (error) { 
-                    console.error("Failed to move folder", error); 
-                    alert(`Error: ${error.message}`); 
-                }
-            }
-        }
-    };
 
     const handleCreateFolder = async (folderData) => {
         try {
@@ -217,41 +165,32 @@ const UserLibraryView = () => {
 
                 <main>
                     {activeTab === 'equipment' && (
-                         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-                            <Card className="max-w-4xl mx-auto">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h2 className="text-xl font-bold text-white">My Custom Equipment</h2>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setIsFolderModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                                            <Plus size={16} /> New Folder
-                                        </button>
-                                        <button onClick={() => setIsEquipmentModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
-                                            <Plus size={16} /> New Equipment
-                                        </button>
-                                    </div>
+                         <Card className="max-w-4xl mx-auto">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-bold text-white">My Custom Equipment</h2>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setIsFolderModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                                        <Plus size={16} /> New Folder
+                                    </button>
+                                    <button onClick={() => setIsEquipmentModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
+                                        <Plus size={16} /> New Equipment
+                                    </button>
                                 </div>
-                                <div className="p-4 bg-gray-900/50 rounded-lg min-h-[300px]">
-                                    {isLoading ? (
-                                        <p>Loading library...</p>
-                                    ) : (
-                                        <UserTreeView 
-                                            folders={library.folders.filter(f => !f.is_default)}
-                                            equipment={library.equipment.filter(e => !e.is_default)}
-                                            onDeleteFolder={handleDeleteFolder} 
-                                            onDeleteEquipment={handleDeleteEquipment} 
-                                            onEditItem={handleEditItem}
-                                        />
-                                    )}
-                                </div>
-                            </Card>
-                            <DragOverlay>
-                                {activeDragItem ? (
-                                    <div className="bg-gray-700 p-2 rounded-md text-sm shadow-lg">
-                                        {activeDragItem.name || activeDragItem.model_number}
-                                    </div>
-                                ) : null}
-                            </DragOverlay>
-                        </DndContext>
+                            </div>
+                            <div className="p-4 bg-gray-900/50 rounded-lg min-h-[300px]">
+                                {isLoading ? (
+                                    <p>Loading library...</p>
+                                ) : (
+                                    <UserTreeView 
+                                        folders={library.folders.filter(f => !f.is_default)}
+                                        equipment={library.equipment.filter(e => !e.is_default)}
+                                        onDeleteFolder={handleDeleteFolder} 
+                                        onDeleteEquipment={handleDeleteEquipment} 
+                                        onEditItem={handleEditItem}
+                                    />
+                                )}
+                            </div>
+                        </Card>
                     )}
 
                     {activeTab === 'racks' && (
