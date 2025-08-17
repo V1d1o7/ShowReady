@@ -163,6 +163,13 @@ const RackBuilderView = ({ showName }) => {
             if (!ruOverlap) {
                 continue;
             }
+
+            const newFace = targetSide.split('-')[0];
+            const existingFace = existingItem.rack_side.split('-')[0];
+
+            if (newFace !== existingFace) {
+                continue; 
+            }
     
             const isExistingFullWidth = existingTemplate.width !== 'half';
     
@@ -219,7 +226,7 @@ const RackBuilderView = ({ showName }) => {
                 ru_position: ru,
                 rack_side: finalSide,
                 instance_name: `${draggedItem.item.model_number}`,
-                equipment_templates: itemTemplate,
+                equipment_templates: { ...itemTemplate },
             };
 
             setActiveRack(currentRack => ({
@@ -230,10 +237,19 @@ const RackBuilderView = ({ showName }) => {
             const payload = { template_id: draggedItem.item.id, ru_position: ru, rack_side: finalSide };
             api.addEquipmentToRack(activeRack.id, payload)
                .then(newlyAddedItem => {
+                    const finalNewItem = { ...newlyAddedItem };
+                    if (finalNewItem.equipment_templates) {
+                        if (!finalNewItem.equipment_templates.width && itemTemplate.width) {
+                            finalNewItem.equipment_templates.width = itemTemplate.width;
+                        }
+                    } else {
+                        finalNewItem.equipment_templates = itemTemplate;
+                    }
+
                     setActiveRack(currentRack => ({
                         ...currentRack,
                         equipment: currentRack.equipment.map(item => 
-                            item.id === optimisticId ? newlyAddedItem : item
+                            item.id === optimisticId ? finalNewItem : item
                         )
                     }));
                })
@@ -247,6 +263,8 @@ const RackBuilderView = ({ showName }) => {
         } else {
             const originalEquipmentState = activeRack.equipment;
             const movedItemId = draggedItem.item.id;
+            const originalItem = originalEquipmentState.find(i => i.id === movedItemId);
+
             const updatedEquipment = originalEquipmentState.map(equip =>
                 equip.id === movedItemId ? { ...equip, ru_position: ru, rack_side: finalSide } : equip
             );
@@ -255,11 +273,16 @@ const RackBuilderView = ({ showName }) => {
 
             const payload = { ru_position: ru, rack_side: finalSide };
             api.updateEquipmentInstance(movedItemId, payload)
-                .then(updatedInstance => {
+                .then(updatedInstanceFromServer => {
+                    const finalInstance = {
+                        ...originalItem,
+                        ...updatedInstanceFromServer 
+                    };
+
                     setActiveRack(currentRack => ({
                         ...currentRack,
                         equipment: currentRack.equipment.map(item => 
-                            item.id === movedItemId ? updatedInstance : item
+                            item.id === movedItemId ? finalInstance : item
                         )
                     }));
                 })

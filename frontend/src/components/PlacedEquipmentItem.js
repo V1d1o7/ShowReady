@@ -4,7 +4,7 @@ import { Trash2 } from 'lucide-react';
 const PlacedEquipmentItem = ({ item, onDelete, onDragStart }) => {
     const [isDragging, setIsDragging] = useState(false);
     const template = item.equipment_templates || {};
-    const isHalfWidth = template.width === 'half';
+    const isHalfWidth = template.width === 'half' || (item.rack_side && (item.rack_side.includes('-left') || item.rack_side.includes('-right')));
 
     const handleDragStart = (e) => {
         setIsDragging(true);

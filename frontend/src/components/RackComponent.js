@@ -109,7 +109,7 @@ const RackComponent = ({
                         ))}
                         
                         {/* Render Ghost item when dragging over THIS specific rack */}
-                        {draggedItem && dragOverData && dragOverData.rackId === rack.id && (
+                        {draggedItem && dragOverData && dragOverData.rackId === rack.id && dragOverData.side.startsWith(view) && (
                             <GhostEquipmentItem 
                                 item={draggedItem}
                                 ru={dragOverData.ru}
