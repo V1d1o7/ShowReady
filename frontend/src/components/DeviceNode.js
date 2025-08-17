@@ -1,102 +1,74 @@
-import React, { useMemo, useRef } from 'react';
-import { api } from '../api/api';
+import React, { memo } from 'react';
+import { Handle, Position } from 'reactflow';
 
-const Port = ({ deviceId, port, onMouseDown, onMouseUp }) => {
-  const isInput = port.type === 'input';
-  const portColor = { 'HDMI': 'bg-blue-500', 'SDI': 'bg-green-500', 'XLR': 'bg-red-500', 'CAT6': 'bg-yellow-500', 'RJ45': 'bg-yellow-500' }[port.connector_type] || 'bg-gray-500';
+const DeviceNode = ({ data }) => {
+    const { label, ip_address, rack_name, ru_position, equipment_templates } = data;
+    const ports = equipment_templates?.ports || [];
 
-  return (
-    <div className={`flex items-center h-8 ${isInput ? 'flex-row' : 'flex-row-reverse'} my-1`}>
-      <span className="text-xs text-gray-300 px-2 truncate">{port.label} ({port.connector_type})</span>
-      <div
-        id={`port-${deviceId}-${port.id}`}
-        className={`w-4 h-4 rounded-full border-2 border-gray-900 cursor-pointer flex-shrink-0 ${portColor}`}
-        data-port-id={port.id}
-        data-device-id={deviceId}
-        data-port-type={port.type}
-        data-connector-type={port.connector_type}
-        onMouseDown={isInput ? null : onMouseDown}
-        onMouseUp={isInput ? onMouseUp : null}
-        title={`${port.label} (${port.connector_type})`}
-      />
-    </div>
-  );
-};
+    const inputPorts = ports.filter(p => p.port_type === 'input');
+    const outputPorts = ports.filter(p => p.port_type === 'output');
 
-const DeviceNode = ({ device, onPortMouseDown, onPortMouseUp, position, setPosition, onNodeClick }) => {
-    const nodeRef = useRef(null);
-
-    const handleMouseDown = (e) => {
-        // Only drag when clicking on the header
-        if (!e.target.classList.contains('drag-handle')) return;
-        
-        if (!nodeRef.current) return;
-        const startX = e.clientX;
-        const startY = e.clientY;
-        const startLeft = nodeRef.current.offsetLeft;
-        const startTop = nodeRef.current.offsetTop;
-
-        const handleMouseMove = (moveEvent) => {
-            const dx = moveEvent.clientX - startX;
-            const dy = moveEvent.clientY - startY;
-            setPosition(device.id, startLeft + dx, startTop + dy);
-        };
-
-        const handleMouseUp = () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
-            
-            const newPos = {
-                x_pos: nodeRef.current.offsetLeft,
-                y_pos: nodeRef.current.offsetTop,
-            };
-            api.updateEquipmentInstance(device.id, newPos).catch(error => {
-                console.error("Failed to save node position:", error);
-            });
-        };
-
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-    };
-
-    const ports = useMemo(() => {
-        return device.equipment_templates.ports.sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
-    }, [device.equipment_templates.ports]);
-    
-    const inputs = ports.filter(p => p.type === 'input');
-    const outputs = ports.filter(p => p.type === 'output');
+    const portSpacing = 35; // px
+    const nodeHeight = Math.max(inputPorts.length, outputPorts.length) * portSpacing + 120;
 
     return (
-        <div
-            ref={nodeRef}
-            className="absolute bg-gray-800 rounded-lg shadow-xl border border-gray-700 flex text-white"
-            style={{ left: position.x, top: position.y, minHeight: '100px' }}
-            onDoubleClick={() => onNodeClick(device)}
-            data-device-id={device.id}
+        <div 
+            className="bg-gray-700/80 backdrop-blur-sm border-2 border-gray-600 rounded-lg shadow-lg text-white w-96"
+            style={{ height: `${nodeHeight}px` }}
         >
-            {/* Input Ports Column */}
-            <div className="border-r border-gray-700 p-2">
-                {inputs.map((port) => <Port key={port.id} deviceId={device.id} port={port} onMouseUp={onPortMouseUp} />)}
+            {/* Header */}
+            <div className="bg-gray-800 px-4 py-2 rounded-t-lg border-b-2 border-gray-600">
+                <p className="font-bold text-base truncate" title={label}>{label}</p>
             </div>
 
-            {/* Center Info Column */}
-            <div 
-                className="p-4 w-48 cursor-grab active:cursor-grabbing drag-handle"
-                onMouseDown={handleMouseDown}
-            >
-                <h3 className="font-bold text-md pointer-events-none">{device.instance_name}</h3>
-                <p className="text-xs text-gray-400 pointer-events-none">{device.equipment_templates.model_number}</p>
-                {device.ip_address && (
-                    <p className="text-xs text-amber-400 mt-2 pointer-events-none">IP: {device.ip_address}</p>
-                )}
+            {/* Body */}
+            <div className="p-3 text-xs">
+                <div className="flex justify-between">
+                    <p className="text-gray-300">
+                        <span className="font-semibold text-gray-400">IP:</span> {ip_address || 'N/A'}
+                    </p>
+                    <p className="text-gray-300">
+                        <span className="font-semibold text-gray-400">Loc:</span> {rack_name} / RU {ru_position}
+                    </p>
+                </div>
             </div>
 
-            {/* Output Ports Column */}
-            <div className="border-l border-gray-700 p-2">
-                {outputs.map((port) => <Port key={port.id} deviceId={device.id} port={port} onMouseDown={onPortMouseDown} />)}
+            {/* Ports */}
+            <div className="relative">
+                {/* Input Ports on the left */}
+                <div className="absolute left-0 top-0">
+                    {inputPorts.map((port, index) => (
+                        <div key={port.id} className="relative flex items-center h-8">
+                            <Handle
+                                type="target"
+                                position={Position.Left}
+                                id={`port-in-${port.id}`}
+                                className="!bg-teal-400 !w-3 !h-3"
+                                style={{ top: `${index * portSpacing + 15}px` }}
+                            />
+                            <p className="ml-5 text-xs font-mono">{port.port_name} <span className="text-gray-400">({port.connector_type})</span></p>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Output Ports on the right */}
+                <div className="absolute right-0 top-0">
+                    {outputPorts.map((port, index) => (
+                        <div key={port.id} className="relative flex items-center justify-end h-8">
+                            <p className="mr-5 text-xs font-mono text-right">{port.port_name} <span className="text-gray-400">({port.connector_type})</span></p>
+                            <Handle
+                                type="source"
+                                position={Position.Right}
+                                id={`port-out-${port.id}`}
+                                className="!bg-amber-400 !w-3 !h-3"
+                                style={{ top: `${index * portSpacing + 15}px` }}
+                            />
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     );
 };
 
-export default DeviceNode;
+export default memo(DeviceNode);

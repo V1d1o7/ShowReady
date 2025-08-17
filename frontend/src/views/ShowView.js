@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { FileText, Box, Info, ArrowLeft, Server } from 'lucide-react';
+import { FileText, Box, Info, ArrowLeft, Server, GitMerge } from 'lucide-react';
 import ShowInfoView from './ShowInfoView';
 import LoomLabelView from './LoomLabelView';
 import CaseLabelView from './CaseLabelView';
 import RackBuilderView from './RackBuilderView';
+import WireDiagramView from './WireDiagramView';
 
 
 const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
@@ -14,6 +15,7 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
         { id: 'loom', label: 'Loom Labels', icon: FileText },
         { id: 'case', label: 'Case Labels', icon: Box },
         { id: 'rack', label: 'Rack Builder', icon: Server },
+        { id: 'diagram', label: 'Wire Diagram', icon: GitMerge },
     ];
 
     if (isLoading || !showData) {
@@ -21,7 +23,7 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
     }
 
     // Conditionally set the container class based on the active tab
-    const containerClass = activeTab === 'rack'
+    const containerClass = activeTab === 'rack' || activeTab === 'diagram'
         ? "p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto"
         : "p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto";
 
@@ -45,6 +47,7 @@ const ShowView = ({ showName, showData, onSave, onBack, isLoading }) => {
                 {activeTab === 'loom' && <LoomLabelView showData={showData} onSave={onSave} />}
                 {activeTab === 'case' && <CaseLabelView showData={showData} onSave={onSave} />}
                 {activeTab === 'rack' && <RackBuilderView showName={showName} />}
+                {activeTab === 'diagram' && <WireDiagramView showName={showName} />}
             </main>
         </div>
     );

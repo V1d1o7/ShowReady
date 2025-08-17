@@ -76,13 +76,13 @@ const RackComponent = ({
     };
 
     return (
-        <div className="w-[350px] flex-shrink-0 flex flex-col">
+        <div className="w-[350px] flex-shrink-0 flex flex-col" style={{ borderCollapse: 'collapse' }}>
             <div className="bg-gray-800 rounded-t-lg p-4">
                 <h3 className="text-lg font-bold text-center text-white capitalize">{rack.rack_name} - {view} View</h3>
             </div>
             
             <div className="relative flex-grow" style={{ minHeight: `${rackBodyHeight}px` }}>
-                <div className="absolute inset-0 rounded-b-lg flex overflow-hidden border-x border-b border-gray-700">
+                <div className="absolute inset-0 rounded-b-lg flex overflow-hidden border border-gray-700">
                     {/* Left RU Column */}
                     <div className="w-8 border-r border-gray-700 flex flex-col bg-gray-900">
                         {renderRuColumn()}

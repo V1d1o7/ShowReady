@@ -14,9 +14,9 @@ from .models import (
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
-    UserFolderUpdate, UserEquipmentTemplateUpdate
+    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
 from typing import List, Dict, Optional
 
 router = APIRouter()
@@ -278,13 +278,43 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).execute()
+    # 1. Get the rack data
+    response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to view it.")
     
-    rack_data = response.data[0]
-    equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).execute()
-    rack_data['equipment'] = equipment_response.data if equipment_response.data else []
+    rack_data = response.data
+    
+    # 2. Get all equipment instances for the rack
+    equipment_response = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(rack_id)).execute()
+    equipment_instances = equipment_response.data if equipment_response.data else []
+    
+    if not equipment_instances:
+        rack_data['equipment'] = []
+        return rack_data
+        
+    # 3. Get unique template IDs
+    template_ids = list(set(item['template_id'] for item in equipment_instances))
+    
+    # 4. Query for all needed templates
+    templates_response = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
+    templates_data = templates_response.data if templates_response.data else []
+    
+    # 5. Create a lookup map for easy access
+    template_map = {template['id']: template for template in templates_data}
+    
+    # 6. Attach the full template data to each equipment instance
+    for instance in equipment_instances:
+        instance['equipment_templates'] = template_map.get(instance['template_id'])
+        
+    rack_data['equipment'] = equipment_instances
+    
+    # Add logging to be absolutely sure
+    print("--- FINAL RACK DATA ---")
+    import json
+    print(json.dumps(rack_data, indent=2, default=str))
+    print("--- END FINAL RACK DATA ---")
+    
     return rack_data
 
 @router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
@@ -774,6 +804,13 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
             print(f"Could not download logo: {e}")
 
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
+    return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+
+
+@router.post("/pdf/wire-diagram", tags=["PDF Generation"])
+async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user)):
+    """Generates a PDF for the wire diagram."""
+    pdf_buffer = generate_wire_diagram_pdf(payload)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
 @router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])

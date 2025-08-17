@@ -214,6 +214,41 @@ class EquipmentTemplateUpdate(BaseModel):
     width: Optional[str] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
+
+
+# --- PDF Generation Models ---
+
+class PDFNodePosition(BaseModel):
+    x: float
+    y: float
+
+class PDFNodeData(BaseModel):
+    label: str
+    ip_address: Optional[str] = None
+    rack_name: Optional[str] = None
+    ru_position: Optional[int] = None
+    equipment_templates: EquipmentTemplate
+
+class PDFNode(BaseModel):
+    id: str
+    position: PDFNodePosition
+    data: PDFNodeData
+    width: float
+    height: float
+
+class PDFEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    sourceHandle: str
+    targetHandle: str
+    label: Optional[str] = None
+
+class WireDiagramPDFPayload(BaseModel):
+    nodes: List[PDFNode]
+    edges: List[PDFEdge]
+    page_size: str = "letter"
+    show_name: str
     
 class UserEquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
