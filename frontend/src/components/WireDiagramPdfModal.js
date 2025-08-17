@@ -3,7 +3,7 @@ import Modal from './Modal';
 
 const WireDiagramPdfModal = ({ isOpen, onClose, onGenerate }) => {
     const [pageSize, setPageSize] = useState('letter');
-    const availableSizes = ['letter', 'legal', 'tabloid', 'a4'];
+    const availableSizes = ['letter', 'legal', 'a4', 'tabloid'];
 
     const handleGenerateClick = () => {
         onGenerate({ pageSize });

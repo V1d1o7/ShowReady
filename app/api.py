@@ -14,9 +14,9 @@ from .models import (
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
-    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload
+    UserFolderUpdate, UserEquipmentTemplateUpdate
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
 from typing import List, Dict, Optional
 
 router = APIRouter()
@@ -308,13 +308,6 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
         instance['equipment_templates'] = template_map.get(instance['template_id'])
         
     rack_data['equipment'] = equipment_instances
-    
-    # Add logging to be absolutely sure
-    print("--- FINAL RACK DATA ---")
-    import json
-    print(json.dumps(rack_data, indent=2, default=str))
-    print("--- END FINAL RACK DATA ---")
-    
     return rack_data
 
 @router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
@@ -804,13 +797,6 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
             print(f"Could not download logo: {e}")
 
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
-    return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
-
-
-@router.post("/pdf/wire-diagram", tags=["PDF Generation"])
-async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user)):
-    """Generates a PDF for the wire diagram."""
-    pdf_buffer = generate_wire_diagram_pdf(payload)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
 @router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])

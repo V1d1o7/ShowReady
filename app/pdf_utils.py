@@ -184,12 +184,13 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
     buffer.seek(0)
     return buffer
 
-from reportlab.lib.pagesizes import letter, legal, A4
 from .models import WireDiagramPDFPayload
+from reportlab.lib.pagesizes import letter, legal, A4, elevenSeventeen
 
 PAGE_SIZES = {
     "letter": letter,
     "legal": legal,
+    "tabloid": elevenSeventeen,
     "a4": A4,
 }
 
@@ -199,80 +200,61 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
     c = canvas.Canvas(buffer, pagesize=page_size)
     width, height = page_size
 
-    # --- Margins and Title Block ---
     LEFT_MARGIN = 0.25 * inch
     RIGHT_MARGIN = 0.25 * inch
     TOP_MARGIN = 0.25 * inch
     BOTTOM_MARGIN = 0.25 * inch
     TITLE_BLOCK_WIDTH = 1.25 * inch
 
-    draw_area_width = width - TITLE_BLOCK_WIDTH - LEFT_MARGIN - RIGHT_MARGIN
-    draw_area_height = height - TOP_MARGIN - BOTTOM_MARGIN
     draw_area_x_start = TITLE_BLOCK_WIDTH + LEFT_MARGIN
 
-    # Draw Title Block
     c.saveState()
     c.setStrokeColor(colors.grey)
     c.setLineWidth(1)
-    c.rect(LEFT_MARGIN, BOTTOM_MARGIN, TITLE_BLOCK_WIDTH, draw_area_height)
-    
+    c.rect(LEFT_MARGIN, BOTTOM_MARGIN, TITLE_BLOCK_WIDTH, height - TOP_MARGIN - BOTTOM_MARGIN)
     c.translate(LEFT_MARGIN + TITLE_BLOCK_WIDTH / 2, height - TOP_MARGIN)
     c.rotate(-90)
     c.setFont("Helvetica-Bold", 16)
     c.setFillColor(colors.black)
-    # This centering is a bit of a hack, would need refinement for real use
     c.drawCentredString(0, -TITLE_BLOCK_WIDTH / 2 - 6, payload.show_name)
     c.restoreState()
     
-    # Create a lookup for node info
     node_map = {node.id: node for node in payload.nodes}
-    port_map = {} # To store absolute port coordinates
+    port_map = {}
 
-    # --- Draw Nodes ---
-    c.setFont("Helvetica", 8)
     for node in payload.nodes:
-        # Map frontend coordinates to PDF coordinates
         node_x = draw_area_x_start + node.position.x
         node_y = height - TOP_MARGIN - node.position.y - node.height
-
         if node_y < BOTTOM_MARGIN or node_y > height - TOP_MARGIN: continue
 
         port_map[node.id] = {}
-        
-        # Draw node box
         c.setStrokeColorRGB(0.6, 0.6, 0.6)
         c.setFillColorRGB(0.15, 0.15, 0.18)
         c.roundRect(node_x, node_y, node.width, node.height, 4, stroke=1, fill=1)
-        
-        # Draw header
         c.setFillColorRGB(0.1, 0.1, 0.1)
         c.roundRect(node_x, node_y + node.height - 28, node.width, 28, 4, stroke=0, fill=1)
         c.setFillColor(colors.white)
         c.setFont("Helvetica-Bold", 10)
         c.drawString(node_x + 10, node_y + node.height - 18, node.data.label)
-
-        # Draw info
         c.setFont("Helvetica", 7)
         c.setFillColorRGB(0.8, 0.8, 0.8)
-        info_text_1 = f"IP: {node.data.ip_address or 'N/A'}"
-        info_text_2 = f"Loc: {node.data.rack_name or ''} / RU {node.data.ru_position or ''}"
-        c.drawString(node_x + 8, node_y + node.height - 45, info_text_1)
-        c.drawString(node_x + 8, node_y + node.height - 58, info_text_2)
+        c.drawString(node_x + 8, node_y + node.height - 45, f"IP: {node.data.ip_address or 'N/A'}")
+        c.drawString(node_x + 8, node_y + node.height - 58, f"Loc: {node.data.rack_name or ''} / RU {node.data.ru_position or ''}")
 
-        # Draw Ports
         port_spacing = 25
         port_start_y = node_y + node.height - 80
         
-        input_ports = [p for p in node.data.equipment_templates.ports if p.port_type == 'input']
-        output_ports = [p for p in node.data.equipment_templates.ports if p.port_type == 'output']
+        # Use the correct field names: 'label' and 'type'
+        input_ports = [p for p in node.data.equipment_templates.ports if p.type == 'input']
+        output_ports = [p for p in node.data.equipment_templates.ports if p.type == 'output']
 
         for i, port in enumerate(input_ports):
             port_y = port_start_y - (i * port_spacing)
-            c.setFillColor(colors.HexColor("#34d399")) # Teal-400
+            c.setFillColor(colors.HexColor("#34d399"))
             c.circle(node_x, port_y, 3, fill=1, stroke=0)
             c.setFillColor(colors.white)
             c.setFont("Helvetica", 7)
-            c.drawString(node_x + 10, port_y - 3, f"{port.port_name}")
+            c.drawString(node_x + 10, port_y - 3, port.label)
             c.setFont("Helvetica-Oblique", 6)
             c.setFillColor(colors.grey)
             c.drawString(node_x + 10, port_y - 11, f"({port.connector_type})")
@@ -280,50 +262,40 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
 
         for i, port in enumerate(output_ports):
             port_y = port_start_y - (i * port_spacing)
-            c.setFillColor(colors.HexColor("#fbbf24")) # Amber-400
+            c.setFillColor(colors.HexColor("#fbbf24"))
             c.circle(node_x + node.width, port_y, 3, fill=1, stroke=0)
             c.setFillColor(colors.white)
             c.setFont("Helvetica", 7)
-            c.drawRightString(node_x + node.width - 10, port_y - 3, f"{port.port_name}")
+            c.drawRightString(node_x + node.width - 10, port_y - 3, port.label)
             c.setFont("Helvetica-Oblique", 6)
             c.setFillColor(colors.grey)
             c.drawRightString(node_x + node.width - 10, port_y - 11, f"({port.connector_type})")
             port_map[node.id][f"port-out-{port.id}"] = (node_x + node.width, port_y)
 
-    # --- Draw Edges ---
     c.setStrokeColor(colors.HexColor("#fbbf24"))
     c.setLineWidth(0.8)
     for edge in payload.edges:
-        source_node = node_map.get(edge.source)
-        target_node = node_map.get(edge.target)
-        if not source_node or not target_node: continue
-
         if edge.source in port_map and edge.target in port_map:
             if edge.sourceHandle in port_map[edge.source] and edge.targetHandle in port_map[edge.target]:
                 start_x, start_y = port_map[edge.source][edge.sourceHandle]
                 end_x, end_y = port_map[edge.target][edge.targetHandle]
-
                 path = c.beginPath()
                 path.moveTo(start_x, start_y)
                 control_offset = max(30, abs(start_x - end_x) * 0.3)
                 path.curveTo(start_x + control_offset, start_y, end_x - control_offset, end_y, end_x, end_y)
                 c.drawPath(path)
-
                 if edge.label:
                     mid_x = (start_x + end_x) / 2
                     mid_y = (start_y + end_y) / 2
                     c.setFillColor(colors.black)
                     c.setFont("Helvetica-Bold", 6)
-                    # Simple background rect for readability
                     text_width = c.stringWidth(edge.label, "Helvetica-Bold", 6)
-                    c.setFillColorRGB(0.9, 0.9, 0.9, 0.8) # Semi-transparent white
+                    c.setFillColorRGB(0.9, 0.9, 0.9, 0.8)
                     c.roundRect(mid_x - text_width/2 - 2, mid_y - 4, text_width + 4, 10, 2, fill=1, stroke=0)
                     c.setFillColor(colors.black)
                     c.drawCentredString(mid_x, mid_y - 2, edge.label)
 
-
     c.showPage()
     c.save()
-
     buffer.seek(0)
     return buffer

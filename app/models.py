@@ -214,7 +214,22 @@ class EquipmentTemplateUpdate(BaseModel):
     width: Optional[str] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
+    
+class UserEquipmentTemplateUpdate(BaseModel):
+    model_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    ru_height: Optional[int] = None
+    width: Optional[str] = None
+    ports: Optional[List[PortTemplate]] = None
+    folder_id: Optional[uuid.UUID] = None
 
+class EquipmentCopy(BaseModel):
+    template_id: uuid.UUID
+    folder_id: Optional[uuid.UUID] = None
+
+class RackLoad(BaseModel):
+    template_rack_id: uuid.UUID
+    show_name: str
 
 # --- PDF Generation Models ---
 
@@ -248,20 +263,4 @@ class WireDiagramPDFPayload(BaseModel):
     nodes: List[PDFNode]
     edges: List[PDFEdge]
     page_size: str = "letter"
-    show_name: str
-    
-class UserEquipmentTemplateUpdate(BaseModel):
-    model_number: Optional[str] = None
-    manufacturer: Optional[str] = None
-    ru_height: Optional[int] = None
-    width: Optional[str] = None
-    ports: Optional[List[PortTemplate]] = None
-    folder_id: Optional[uuid.UUID] = None
-
-class EquipmentCopy(BaseModel):
-    template_id: uuid.UUID
-    folder_id: Optional[uuid.UUID] = None
-
-class RackLoad(BaseModel):
-    template_rack_id: uuid.UUID
     show_name: str
