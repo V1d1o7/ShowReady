@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Save } from 'lucide-react';
+import { Plus, Edit, Trash2, Save, Library } from 'lucide-react';
 import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, showName }) => {
+const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, showName, onLoadFromRackLibrary }) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -41,6 +41,12 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                             </div>
                         </div>
                     ))}
+                </div>
+                {/* Corrected button code with the new prop */}
+                <div className="pt-4 border-t border-gray-700">
+                    <button onClick={onLoadFromRackLibrary} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                        <Library size={16} /> Load from Rack Library
+                    </button>
                 </div>
             </div>
             {editingRack && (

@@ -278,13 +278,13 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('racks').select('*').eq('id', rack_id).eq('user_id', user.id).single().execute()
+    response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).execute()
     if not response.data:
-        raise HTTPException(status_code=404, detail="Rack not found")
+        raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to view it.")
     
-    equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', rack_id).execute()
-    rack_data = response.data
-    rack_data['equipment'] = equipment_response.data
+    rack_data = response.data[0]
+    equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).execute()
+    rack_data['equipment'] = equipment_response.data if equipment_response.data else []
     return rack_data
 
 @router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
@@ -347,7 +347,9 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
                 supabase.table('racks').delete().eq('id', new_rack['id']).execute()
                 raise HTTPException(status_code=500, detail="Failed to copy equipment to new rack.")
             
-            new_rack['equipment'] = new_equip_res.data
+            new_instance_ids = [item['id'] for item in new_equip_res.data]
+            final_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('id', new_instance_ids).execute()
+            new_rack['equipment'] = final_equipment_res.data
         else:
             new_rack['equipment'] = []
 
@@ -381,22 +383,36 @@ async def add_equipment_to_rack(
     if new_item_end > rack_res.data['ru_height']:
         raise HTTPException(status_code=400, detail="Equipment does not fit in the rack at this position.")
 
-    # --- THIS IS THE FIX ---
-    # New validation logic: An RU is either occupied or it isn't. An item on the front
-    # occupies that RU for both front and back.
-    desired_start = equipment_data.ru_position
-    desired_end = desired_start + template['ru_height'] - 1
+    # --- Collision Detection Logic ---
+    new_item_start = equipment_data.ru_position
+    new_item_end = new_item_start + template['ru_height'] - 1
+    new_item_is_full_width = template['width'] != 'half'
+    new_item_side = equipment_data.rack_side
 
-    for item in existing_equipment:
-        item_template = item['equipment_templates']
-        existing_start = item['ru_position']
-        existing_end = existing_start + item_template['ru_height'] - 1
-        
-        if max(desired_start, existing_start) <= min(desired_end, existing_end):
-            raise HTTPException(
-                status_code=409, 
-                detail=f"Placement conflicts with {item.get('instance_name', 'Unnamed')} at RU {item['ru_position']}."
-            )
+    for existing_item in existing_equipment:
+        existing_template = existing_item['equipment_templates']
+        existing_start = existing_item['ru_position']
+        existing_end = existing_start + existing_template['ru_height'] - 1
+
+        # Check for vertical overlap
+        if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
+            # If there is vertical overlap, we need to check widths and sides
+            existing_is_full_width = existing_template['width'] != 'half'
+            
+            # Case 1: If either item is full-width, it's a guaranteed collision
+            if new_item_is_full_width or existing_is_full_width:
+                raise HTTPException(
+                    status_code=409, 
+                    detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                )
+
+            # Case 2: Both items are half-width. Collision only if they are on the same side.
+            existing_side = existing_item['rack_side']
+            if new_item_side == existing_side:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
+                )
 
     prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
     base_name = prefix if prefix else template['model_number']
@@ -437,7 +453,7 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
     
     try:
         # Fetch the instance and its template and rack details
-        instance_res = supabase.table('rack_equipment_instances').select('*, racks(user_id, ru_height), equipment_templates(ru_height)').eq('id', str(instance_id)).single().execute()
+        instance_res = supabase.table('rack_equipment_instances').select('*, racks(user_id, ru_height), equipment_templates(*)').eq('id', str(instance_id)).single().execute()
         
         if not instance_res.data or not instance_res.data.get('racks'):
             raise HTTPException(status_code=404, detail="Equipment instance not found.")
@@ -449,8 +465,8 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
         update_dict = update_data.model_dump(exclude_unset=True)
 
         # If we are changing the position, we need to validate it
-        if 'ru_position' in update_dict:
-            new_ru_position = update_dict['ru_position']
+        if 'ru_position' in update_dict or 'rack_side' in update_dict:
+            new_ru_position = update_dict.get('ru_position', instance['ru_position'])
             ru_height = instance['equipment_templates']['ru_height']
             rack_height = instance['racks']['ru_height']
             
@@ -458,28 +474,46 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
                 raise HTTPException(status_code=400, detail="Equipment does not fit at the new position.")
 
             rack_id = instance['rack_id']
-            existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(ru_height)').eq('rack_id', str(rack_id)).neq('id', str(instance_id)).execute()
+            existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).neq('id', str(instance_id)).execute()
             
-            desired_start = new_ru_position
-            desired_end = desired_start + ru_height - 1
+            new_item_start = new_ru_position
+            new_item_end = new_item_start + ru_height - 1
+            new_item_is_full_width = instance['equipment_templates']['width'] != 'half'
+            new_item_side = update_dict.get('rack_side', instance['rack_side'])
 
-            for item in existing_equipment_res.data:
-                existing_start = item['ru_position']
-                existing_end = existing_start + item['equipment_templates']['ru_height'] - 1
-                if max(desired_start, existing_start) <= min(desired_end, existing_end):
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"Placement conflicts with {item.get('instance_name', 'Unnamed')} at RU {item['ru_position']}."
-                    )
+            for existing_item in existing_equipment_res.data:
+                existing_template = existing_item['equipment_templates']
+                existing_start = existing_item['ru_position']
+                existing_end = existing_start + existing_template['ru_height'] - 1
+
+                if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
+                    existing_is_full_width = existing_template['width'] != 'half'
+                    
+                    if new_item_is_full_width or existing_is_full_width:
+                        raise HTTPException(
+                            status_code=409, 
+                            detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                        )
+
+                    existing_side = existing_item['rack_side']
+                    if new_item_side == existing_side:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
+                        )
 
     except Exception as e:
         if isinstance(e, HTTPException):
             raise e
-        raise HTTPException(status_code=500, detail="An error occurred during validation.")
+        raise HTTPException(status_code=500, detail=f"An error occurred during validation: {str(e)}")
 
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
     
     if response.data:
+        # Re-fetch the updated instance to get the full object with nested data
+        final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+        if final_instance_res.data:
+            return final_instance_res.data
         return response.data[0]
     
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")

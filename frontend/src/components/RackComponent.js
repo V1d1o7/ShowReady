@@ -1,8 +1,7 @@
 import React, { useMemo } from 'react';
 import PlacedEquipmentItem from './PlacedEquipmentItem';
-import GhostEquipmentItem from './GhostEquipmentItem'; // Import our new component
+import GhostEquipmentItem from './GhostEquipmentItem';
 
-// A simple component to render the background RU slots with borders to restore the UI
 const RackBackgroundGrid = ({ height }) => {
     const rus = Array.from({ length: height }, (_, i) => i);
     return (
@@ -32,30 +31,36 @@ const RackComponent = ({
     const rackBodyHeight = rack.ru_height * 25;
 
     const handleDragOver = (e) => {
-        e.preventDefault(); // This is necessary to allow dropping
+        e.preventDefault();
         if (!draggedItem) return;
 
         const rackBody = e.currentTarget.getBoundingClientRect();
-        
-        // --- Calculate Target RU ---
-        const y = e.clientY - rackBody.top;
         const template = draggedItem.isNew ? draggedItem.item : draggedItem.item.equipment_templates;
+        
+        if (!template) return;
+
+        const isFullWidth = template.width !== 'half';
+
+        const x = e.clientX - rackBody.left;
+        const isRightSide = x > rackBody.width / 2;
+
+        if (isFullWidth && isRightSide) {
+            if (dragOverData) onDragOverRack(null);
+            return;
+        }
+
+        const y = e.clientY - rackBody.top;
         const itemHeightInRUs = template.ru_height || 1;
-        // Anchor the drag to the middle of the item being dragged
         const ruOffset = Math.floor(itemHeightInRUs / 2);
         const calculatedRu = rack.ru_height - Math.floor(y / 25) - ruOffset;
         
-        // --- Calculate Target Side (Left/Right) ---
-        const x = e.clientX - rackBody.left;
-        const isRightSide = x > rackBody.width / 2;
         const side = `${view}${isRightSide ? '-right' : '-left'}`;
 
-        // Update the parent component with where we are dragging over
         onDragOverRack({ rackId: rack.id, ru: calculatedRu, side });
     };
 
     const handleDragLeave = () => {
-        onDragOverRack(null); // Clear the ghost item when the mouse leaves the rack
+        onDragOverRack(null);
     };
 
     const renderRuColumn = () => {

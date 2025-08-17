@@ -107,8 +107,11 @@ const RackBuilderView = ({ showName }) => {
 
     const handleLoadRackFromLibrary = async (templateRackId) => {
         try {
-            await api.copyRackFromLibrary(templateRackId, showName);
-            fetchData();
+            const newRack = await api.copyRackFromLibrary(templateRackId, showName);
+            setRacks(prevRacks => [...prevRacks, newRack]);
+            setSelectedRackId(newRack.id);
+            setActiveRack(newRack);
+            toast.success("Rack loaded successfully!");
         } catch (error) {
             console.error("Failed to load rack from library:", error);
             toast.error(`Error: ${error.message}`);
@@ -132,47 +135,46 @@ const RackBuilderView = ({ showName }) => {
 
     const checkCollision = useCallback((rackData, itemToPlace, targetRu, targetSide) => {
         if (!rackData || !itemToPlace) return true;
-        
+    
         const itemTemplate = itemToPlace.isNew ? itemToPlace.item : itemToPlace.item.equipment_templates;
         if (!itemTemplate) return true;
-
+    
         const start_new = targetRu;
         const end_new = targetRu + itemTemplate.ru_height - 1;
-
+    
         if (start_new < 1 || end_new > rackData.ru_height) {
             return true;
         }
-
+    
         const isNewFullWidth = itemTemplate.width !== 'half';
-
+    
         for (const existingItem of rackData.equipment) {
             if (!itemToPlace.isNew && itemToPlace.item.id === existingItem.id) {
                 continue;
             }
-
+    
             const existingTemplate = existingItem.equipment_templates;
+            if (!existingTemplate) continue;
+
             const start_existing = existingItem.ru_position;
             const end_existing = start_existing + existingTemplate.ru_height - 1;
-
+    
             const ruOverlap = start_new <= end_existing && end_new >= start_existing;
             if (!ruOverlap) {
                 continue;
             }
-
+    
             const isExistingFullWidth = existingTemplate.width !== 'half';
-
+    
             if (isNewFullWidth || isExistingFullWidth) {
-                return true; 
+                return true;
             }
-
-            const newSide = targetSide.endsWith('-right') ? 'right' : 'left';
-            const existingSide = existingItem.rack_side.endsWith('-right') ? 'right' : 'left';
-
-            if (newSide === existingSide) {
+    
+            if (targetSide === existingItem.rack_side) {
                 return true;
             }
         }
-
+    
         return false;
     }, []);
 
@@ -200,6 +202,14 @@ const RackBuilderView = ({ showName }) => {
             cleanup();
             return;
         }
+
+        const itemTemplate = draggedItem.isNew ? draggedItem.item : draggedItem.item.equipment_templates;
+        if (!itemTemplate) {
+            cleanup();
+            return;
+        }
+        const isFullWidth = itemTemplate.width !== 'half';
+        const finalSide = isFullWidth ? side.replace(/-left|-right/g, '') : side;
         
         if (draggedItem.isNew) {
             const optimisticId = `optimistic-${Date.now()}`;
@@ -207,9 +217,9 @@ const RackBuilderView = ({ showName }) => {
                 id: optimisticId,
                 rack_id: activeRack.id,
                 ru_position: ru,
-                rack_side: side,
+                rack_side: finalSide,
                 instance_name: `${draggedItem.item.model_number}`,
-                equipment_templates: draggedItem.item,
+                equipment_templates: itemTemplate,
             };
 
             setActiveRack(currentRack => ({
@@ -217,7 +227,7 @@ const RackBuilderView = ({ showName }) => {
                 equipment: [...currentRack.equipment, optimisticItem]
             }));
             
-            const payload = { template_id: draggedItem.item.id, ru_position: ru, rack_side: side };
+            const payload = { template_id: draggedItem.item.id, ru_position: ru, rack_side: finalSide };
             api.addEquipmentToRack(activeRack.id, payload)
                .then(newlyAddedItem => {
                     setActiveRack(currentRack => ({
@@ -238,13 +248,21 @@ const RackBuilderView = ({ showName }) => {
             const originalEquipmentState = activeRack.equipment;
             const movedItemId = draggedItem.item.id;
             const updatedEquipment = originalEquipmentState.map(equip =>
-                equip.id === movedItemId ? { ...equip, ru_position: ru, rack_side: side } : equip
+                equip.id === movedItemId ? { ...equip, ru_position: ru, rack_side: finalSide } : equip
             );
             
             setActiveRack({ ...activeRack, equipment: updatedEquipment });
 
-            const payload = { ru_position: ru, rack_side: side };
+            const payload = { ru_position: ru, rack_side: finalSide };
             api.updateEquipmentInstance(movedItemId, payload)
+                .then(updatedInstance => {
+                    setActiveRack(currentRack => ({
+                        ...currentRack,
+                        equipment: currentRack.equipment.map(item => 
+                            item.id === movedItemId ? updatedInstance : item
+                        )
+                    }));
+                })
                 .catch(err => {
                     toast.error(`Failed to save move: ${err.message}`);
                     setActiveRack({ ...activeRack, equipment: originalEquipmentState });
