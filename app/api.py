@@ -14,9 +14,9 @@ from .models import (
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
-    UserFolderUpdate, UserEquipmentTemplateUpdate
+    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
 from typing import List, Dict, Optional
 
 router = APIRouter()
@@ -798,6 +798,18 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
 
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+
+@router.post("/pdf/wire-diagram", tags=["PDF Generation"])
+async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user)):
+    """Generates a PDF for the wire diagram."""
+    try:
+        pdf_buffer = generate_wire_diagram_pdf(payload)
+        return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+    except Exception as e:
+        # Log the exception for debugging
+        print(f"Error generating wire diagram PDF: {e}")
+        # Return a meaningful error to the client
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
 @router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])
 async def delete_default_folder(

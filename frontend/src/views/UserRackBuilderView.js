@@ -22,8 +22,10 @@ const UserRackBuilderView = () => {
 
     const [activeRack, setActiveRack] = useState(null);
     const [draggedItem, setDraggedItem] = useState(null);
+    const [dragOverData, setDragOverData] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
+    const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
 
     useEffect(() => {
@@ -41,12 +43,75 @@ const UserRackBuilderView = () => {
             }
         };
         fetchRackDetails();
-    }, [selectedRackId]);
+    }, [selectedRackId, racks]);
 
     useEffect(() => {
         const handleClickOutside = () => setContextMenu(null);
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
+    }, []);
+
+    const handleCreateRack = async (rackData) => {
+        try {
+            await api.createRack({ rack_name: rackData.rackName, ru_height: parseInt(rackData.ruHeight, 10) });
+            onUpdate();
+        } catch (error) {
+            console.error("Failed to create rack:", error);
+            alert(`Error: ${error.message}`);
+        }
+        setIsNewRackModalOpen(false);
+    };
+
+    const checkCollision = useCallback((rackData, itemToPlace, targetRu, targetSide) => {
+        if (!rackData || !itemToPlace) return true;
+    
+        const itemTemplate = itemToPlace.isNew ? itemToPlace.item : itemToPlace.item.equipment_templates;
+        if (!itemTemplate) return true;
+    
+        const start_new = targetRu;
+        const end_new = targetRu + itemTemplate.ru_height - 1;
+    
+        if (start_new < 1 || end_new > rackData.ru_height) {
+            return true;
+        }
+    
+        const isNewFullWidth = itemTemplate.width !== 'half';
+    
+        for (const existingItem of rackData.equipment) {
+            if (!itemToPlace.isNew && itemToPlace.item.id === existingItem.id) {
+                continue;
+            }
+    
+            const existingTemplate = existingItem.equipment_templates;
+            if (!existingTemplate) continue;
+
+            const start_existing = existingItem.ru_position;
+            const end_existing = start_existing + existingTemplate.ru_height - 1;
+    
+            const ruOverlap = start_new <= end_existing && end_new >= start_existing;
+            if (!ruOverlap) {
+                continue;
+            }
+
+            const newFace = targetSide.split('-')[0];
+            const existingFace = existingItem.rack_side.split('-')[0];
+
+            if (newFace !== existingFace) {
+                continue; 
+            }
+    
+            const isExistingFullWidth = existingTemplate.width !== 'half';
+    
+            if (isNewFullWidth || isExistingFullWidth) {
+                return true;
+            }
+    
+            if (targetSide === existingItem.rack_side) {
+                return true;
+            }
+        }
+    
+        return false;
     }, []);
 
     const handleDeleteRack = async (rackId) => {
@@ -92,61 +157,80 @@ const UserRackBuilderView = () => {
         setIsRackLibraryOpen(false);
     };
 
-    const handleAddEquipment = async (item, ru_position, rack_side) => {
-        if (!activeRack) return;
-        const payload = {
-            template_id: item.id,
-            ru_position,
-            rack_side,
-        };
-        try {
-            await api.addEquipmentToRack(activeRack.id, payload);
-            await onUpdate();
-        } catch (error) {
-            console.error("Failed to add equipment to rack", error);
-            alert(`Error: ${error.message || 'Could not add equipment.'}`);
-        }
-    };
-
-    const handleMoveEquipment = async (item, new_ru_position, rack_side) => {
-        if (!activeRack) return;
-        const payload = {
-            ru_position: new_ru_position,
-            rack_side,
-        };
-        try {
-            await api.updateEquipmentInstance(item.id, payload);
-            await onUpdate();
-        } catch (error) {
-            console.error("Failed to move equipment", error);
-            alert(`Error: ${error.message || 'Could not move equipment.'}`);
-        }
-    };
-    
     const handleDeleteEquipment = async (instanceId) => {
         if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
         try {
             await api.deleteEquipmentFromRack(instanceId);
-            await onUpdate();
+            // Optimistically update UI
+            setActiveRack(currentRack => ({
+                ...currentRack,
+                equipment: currentRack.equipment.filter(item => item.id !== instanceId)
+            }));
         } catch (error) {
             console.error("Failed to delete equipment:", error);
             alert(`Error: ${error.message}`);
-        }
-    };
-
-    const handleDrop = (data, ru_position, side) => {
-        if (data.isNew) {
-            handleAddEquipment(data.item, ru_position, side);
-        } else {
-            handleMoveEquipment(data.item, ru_position, side);
+            onUpdate(); // Re-fetch on error to revert optimistic update
         }
     };
 
     const handleDragStart = (e, item, isNew = false) => {
-        const template = isNew ? item : item.equipment_templates;
-        const data = { isNew, item, template };
-        e.dataTransfer.setData('application/json', JSON.stringify(data));
-        setDraggedItem(data);
+        e.dataTransfer.setData('application/json', JSON.stringify({ isNew, item }));
+        setDraggedItem({ isNew, item });
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        const cleanup = () => {
+            setDraggedItem(null);
+            setDragOverData(null);
+        };
+
+        if (!draggedItem || !dragOverData || !activeRack || dragOverData.rackId !== activeRack.id) {
+            cleanup();
+            return;
+        }
+
+        const { ru, side } = dragOverData;
+
+        if (checkCollision(activeRack, draggedItem, ru, side)) {
+            alert("Placement overlaps with existing equipment or is out of bounds.");
+            cleanup();
+            return;
+        }
+
+        const itemTemplate = draggedItem.isNew ? draggedItem.item : draggedItem.item.equipment_templates;
+        if (!itemTemplate) {
+            cleanup();
+            return;
+        }
+        const isFullWidth = itemTemplate.width !== 'half';
+        const finalSide = isFullWidth ? side.replace(/-left|-right/g, '') : side;
+        
+        if (draggedItem.isNew) {
+            const payload = { template_id: draggedItem.item.id, ru_position: ru, rack_side: finalSide };
+            api.addEquipmentToRack(activeRack.id, payload)
+               .then(() => onUpdate())
+               .catch(err => {
+                    alert(`Error adding equipment: ${err.message}`);
+                    onUpdate();
+               });
+        } else {
+            const movedItemId = draggedItem.item.id;
+            const payload = { ru_position: ru, rack_side: finalSide };
+            api.updateEquipmentInstance(movedItemId, payload)
+                .then(() => onUpdate())
+                .catch(err => {
+                    alert(`Failed to save move: ${err.message}`);
+                    onUpdate();
+                });
+        }
+        
+        cleanup();
+    };
+
+    const handleDragEnd = () => {
+        setDraggedItem(null);
+        setDragOverData(null);
     };
     
     const handleContextMenu = (e, item) => {
@@ -188,11 +272,11 @@ const UserRackBuilderView = () => {
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <div className="flex justify-between h-[calc(100vh-250px)]">
+        <div className="flex justify-between h-[calc(100vh-250px)]" onDragEnd={handleDragEnd}>
             <RackList
                 racks={racks}
                 onSelectRack={onSelectRack}
-                onNewRack={onNewRack}
+                onNewRack={() => setIsNewRackModalOpen(true)}
                 onDeleteRack={handleDeleteRack}
                 onUpdateRack={handleUpdateRack}
                 selectedRackId={selectedRackId}
@@ -208,6 +292,8 @@ const UserRackBuilderView = () => {
                             onDelete={handleDeleteEquipment}
                             onDragStart={(e, item) => handleDragStart(e, item, false)}
                             draggedItem={draggedItem}
+                            dragOverData={dragOverData}
+                            onDragOverRack={setDragOverData}
                         />
                         <RackComponent
                             key={`${activeRack.id}-rear`}
@@ -217,6 +303,8 @@ const UserRackBuilderView = () => {
                             onDelete={handleDeleteEquipment}
                             onDragStart={(e, item) => handleDragStart(e, item, false)}
                             draggedItem={draggedItem}
+                            dragOverData={dragOverData}
+                            onDragOverRack={setDragOverData}
                         />
                     </>
                 ) : (
@@ -254,6 +342,7 @@ const UserRackBuilderView = () => {
                 </div>
             )}
             
+            <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
         </div>
