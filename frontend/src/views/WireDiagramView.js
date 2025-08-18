@@ -52,6 +52,25 @@ const nodeTypes = {
 const WireDiagramView = ({ showName }) => {
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+    const onEdgesChangeCustom = useCallback((changes) => {
+        onEdgesChange(changes);
+    
+        for (const change of changes) {
+            if (change.type === 'remove') {
+                const edgeId = change.id;
+                api.deleteConnection(edgeId)
+                    .then(() => {
+                        console.log(`Successfully deleted connection ${edgeId}`);
+                    })
+                    .catch(err => {
+                        console.error(`Failed to delete connection ${edgeId}:`, err);
+                        alert(`Error: Could not delete connection from the database. Please refresh.`);
+                    });
+            }
+        }
+    }, [onEdgesChange]);
+
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
@@ -79,13 +98,13 @@ const WireDiagramView = ({ showName }) => {
                 data: { ...item, label: item.instance_name },
             }));
             
-            console.log("--- ALL EQUIPMENT ---", allEquipment);
+            console.log("--- ALL EQUIPMENT (please expand and screenshot if issue persists) ---", allEquipment);
             console.log("--- INITIAL NODES ---", initialNodes);
 
             setNodes(initialNodes);
 
             const initialEdges = connections.map(conn => ({
-                id: `e-${conn.source_device_id}-${conn.source_port_id}-${conn.destination_device_id}-${conn.destination_port_id}`,
+                id: conn.id.toString(),
                 source: conn.source_device_id.toString(),
                 target: conn.destination_device_id.toString(),
                 sourceHandle: `port-out-${conn.source_port_id}`,
@@ -95,7 +114,9 @@ const WireDiagramView = ({ showName }) => {
                 label: conn.cable_type || '',
                 labelBgPadding: [8, 4],
                 labelBgBorderRadius: 4,
-                labelBgStyle: { fill: '#27272a', color: '#fff', fillOpacity: 0.9 },
+                labelBgStyle: { fill: '#18181b', color: '#fff', fillOpacity: 1.0, stroke: '#f59e0b', strokeWidth: 0.5 },
+                labelX: -150,
+                labelY: -15,
                 markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
             }));
             setEdges(initialEdges);
@@ -113,28 +134,79 @@ const WireDiagramView = ({ showName }) => {
     }, [fetchData]);
 
     const onConnect = useCallback(async (params) => {
+        console.log("onConnect params:", params);
         const { source, sourceHandle, target, targetHandle } = params;
-        const sourcePortId = sourceHandle.split('-')[2];
-        const targetPortId = targetHandle.split('-')[2];
+    
+        let sourceDeviceId, sourcePortId, destDeviceId, destPortId;
+    
+        // Determine which handle is the output (source) and which is the input (destination)
+        if (sourceHandle.includes('out') && targetHandle.includes('in')) {
+            sourceDeviceId = source;
+            sourcePortId = sourceHandle.substring('port-out-'.length);
+            destDeviceId = target;
+            destPortId = targetHandle.substring('port-in-'.length);
+        } else if (sourceHandle.includes('in') && targetHandle.includes('out')) {
+            // The user dragged from an input to an output, so we reverse the connection
+            sourceDeviceId = target;
+            sourcePortId = targetHandle.substring('port-out-'.length);
+            destDeviceId = source;
+            destPortId = sourceHandle.substring('port-in-'.length);
+        } else {
+            // Invalid connection (e.g., in-to-in or out-to-out)
+            console.warn("Invalid connection attempt (in-to-in or out-to-out):", { sourceHandle, targetHandle });
+            return;
+        }
+    
+        // Defensive check for valid UUIDs
+        const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+        if (!uuidRegex.test(sourcePortId) || !uuidRegex.test(destPortId)) {
+            console.error("Invalid port ID format. Connection aborted.", { sourcePortId, destPortId });
+            alert("Error: Could not create connection due to invalid port ID format.");
+            return;
+        }
+    
+        // Find the source node to determine the cable type from the port's connector_type
+        const sourceNode = getNodes().find(n => n.id === sourceDeviceId);
+        if (!sourceNode) {
+            console.error("Could not find the source node to create connection.");
+            alert("Error: Could not find the source device.");
+            return;
+        }
 
-        if (sourceHandle.includes('in') || targetHandle.includes('out')) return;
+        const sourcePort = sourceNode.data.equipment_templates.ports.find(p => p.id === sourcePortId);
+        if (!sourcePort) {
+            console.error("Could not find the source port to create connection.");
+            alert("Error: Could not find the source port.");
+            return;
+        }
 
         const newConnectionData = {
-            source_device_id: source,
+            source_device_id: sourceDeviceId,
             source_port_id: sourcePortId,
-            destination_device_id: target,
-            destination_port_id: targetPortId,
-            cable_type: 'CAT6', // Placeholder
+            destination_device_id: destDeviceId,
+            destination_port_id: destPortId,
+            cable_type: sourcePort.connector_type || 'Unknown',
         };
-
+    
         try {
             await api.createConnection(newConnectionData);
             fetchData();
         } catch (err) {
             console.error("Failed to create connection:", err);
-            alert(`Error creating connection: ${err.message}`);
+            const errorMessage = err.message || 'An unknown error occurred.';
+            let detail = errorMessage;
+            try {
+                const parsedError = JSON.parse(errorMessage);
+                if (parsedError.detail) {
+                   detail = JSON.stringify(parsedError.detail, null, 2);
+                }
+            } catch (e) {
+                // Not a JSON error, use the original message
+            }
+            alert(`Error creating connection:
+${detail}`);
         }
-    }, [fetchData]);
+    }, [fetchData, getNodes]);
 
     const onNodeDragStop = useCallback(async (event, node) => {
         try {
@@ -226,7 +298,7 @@ const WireDiagramView = ({ showName }) => {
                 nodes={nodes}
                 edges={edges}
                 onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
+                onEdgesChange={onEdgesChangeCustom}
                 onConnect={onConnect}
                 onNodeDragStop={onNodeDragStop}
                 nodeTypes={nodeTypes}

@@ -693,7 +693,7 @@ async def create_connection(connection_data: ConnectionCreate, user = Depends(ge
         if not show_id_res.data or show_id_res.data['user_id'] != str(user.id):
             raise HTTPException(status_code=403, detail="Not authorized to create a connection in this show.")
 
-        insert_data = connection_data.model_dump()
+        insert_data = connection_data.model_dump(mode='json')
         insert_data['show_id'] = show_id_res.data['show_name']
         
         response = supabase.table('connections').insert(insert_data).execute()

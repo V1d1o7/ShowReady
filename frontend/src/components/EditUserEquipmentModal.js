@@ -69,8 +69,8 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
                     <div className="border-t border-gray-700 pt-4">
                         <h3 className="text-md font-bold text-white mb-2">Ports ({ports.length})</h3>
                         <div className="flex flex-wrap gap-2 mb-4">
-                            {ports.map((port, index) => (
-                                <div key={index} className="flex items-center gap-2 px-3 py-1 text-xs bg-gray-700 rounded-full">
+                            {ports.map((port) => (
+                                <div key={port.id} className="flex items-center gap-2 px-3 py-1 text-xs bg-gray-700 rounded-full">
                                     <span>{port.label} ({port.connector_type})</span>
                                 </div>
                             ))}
