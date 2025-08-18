@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Trash2, KeyRound, Server, Library } from 'lucide-react';
+import { Save, Trash2, KeyRound } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
+import { useNavigate } from 'react-router-dom';
 
-const AccountView = ({ onBack, user, onNavigate, profile: initialProfile }) => {
+const AccountView = ({ user, profile: initialProfile }) => {
+    const navigate = useNavigate();
     const [profile, setProfile] = useState(initialProfile);
     const [isLoading, setIsLoading] = useState(!initialProfile);
     const [newEmail, setNewEmail] = useState('');
@@ -80,10 +82,9 @@ const AccountView = ({ onBack, user, onNavigate, profile: initialProfile }) => {
     }
 
     return (
-        <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
             <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                 <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20} /></button>
                     <h1 className="text-2xl sm:text-3xl font-bold text-white">My Account</h1>
                 </div>
             </header>
@@ -114,20 +115,6 @@ const AccountView = ({ onBack, user, onNavigate, profile: initialProfile }) => {
                 </Card>
 
                 <Card>
-                    <h2 className="text-xl font-bold mb-4 text-white">Tools & Management</h2>
-                    <div className="space-y-4">
-                        {profile?.role === 'admin' && (
-                            <button onClick={() => onNavigate('admin')} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600">
-                                <Server size={16} /> Go to Admin Panel
-                            </button>
-                        )}
-                        <button onClick={() => onNavigate('library')} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600">
-                            <Library size={16} /> My Library
-                        </button>
-                    </div>
-                </Card>
-
-                <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">Account Settings</h2>
                     <div className="space-y-4">
                         <InputField label="Email Address" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
@@ -143,7 +130,7 @@ const AccountView = ({ onBack, user, onNavigate, profile: initialProfile }) => {
                             <svg className="w-5 h-5" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512"><path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 126 21.2 172.9 56.6l-63.1 61.9C333.3 102.4 293.2 88 248 88c-73.2 0-133.1 59.9-133.1 133.1s59.9 133.1 133.1 133.1c76.9 0 115.1-53.2 120.2-79.2H248v-65.1h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path></svg>
                             Link Google Account
                         </button>
-                        <button onClick={() => onNavigate('sso-setup')} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600">
+                        <button onClick={() => navigate('/sso-setup')} className="w-full flex items-center justify-center gap-3 py-2 px-4 border border-gray-600 rounded-md shadow-sm text-sm font-medium text-white bg-gray-700 hover:bg-gray-600">
                             <KeyRound size={16} /> Advanced SSO Setup
                         </button>
                     </div>

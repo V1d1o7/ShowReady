@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Outlet, Navigate } from 'react-router-dom';
 import { supabase, api } from './api/api';
 
 // Views
@@ -10,10 +10,21 @@ import AccountView from './views/AccountView';
 import AdvancedSSOView from './views/AdvancedSSOView';
 import AdminView from './views/AdminView';
 import UserLibraryView from './views/UserLibraryView';
+import EquipmentLibraryView from './views/EquipmentLibraryView';
+import UserRackBuilderView from './views/UserRackBuilderView';
+import ShowInfoView from './views/ShowInfoView';
+import LoomLabelView from './views/LoomLabelView';
+import CaseLabelView from './views/CaseLabelView';
+import RackBuilderView from './views/RackBuilderView';
+import WireDiagramView from './views/WireDiagramView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
 import ProtectedRoute from './components/ProtectedRoute';
+import Navbar from './components/Navbar';
+
+// Contexts
+import { ShowProvider } from './contexts/ShowContext';
 
 
 // This wrapper component now handles the logic that was previously in App.js
@@ -48,7 +59,7 @@ const MainLayout = ({ session, profile }) => {
         try {
             const newShowData = { info: { show_name: newShowName }, loom_sheets: {}, case_sheets: {} };
             await api.saveShow(newShowName, newShowData);
-            navigate(`/show/${encodeURIComponent(newShowName)}`);
+            navigate(`/show/${encodeURIComponent(newShowName)}/info`);
         } catch (error) {
             console.error("Failed to create show:", error);
         }
@@ -68,34 +79,42 @@ const MainLayout = ({ session, profile }) => {
 
     return (
         <>
+            <Navbar profile={profile} />
             <Routes>
                 <Route
                     path="/"
                     element={
                         <DashboardView
                             shows={shows}
-                            onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}`)}
+                            onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
                             onNewShow={() => setIsNewShowModalOpen(true)}
                             onDeleteShow={handleDeleteShow}
                             isLoading={isLoadingShows}
                             user={session.user}
-                            onNavigate={(path) => navigate(`/${path}`)}
                         />
                     }
                 />
-                <Route path="/show/:showName" element={<ShowWrapper />} />
-                <Route path="/account" element={<AccountView onBack={() => navigate('/')} user={session.user} onNavigate={(path) => navigate(`/${path}`)} profile={profile} />} />
-                <Route path="/sso-setup" element={<AdvancedSSOView onBack={() => navigate('/account')} />} />
-                <Route path="/library" element={
-                    <ProtectedRoute profile={profile}>
-                        <UserLibraryView />
-                    </ProtectedRoute>
-                    } />
+                <Route path="/show/:showName" element={<ShowWrapper />}>
+                    <Route path="" element={<ShowView />}>
+                        <Route path="info" element={<ShowInfoView />} />
+                        <Route path="loomlabels" element={<LoomLabelView />} />
+                        <Route path="caselabels" element={<CaseLabelView />} />
+                        <Route path="rackbuilder" element={<RackBuilderView />} />
+                        <Route path="wirediagram" element={<WireDiagramView />} />
+                    </Route>
+                </Route>
+                <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
+                <Route path="/sso-setup" element={<AdvancedSSOView />} />
+                <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
+                    <Route index element={<Navigate to="equipment" replace />} />
+                    <Route path="equipment" element={<EquipmentLibraryView />} />
+                    <Route path="racks" element={<UserRackBuilderView />} />
+                </Route>
                 <Route
-                    path="/admin"
+                    path="/mgmt"
                     element={
                         <ProtectedRoute profile={profile} adminOnly={true}>
-                            <AdminView onBack={() => navigate('/account')} />
+                            <AdminView />
                         </ProtectedRoute>
                     }
                 />
@@ -190,12 +209,8 @@ const ShowWrapper = () => {
     };
 
     return (
-        <ShowView
-            showName={decodeURIComponent(showName)}
-            showData={showData}
-            onSave={handleSaveShowData}
-            onBack={() => navigate('/')}
-            isLoading={isLoading}
-        />
+        <ShowProvider value={{ showData, onSave: handleSaveShowData, isLoading, showName }}>
+            <Outlet />
+        </ShowProvider>
     );
 };

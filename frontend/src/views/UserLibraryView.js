@@ -1,20 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Package, HardDrive } from 'lucide-react';
+import { NavLink, Outlet } from 'react-router-dom';
+import { Plus, Package, HardDrive } from 'lucide-react';
 import { api } from '../api/api';
-import Card from '../components/Card';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import NewUserFolderModal from '../components/NewUserFolderModal';
 import EditUserFolderModal from '../components/EditUserFolderModal';
 import EditUserEquipmentModal from '../components/EditUserEquipmentModal';
-import UserTreeView from '../components/UserTreeView';
-import UserRackBuilderView from './UserRackBuilderView';
-import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
+import { LibraryProvider } from '../contexts/LibraryContext';
 
 const UserLibraryView = () => {
-    const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState('equipment');
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [racks, setRacks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -23,7 +18,7 @@ const UserLibraryView = () => {
     const [isRackModalOpen, setIsRackModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
     const [selectedRackId, setSelectedRackId] = useState(null);
-    
+
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -144,65 +139,42 @@ const UserLibraryView = () => {
         return roots;
     }, [library.folders]);
 
+    const contextValue = {
+        library,
+        racks,
+        isLoading,
+        selectedRackId,
+        userFolderTree,
+        onNewRack: () => setIsRackModalOpen(true),
+        onSelectRack: setSelectedRackId,
+        onUpdate: fetchData,
+        onNewFolder: () => setIsFolderModalOpen(true),
+        onNewEquipment: () => setIsEquipmentModalOpen(true),
+        onDeleteFolder: handleDeleteFolder,
+        onDeleteEquipment: handleDeleteEquipment,
+        onEditItem: handleEditItem,
+    };
+
     return (
-        <>
+        <LibraryProvider value={contextValue}>
             <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
                 <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/account')} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20} /></button>
                         <h1 className="text-2xl sm:text-3xl font-bold text-white">My Library</h1>
                     </div>
                 </header>
 
                 <div className="flex border-b border-gray-700 mb-6">
-                    <button onClick={() => setActiveTab('equipment')} className={`flex items-center gap-2 px-4 py-3 font-bold ${activeTab === 'equipment' ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
+                    <NavLink to="equipment" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <Package size={18} /> Equipment Library
-                    </button>
-                    <button onClick={() => setActiveTab('racks')} className={`flex items-center gap-2 px-4 py-3 font-bold ${activeTab === 'racks' ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
+                    </NavLink>
+                    <NavLink to="racks" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <HardDrive size={18} /> Rack Library
-                    </button>
+                    </NavLink>
                 </div>
 
                 <main>
-                    {activeTab === 'equipment' && (
-                         <Card className="max-w-4xl mx-auto">
-                            <div className="flex justify-between items-center mb-4">
-                                <h2 className="text-xl font-bold text-white">My Custom Equipment</h2>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setIsFolderModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                                        <Plus size={16} /> New Folder
-                                    </button>
-                                    <button onClick={() => setIsEquipmentModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
-                                        <Plus size={16} /> New Equipment
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="p-4 bg-gray-900/50 rounded-lg min-h-[300px]">
-                                {isLoading ? (
-                                    <p>Loading library...</p>
-                                ) : (
-                                    <UserTreeView 
-                                        folders={library.folders.filter(f => !f.is_default)}
-                                        equipment={library.equipment.filter(e => !e.is_default)}
-                                        onDeleteFolder={handleDeleteFolder} 
-                                        onDeleteEquipment={handleDeleteEquipment} 
-                                        onEditItem={handleEditItem}
-                                    />
-                                )}
-                            </div>
-                        </Card>
-                    )}
-
-                    {activeTab === 'racks' && (
-                        <UserRackBuilderView 
-                            library={library}
-                            racks={racks}
-                            selectedRackId={selectedRackId}
-                            onSelectRack={setSelectedRackId}
-                            onNewRack={() => setIsRackModalOpen(true)}
-                            onUpdate={fetchData} 
-                        />
-                    )}
+                    <Outlet />
                 </main>
             </div>
             
@@ -242,7 +214,7 @@ const UserLibraryView = () => {
                     userFolderTree={userFolderTree}
                 />
             )}
-        </>
+        </LibraryProvider>
     );
 };
 

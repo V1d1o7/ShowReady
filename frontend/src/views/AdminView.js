@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { ArrowLeft, Plus, Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, GripVertical, Edit } from 'lucide-react';
+import { Plus, Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, GripVertical, Edit } from 'lucide-react';
 import { api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
@@ -330,10 +330,9 @@ const AdminView = () => {
 
     return (
         <>
-            <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+            <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
                 <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                     <div className="flex items-center gap-4">
-                        <button onClick={() => navigate('/account')} className="p-2 rounded-lg hover:bg-gray-700 transition-colors"><ArrowLeft size={20} /></button>
                         <h1 className="text-2xl sm:text-3xl font-bold text-white">Super Admin Panel</h1>
                     </div>
                 </header>

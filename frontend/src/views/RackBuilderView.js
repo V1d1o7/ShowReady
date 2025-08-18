@@ -8,8 +8,10 @@ import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import RackComponent from '../components/RackComponent';
 import toast, { Toaster } from 'react-hot-toast';
+import { useShow } from '../contexts/ShowContext';
 
-const RackBuilderView = ({ showName }) => {
+const RackBuilderView = () => {
+    const { showName } = useShow();
     const [racks, setRacks] = useState([]);
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [isLoading, setIsLoading] = useState(true);
