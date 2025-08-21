@@ -197,7 +197,6 @@ PAGE_SIZES = {
 
 def draw_port_symbol(c, x, y, port_type, scale):
     """Draws a port symbol (triangle) on the canvas."""
-    # TODO: Add 'bidirectional' type to data model and draw diamond shape
     size = 4 * scale
     if port_type == 'input':
         c.setFillColor(colors.green)
@@ -222,160 +221,135 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
     c = canvas.Canvas(buffer, pagesize=page_size)
     width, height = page_size
 
-    # --- Margins and Constants ---
     MARGIN = 0.5 * inch
     TITLE_BLOCK_HEIGHT = 0.75 * inch
-    COLUMN_SPACING = 0.5 * inch
     DRAW_AREA_WIDTH = width - (2 * MARGIN)
     DRAW_AREA_HEIGHT = height - (2 * MARGIN) - TITLE_BLOCK_HEIGHT
+    scale = 0.75 
 
-    # --- Group nodes by rack ---
-    racks = {}
-    for node in payload.nodes:
-        rack_name = node.data.rack_name or "Unracked"
-        if rack_name not in racks:
-            racks[rack_name] = []
-        racks[rack_name].append(node)
+    if not payload.nodes:
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+        return buffer
+
+    min_x = min(n.position.x for n in payload.nodes)
+    max_x = max(n.position.x + n.width for n in payload.nodes)
+    min_y = min(n.position.y for n in payload.nodes)
+    max_y = max(n.position.y + n.height for n in payload.nodes)
     
-    sorted_rack_names = sorted(racks.keys(), key=lambda x: (x == "Unracked", x))
+    diagram_width = (max_x - min_x) * scale
+    diagram_height = (max_y - min_y) * scale
 
-    # --- Calculate Column Widths and Total Width ---
-    column_widths = {}
-    for rack_name, nodes in racks.items():
-        max_w = 0
-        for node in nodes:
-            c.setFont("Helvetica-Bold", 8) # Use a standard size for calculation
-            model_name_w = c.stringWidth(node.data.equipment_templates.model_number)
-            ip_addr_w = c.stringWidth(node.data.ip_address or "")
-            loc_w = c.stringWidth(f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
-            
-            c.setFont("Helvetica", 8)
-            input_ports = [p for p in node.data.equipment_templates.ports if p.type == 'input']
-            output_ports = [p for p in node.data.equipment_templates.ports if p.type == 'output']
-            max_input_w = max([c.stringWidth(f"{p.label} ({p.connector_type})") for p in input_ports] or [0])
-            max_output_w = max([c.stringWidth(f"({p.connector_type}) {p.label}") for p in output_ports] or [0])
-            
-            padding = 40
-            node_w = max_input_w + max_output_w + padding
-            header_content_w = model_name_w + ip_addr_w + loc_w + (padding * 2)
-            max_w = max(max_w, node_w, header_content_w, 150)
-        column_widths[rack_name] = max_w
+    pages_horz = int(diagram_width // DRAW_AREA_WIDTH) + 1
+    pages_vert = int(diagram_height // DRAW_AREA_HEIGHT) + 1
 
-    total_content_width = sum(column_widths.values()) + (COLUMN_SPACING * (len(racks) - 1))
-    
-    # --- Calculate Scale Factor ---
-    scale = DRAW_AREA_WIDTH / total_content_width if total_content_width > 0 else 1
-    scale = min(scale, 1.0) # Don't scale up
-
-    # --- Draw Title Block ---
-    c.saveState()
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(1)
-    c.rect(MARGIN, height - MARGIN - TITLE_BLOCK_HEIGHT, DRAW_AREA_WIDTH, TITLE_BLOCK_HEIGHT)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(MARGIN + 0.1 * inch, height - MARGIN - 0.3 * inch, payload.show_name)
-    c.setFont("Helvetica", 10)
-    c.drawRightString(width - MARGIN - 0.1 * inch, height - MARGIN - 0.3 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    c.restoreState()
-
-    # --- Draw Racks and Nodes ---
-    port_locations = {}
-    current_x = MARGIN
-    
-    for rack_name in sorted_rack_names:
-        nodes_in_rack = racks[rack_name]
-        rack_width = column_widths[rack_name] * scale
-        
-        # --- Find vertical bounds and scale for this column ---
-        min_y_rack = min(n.position.y for n in nodes_in_rack)
-        max_y_rack = max(n.position.y + n.height for n in nodes_in_rack)
-        rack_content_height = max_y_rack - min_y_rack
-        
-        scale_y_rack = DRAW_AREA_HEIGHT / rack_content_height if rack_content_height > 0 else 1
-        scale_y_rack = min(scale_y_rack, 1.0)
-
-        def ty_rack(y): return height - MARGIN - TITLE_BLOCK_HEIGHT - ((y - min_y_rack) * scale_y_rack)
-
-        for node in nodes_in_rack:
-            node_w = rack_width
-            
-            input_ports = [p for p in node.data.equipment_templates.ports if p.type == 'input']
-            output_ports = [p for p in node.data.equipment_templates.ports if p.type == 'output']
-            port_rows = max(len(input_ports), len(output_ports))
-            node_h = (25 + (port_rows * 15) + 5) * scale # Use the global scale for font consistency
-            
-            node_x = current_x
-            node_y = ty_rack(node.position.y) - node_h
-
-            # --- Draw Outer Title ---
-            c.setFont("Helvetica-Bold", 12 * scale)
-            c.setFillColor(colors.blue)
-            c.drawCentredString(node_x + node_w / 2, node_y + node_h + (10 * scale), node.data.label)
-
-            # --- Draw Main Node Block ---
+    for page_y in range(pages_vert):
+        for page_x in range(pages_horz):
             c.saveState()
-            path = c.beginPath()
-            path.roundRect(node_x, node_y, node_w, node_h, 4 * scale)
-            c.clipPath(path, stroke=1, fill=0)
-            c.setFillColor(colors.white)
-            c.rect(node_x, node_y, node_w, node_h, fill=1, stroke=0)
-
-            # --- Draw Header Row ---
-            header_h = 25 * scale
-            c.setFillColorRGB(80/255, 95/255, 122/255)
-            c.rect(node_x, node_y + node_h - header_h, node_w, header_h, fill=1, stroke=0)
             
-            # --- Draw Aligned Header Text ---
-            c.setFont("Helvetica-Bold", 8 * scale)
-            text_y = node_y + node_h - (15 * scale)
-            header_padding = 5 * scale
-            c.setFillColorRGB(24/255, 28/255, 37/255)
-            c.drawString(node_x + header_padding, text_y, node.data.equipment_templates.model_number)
-            if node.data.ip_address:
-                c.setFillColorRGB(64/255, 0/255, 128/255)
-                c.drawCentredString(node_x + node_w / 2, text_y, node.data.ip_address)
-            c.setFillColorRGB(192/255, 192/255, 192/255)
-            c.drawRightString(node_x + node_w - header_padding, text_y, f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
-
-            # --- Draw Port Columns ---
-            c.setFont("Helvetica", 8 * scale)
-            port_start_y = node_y + node_h - header_h - (15 * scale)
-            port_spacing = 15 * scale
-            port_locations[node.id] = {}
-
-            for i, port in enumerate(input_ports):
-                y = port_start_y - (i * port_spacing)
-                c.setFillColor(colors.black)
-                c.drawString(node_x + (10 * scale), y - (3*scale), f"{port.label} ({port.connector_type})")
-                draw_port_symbol(c, node_x, y, 'input', scale)
-                port_locations[node.id][f"port-in-{port.id}"] = (node_x, y)
-
-            for i, port in enumerate(output_ports):
-                y = port_start_y - (i * port_spacing)
-                c.setFillColor(colors.black)
-                c.drawRightString(node_x + node_w - (10 * scale), y - (3*scale), f"({port.connector_type}) {port.label}")
-                draw_port_symbol(c, node_x + node_w, y, 'output', scale)
-                port_locations[node.id][f"port-out-{port.id}"] = (node_x + node_w, y)
+            tx_offset = MARGIN - (page_x * DRAW_AREA_WIDTH) - (min_x * scale)
+            ty_offset = height - MARGIN - TITLE_BLOCK_HEIGHT + (page_y * DRAW_AREA_HEIGHT) + (min_y * scale)
+            c.translate(tx_offset, ty_offset)
 
             c.restoreState()
-        
-        current_x += rack_width + COLUMN_SPACING
+            c.saveState()
+            c.setStrokeColor(colors.black)
+            c.setLineWidth(1)
+            c.rect(MARGIN, height - MARGIN - TITLE_BLOCK_HEIGHT, DRAW_AREA_WIDTH, TITLE_BLOCK_HEIGHT)
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(MARGIN + 0.1 * inch, height - MARGIN - 0.3 * inch, f"{payload.show_name} (Page {page_y * pages_horz + page_x + 1}/{pages_horz * pages_vert})")
+            c.setFont("Helvetica", 10)
+            c.drawRightString(width - MARGIN - 0.1 * inch, height - MARGIN - 0.3 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            c.restoreState()
+            c.translate(tx_offset, ty_offset)
 
-    # --- Draw Edges ---
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(0.8 * scale)
-    for edge in payload.edges:
-        if edge.source in port_locations and edge.target in port_locations:
-            if edge.sourceHandle in port_locations[edge.source] and edge.targetHandle in port_locations[edge.target]:
-                start_x, start_y = port_locations[edge.source][edge.sourceHandle]
-                end_x, end_y = port_locations[edge.target][edge.targetHandle]
+            port_locations = {}
+            for node in payload.nodes:
+                # Use a fixed scale for node width calculation for consistency across pages
+                c.setFont("Helvetica-Bold", 8 * 0.75)
+                model_name_w = c.stringWidth(node.data.equipment_templates.model_number)
+                ip_addr_w = c.stringWidth(node.data.ip_address or "")
+                loc_w = c.stringWidth(f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
+                
+                c.setFont("Helvetica", 8 * 0.75)
+                input_ports = [p for p in node.data.equipment_templates.ports if p.type == 'input']
+                output_ports = [p for p in node.data.equipment_templates.ports if p.type == 'output']
+                max_input_w = max([c.stringWidth(f"{p.label} ({p.connector_type})") for p in input_ports] or [0])
+                max_output_w = max([c.stringWidth(f"({p.connector_type}) {p.label}") for p in output_ports] or [0])
+                
+                padding = 40 * 0.75
+                node_w = (max_input_w + max_output_w + padding)
+                header_content_w = model_name_w + ip_addr_w + loc_w + (padding * 2)
+                node_w = max(node_w, header_content_w, 150 * 0.75) * scale / 0.75
+
+                port_rows = max(len(input_ports), len(output_ports))
+                node_h = (25 + (port_rows * 15) + 5) * scale
+                
+                node_x = node.position.x * scale
+                node_y = -node.position.y * scale - node_h
+
+                c.setFont("Helvetica-Bold", 12 * scale)
+                c.setFillColor(colors.blue)
+                c.drawCentredString(node_x + node_w / 2, node_y + node_h + (10 * scale), node.data.label)
+
+                c.saveState()
                 path = c.beginPath()
-                path.moveTo(start_x, start_y)
-                control_offset = max(30 * scale, abs(start_x - end_x) * 0.3)
-                path.curveTo(start_x + control_offset, start_y, end_x - control_offset, end_y, end_x, end_y)
-                c.drawPath(path)
+                path.roundRect(node_x, node_y, node_w, node_h, 4 * scale)
+                c.clipPath(path, stroke=1, fill=0)
+                c.setFillColor(colors.white)
+                c.rect(node_x, node_y, node_w, node_h, fill=1, stroke=0)
 
-    c.showPage()
+                header_h = 25 * scale
+                c.setFillColorRGB(80/255, 95/255, 122/255)
+                c.rect(node_x, node_y + node_h - header_h, node_w, header_h, fill=1, stroke=0)
+                
+                c.setFont("Helvetica-Bold", 8 * scale)
+                text_y = node_y + node_h - (15 * scale)
+                header_padding = 5 * scale
+                c.setFillColorRGB(24/255, 28/255, 37/255)
+                c.drawString(node_x + header_padding, text_y, node.data.equipment_templates.model_number)
+                if node.data.ip_address:
+                    c.setFillColorRGB(64/255, 0/255, 128/255)
+                    c.drawCentredString(node_x + node_w / 2, text_y, node.data.ip_address)
+                c.setFillColorRGB(192/255, 192/255, 192/255)
+                c.drawRightString(node_x + node_w - header_padding, text_y, f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
+
+                c.setFont("Helvetica", 8 * scale)
+                port_start_y = node_y + node_h - header_h - (15 * scale)
+                port_spacing = 15 * scale
+                port_locations[node.id] = {}
+                for i, port in enumerate(input_ports):
+                    y = port_start_y - (i * port_spacing)
+                    c.setFillColor(colors.black)
+                    c.drawString(node_x + (15 * scale), y - (3*scale), f"{port.label} ({port.connector_type})")
+                    draw_port_symbol(c, node_x + (5*scale), y, 'input', scale)
+                    port_locations[node.id][f"port-in-{port.id}"] = (node_x, y)
+                for i, port in enumerate(output_ports):
+                    y = port_start_y - (i * port_spacing)
+                    c.setFillColor(colors.black)
+                    c.drawRightString(node_x + node_w - (15 * scale), y - (3*scale), f"({port.connector_type}) {port.label}")
+                    draw_port_symbol(c, node_x + node_w - (5*scale), y, 'output', scale)
+                    port_locations[node.id][f"port-out-{port.id}"] = (node_x + node_w, y)
+                c.restoreState()
+
+            c.setStrokeColor(colors.black)
+            c.setLineWidth(0.8 * scale)
+            for edge in payload.edges:
+                if edge.source in port_locations and edge.target in port_locations:
+                    if edge.sourceHandle in port_locations[edge.source] and edge.targetHandle in port_locations[edge.target]:
+                        start_x, start_y = port_locations[edge.source][edge.sourceHandle]
+                        end_x, end_y = port_locations[edge.target][edge.targetHandle]
+                        path = c.beginPath()
+                        path.moveTo(start_x, start_y)
+                        mid_x = start_x + (end_x - start_x) / 2
+                        path.lineTo(mid_x, start_y)
+                        path.lineTo(mid_x, end_y)
+                        path.lineTo(end_x, end_y)
+                        c.drawPath(path)
+            
+            c.showPage()
+
     c.save()
     buffer.seek(0)
     return buffer

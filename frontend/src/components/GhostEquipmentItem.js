@@ -15,7 +15,7 @@ const GhostEquipmentItem = ({ item, ru, side, rackHeight }) => {
     const bottomPosition = (ru - 1) * 25;
     const itemHeight = (template.ru_height || 1) * 25;
     const widthClass = isHalfWidth ? 'w-1/2' : 'w-full';
-    const positionClass = side && side.endsWith('-right') ? 'left-1/2' : 'left-0';
+    const positionClass = isHalfWidth && side && side.endsWith('-right') ? 'left-1/2' : 'left-0';
 
     return (
         <div

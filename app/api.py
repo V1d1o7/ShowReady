@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from gotrue.errors import AuthApiError
 import io
+import traceback
 from pydantic import BaseModel
 import uuid
 
@@ -419,23 +420,27 @@ async def add_equipment_to_rack(
 
         # Check for vertical overlap
         if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
-            # If there is vertical overlap, we need to check widths and sides
-            existing_is_full_width = existing_template['width'] != 'half'
-            
-            # Case 1: If either item is full-width, it's a guaranteed collision
-            if new_item_is_full_width or existing_is_full_width:
-                raise HTTPException(
-                    status_code=409, 
-                    detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
-                )
-
-            # Case 2: Both items are half-width. Collision only if they are on the same side.
+            new_item_face = new_item_side.split('-')[0]
             existing_side = existing_item['rack_side']
-            if new_item_side == existing_side:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
-                )
+            existing_face = existing_side.split('-')[0]
+
+            # Only check for collision if they are on the same face of the rack
+            if new_item_face == existing_face:
+                existing_is_full_width = existing_template['width'] != 'half'
+                
+                # Case 1: If either item is full-width, it's a guaranteed collision on the same face
+                if new_item_is_full_width or existing_is_full_width:
+                    raise HTTPException(
+                        status_code=409, 
+                        detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                    )
+
+                # Case 2: Both items are half-width. Collision only if they are on the same side.
+                if new_item_side == existing_side:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
+                    )
 
     prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
     base_name = prefix if prefix else template['model_number']
@@ -510,20 +515,24 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
                 existing_end = existing_start + existing_template['ru_height'] - 1
 
                 if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
-                    existing_is_full_width = existing_template['width'] != 'half'
-                    
-                    if new_item_is_full_width or existing_is_full_width:
-                        raise HTTPException(
-                            status_code=409, 
-                            detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
-                        )
-
+                    new_item_face = new_item_side.split('-')[0]
                     existing_side = existing_item['rack_side']
-                    if new_item_side == existing_side:
-                        raise HTTPException(
-                            status_code=409,
-                            detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
-                        )
+                    existing_face = existing_side.split('-')[0]
+
+                    if new_item_face == existing_face:
+                        existing_is_full_width = existing_template['width'] != 'half'
+                        
+                        if new_item_is_full_width or existing_is_full_width:
+                            raise HTTPException(
+                                status_code=409, 
+                                detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                            )
+
+                        if new_item_side == existing_side:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
+                            )
 
     except Exception as e:
         if isinstance(e, HTTPException):
@@ -806,9 +815,8 @@ async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends
         pdf_buffer = generate_wire_diagram_pdf(payload)
         return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
     except Exception as e:
-        # Log the exception for debugging
         print(f"Error generating wire diagram PDF: {e}")
-        # Return a meaningful error to the client
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
 @router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])

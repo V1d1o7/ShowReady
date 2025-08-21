@@ -44,11 +44,6 @@ const RackComponent = ({
         const x = e.clientX - rackBody.left;
         const isRightSide = x > rackBody.width / 2;
 
-        if (isFullWidth && isRightSide) {
-            if (dragOverData) onDragOverRack(null);
-            return;
-        }
-
         const y = e.clientY - rackBody.top;
         const itemHeightInRUs = template.ru_height || 1;
         const ruOffset = Math.floor(itemHeightInRUs / 2);
