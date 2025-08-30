@@ -712,6 +712,26 @@ async def create_connection(connection_data: ConnectionCreate, user = Depends(ge
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/shows/{show_name}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstance])
+async def get_unassigned_equipment(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all equipment for a show that has not been assigned to a wire diagram page."""
+    try:
+        # First, get all racks for the given show and user
+        racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+        if not racks_res.data:
+            return [] # No racks for this show, so no equipment
+
+        rack_ids = [rack['id'] for rack in racks_res.data]
+
+        # Now, get all equipment instances from those racks where page_number is null
+        # Eager load the template data as well, as the frontend will need it
+        equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).is_('page_number', None).execute()
+        
+        return equipment_res.data if equipment_res.data else []
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch unassigned equipment: {str(e)}")
+
 @router.get("/connections/{show_name}", tags=["Wire Diagram"])
 async def get_connections_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all connections for a specific show."""

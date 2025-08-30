@@ -165,6 +165,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
         body: JSON.stringify({ template_rack_id: rackId, show_name: showName }),
     }).then(handleResponse),
+    getUnassignedEquipment: async (showName) => fetch(`/api/shows/${showName}/unassigned_equipment`, { headers: await getAuthHeader() }).then(handleResponse),
     generateWireDiagramPdf: async (payload) => fetch('/api/pdf/wire-diagram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },

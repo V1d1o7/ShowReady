@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactFlow, {
     useNodesState,
     useEdgesState,
@@ -7,13 +7,14 @@ import ReactFlow, {
     useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Download } from 'lucide-react';
+import { Download, Plus } from 'lucide-react';
 import dagre from 'dagre';
 
 import { api } from '../api/api';
 import DeviceNode from '../components/DeviceNode';
 import CustomEdge from '../components/CustomEdge';
 import WireDiagramPdfModal from '../components/WireDiagramPdfModal';
+import LibrarySidebar from '../components/LibrarySidebar';
 import { ReactFlowProvider } from 'reactflow';
 import { useShow } from '../contexts/ShowContext';
 
@@ -57,12 +58,16 @@ const edgeTypes = {
 
 const WireDiagramView = () => {
     const { showName } = useShow();
+    const reactFlowWrapper = useRef(null);
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
-    const { getNodes, getEdges } = useReactFlow();
+    const { getNodes, getEdges, screenToFlowPosition } = useReactFlow();
+    const [activeTab, setActiveTab] = useState(1);
+    const [numTabs, setNumTabs] = useState(1);
+    const [sidebarKey, setSidebarKey] = useState(Date.now());
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -79,27 +84,46 @@ const WireDiagramView = () => {
             const connectionsData = await api.getConnectionsForShow(showName);
             const connections = connectionsData.connections || [];
 
-            const initialNodes = allEquipment.map((item, index) => ({
+            const maxPage = allEquipment.reduce((max, eq) => Math.max(max, eq.page_number || 1), 1);
+            setNumTabs(prev => Math.max(prev, maxPage));
+
+            const placedEquipment = allEquipment.filter(eq => eq.page_number);
+
+            const initialNodes = placedEquipment.map((item) => ({
                 id: item.id.toString(),
                 type: 'device',
                 position: { x: item.x_pos || 0, y: item.y_pos || 0 },
                 data: { ...item, label: item.instance_name },
+                // The visibility is now controlled by a separate useEffect
             }));
             
             setNodes(initialNodes);
 
-            const initialEdges = connections.map(conn => ({
-                id: `e-${conn.source_device_id}-${conn.source_port_id}-${conn.destination_device_id}-${conn.destination_port_id}`,
-                type: 'custom',
-                source: conn.source_device_id.toString(),
-                target: conn.destination_device_id.toString(),
-                sourceHandle: `port-out-${conn.source_port_id}`,
-                targetHandle: `port-in-${conn.destination_port_id}`,
-                animated: true,
-                style: { strokeWidth: 2, stroke: '#f59e0b' },
-                data: { label: conn.cable_type || '' },
-                markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
-            }));
+            const nodePageMap = new Map(placedEquipment.map(eq => [eq.id.toString(), eq.page_number]));
+
+            const initialEdges = connections.map(conn => {
+                const sourcePage = nodePageMap.get(conn.source_device_id.toString());
+                const targetPage = nodePageMap.get(conn.destination_device_id.toString());
+                const isCrossPage = sourcePage !== targetPage;
+
+                return {
+                    id: `e-${conn.source_device_id}-${conn.source_port_id}-${conn.destination_device_id}-${conn.destination_port_id}`,
+                    type: 'custom',
+                    source: conn.source_device_id.toString(),
+                    target: conn.destination_device_id.toString(),
+                    sourceHandle: `port-out-${conn.source_port_id}`,
+                    targetHandle: `port-in-${conn.destination_port_id}`,
+                    animated: true,
+                    style: { strokeWidth: 2, stroke: isCrossPage ? '#888' : '#f59e0b' },
+                    data: { 
+                        label: conn.cable_type || '',
+                        isCrossPage,
+                        sourcePage,
+                        targetPage,
+                    },
+                    markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
+                };
+            });
             setEdges(initialEdges);
 
         } catch (err) {
@@ -111,8 +135,25 @@ const WireDiagramView = () => {
     }, [showName, setNodes, setEdges]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        if (showName) {
+            fetchData();
+        }
+    }, [showName]);
+
+    useEffect(() => {
+        setNodes(nds =>
+            nds.map(n => ({
+                ...n,
+                hidden: n.data.page_number !== activeTab,
+            }))
+        );
+        setEdges(eds =>
+            eds.map(e => ({
+                ...e,
+                hidden: e.data.sourcePage !== activeTab,
+            }))
+        );
+    }, [activeTab, setNodes, setEdges]);
 
     const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
@@ -163,6 +204,8 @@ const WireDiagramView = () => {
 
     const onNodeDragStop = useCallback(async (event, node) => {
         try {
+            // When a node is dragged on the canvas, we only update its position.
+            // The page number does not change.
             await api.updateEquipmentInstance(node.id, {
                 x_pos: Math.round(node.position.x),
                 y_pos: Math.round(node.position.y),
@@ -171,6 +214,49 @@ const WireDiagramView = () => {
             console.error("Failed to save node position:", err);
         }
     }, []);
+
+    const onDragOver = useCallback((event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+    }, []);
+
+    const onDrop = useCallback(async (event) => {
+        event.preventDefault();
+
+        const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
+        const equipmentData = JSON.parse(event.dataTransfer.getData('application/reactflow'));
+
+        if (typeof equipmentData === 'undefined' || !equipmentData) {
+            return;
+        }
+
+        const position = screenToFlowPosition({
+            x: event.clientX - reactFlowBounds.left,
+            y: event.clientY - reactFlowBounds.top,
+        });
+
+        const newNode = {
+            id: equipmentData.id.toString(),
+            type: 'device',
+            position,
+            data: { ...equipmentData, label: equipmentData.instance_name, page_number: activeTab },
+            hidden: false,
+        };
+
+        try {
+            await api.updateEquipmentInstance(equipmentData.id, {
+                x_pos: Math.round(position.x),
+                y_pos: Math.round(position.y),
+                page_number: activeTab,
+            });
+
+            setNodes((nds) => nds.concat(newNode));
+            setSidebarKey(Date.now()); // Force sidebar to refetch its data
+        } catch (err) {
+            console.error("Failed to place new equipment:", err);
+            alert(`Error placing equipment: ${err.message}`);
+        }
+    }, [activeTab, screenToFlowPosition, setNodes]);
 
     const onLayout = useCallback(() => {
         const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(getNodes(), getEdges());
@@ -188,28 +274,41 @@ const WireDiagramView = () => {
         const nodes = getNodes();
         const edges = getEdges();
 
+        const nodesOnPages = Array.from({ length: numTabs }, (_, i) =>
+            nodes.filter(n => n.data.page_number === i + 1)
+        );
+
         const payload = {
-            nodes: nodes.map(n => ({
-                id: n.id,
-                position: n.position,
-                width: n.width,
-                height: n.height,
-                data: {
-                    label: n.data.label,
-                    ip_address: n.data.ip_address,
-                    rack_name: n.data.rack_name,
-                    ru_position: n.data.ru_position,
-                    equipment_templates: n.data.equipment_templates,
-                }
-            })),
-            edges: edges.map(e => ({
-                id: e.id,
-                source: e.source,
-                target: e.target,
-                sourceHandle: e.sourceHandle,
-                targetHandle: e.targetHandle,
-                label: e.label,
-            })),
+            pages: nodesOnPages.map((pageNodes, i) => {
+                const nodeIds = new Set(pageNodes.map(n => n.id));
+                const pageEdges = edges.filter(e => nodeIds.has(e.source) || nodeIds.has(e.target));
+                
+                return {
+                    page_number: i + 1,
+                    nodes: pageNodes.map(n => ({
+                        id: n.id,
+                        position: n.position,
+                        width: n.width,
+                        height: n.height,
+                        data: {
+                            label: n.data.label,
+                            ip_address: n.data.ip_address,
+                            rack_name: n.data.rack_name,
+                            ru_position: n.data.ru_position,
+                            equipment_templates: n.data.equipment_templates,
+                        }
+                    })),
+                    edges: pageEdges.map(e => ({
+                        id: e.id,
+                        source: e.source,
+                        target: e.target,
+                        sourceHandle: e.sourceHandle,
+                        targetHandle: e.targetHandle,
+                        label: e.data.label,
+                        data: e.data,
+                    })),
+                };
+            }),
             page_size: pageSize,
             show_name: showName,
         };
@@ -236,33 +335,64 @@ const WireDiagramView = () => {
     if (error) return <div className="p-8 text-center text-red-400">Error: {error}</div>;
 
     return (
-        <div className="h-[calc(100vh-220px)] w-full rounded-xl bg-gray-800/50 relative" data-testid="wire-diagram-view">
-            <div className="absolute top-4 right-4 z-10 flex gap-2">
-                <button onClick={onLayout} className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg">
-                    Auto-Arrange
-                </button>
-                <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black shadow-lg">
-                    <Download size={16} />
-                    Generate PDF
-                </button>
+        <div className="h-[calc(100vh-220px)] w-full flex flex-row rounded-xl bg-gray-800/50" data-testid="wire-diagram-view">
+            <LibrarySidebar key={sidebarKey} />
+            <div className="flex-grow flex flex-col">
+                <div className="flex-shrink-0 flex items-center justify-between p-2 border-b border-gray-700">
+                    <div className="flex items-center gap-1">
+                        {Array.from({ length: numTabs }, (_, i) => i + 1).map(page => (
+                            <button
+                                key={page}
+                                onClick={() => setActiveTab(page)}
+                                className={`px-4 py-2 text-sm rounded-md font-semibold transition-colors ${
+                                    activeTab === page
+                                        ? 'bg-amber-500 text-black'
+                                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                                }`}
+                            >
+                                Page {page}
+                            </button>
+                        ))}
+                        <button
+                            onClick={() => setNumTabs(n => n + 1)}
+                            className="p-2 bg-gray-700 text-gray-300 hover:bg-gray-600 rounded-md"
+                            title="Add new page"
+                        >
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                    <div className="flex gap-2">
+                        <button onClick={onLayout} className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg">
+                            Auto-Arrange
+                        </button>
+                        <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black shadow-lg">
+                            <Download size={16} />
+                            Generate PDF
+                        </button>
+                    </div>
+                </div>
+                <WireDiagramPdfModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} onGenerate={handleGeneratePdf} />
+                <div className="flex-grow relative" ref={reactFlowWrapper}>
+                    <ReactFlow
+                        nodes={nodes}
+                        edges={edges}
+                        onNodesChange={onNodesChange}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={onConnect}
+                        onNodeDragStop={onNodeDragStop}
+                        onDrop={onDrop}
+                        onDragOver={onDragOver}
+                        nodeTypes={nodeTypes}
+                        edgeTypes={edgeTypes}
+                        fitView
+                        className="bg-gray-900"
+                        proOptions={{ hideAttribution: true }}
+                    >
+                        <Controls />
+                        <Background variant="dots" gap={12} size={1} />
+                    </ReactFlow>
+                </div>
             </div>
-            <WireDiagramPdfModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} onGenerate={handleGeneratePdf} />
-            <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
-                onNodeDragStop={onNodeDragStop}
-                nodeTypes={nodeTypes}
-                edgeTypes={edgeTypes}
-                fitView
-                className="bg-gray-900"
-                proOptions={{ hideAttribution: true }}
-            >
-                <Controls />
-                <Background variant="dots" gap={12} size={1} />
-            </ReactFlow>
         </div>
     );
 };

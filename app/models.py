@@ -107,6 +107,7 @@ class RackEquipmentInstance(BaseModel):
     ip_address: Optional[str] = None
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
+    page_number: Optional[int] = 1
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
@@ -131,6 +132,7 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     ip_address: Optional[str] = None
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
+    page_number: Optional[int] = 1
     equipment_templates: Optional[EquipmentTemplate] = None
 
 class Rack(BaseModel):
@@ -258,9 +260,14 @@ class PDFEdge(BaseModel):
     sourceHandle: str
     targetHandle: str
     label: Optional[str] = None
+    data: Optional[Dict] = None
 
-class WireDiagramPDFPayload(BaseModel):
+class PDFPage(BaseModel):
+    page_number: int
     nodes: List[PDFNode]
     edges: List[PDFEdge]
+
+class WireDiagramPDFPayload(BaseModel):
+    pages: List[PDFPage]
     page_size: str = "letter"
     show_name: str
