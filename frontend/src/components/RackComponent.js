@@ -1,133 +1,124 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import PlacedEquipmentItem from './PlacedEquipmentItem';
+import GhostEquipmentItem from './GhostEquipmentItem';
 
-const RackComponent = ({ rack, onDrop, onDelete, onDragStart, draggedItem }) => {
-    const [dragOverInfo, setDragOverInfo] = useState(null); // { ru, side }
+const RackBackgroundGrid = ({ height }) => {
+    const rus = Array.from({ length: height }, (_, i) => i);
+    return (
+        <div className="absolute inset-0 pointer-events-none">
+            {rus.map(ru => (
+                <div key={ru} className="h-[25px] border-b border-dashed border-gray-700" />
+            ))}
+        </div>
+    );
+};
 
-    // Create a map of occupied slots for quick lookup: "RU-SIDE" -> true
-    const occupiedSlots = useMemo(() => {
-        const slots = new Map();
-        (rack.equipment || []).forEach(item => {
-            const template = item.equipment_templates || {};
-            const height = template.ru_height || 1;
-            for (let i = 0; i < height; i++) {
-                const currentRu = item.ru_position + i;
-                if (template.width === 'full') {
-                    slots.set(`${currentRu}-left`, item.id);
-                    slots.set(`${currentRu}-right`, item.id);
-                } else if (item.rack_side) {
-                    slots.set(`${currentRu}-${item.rack_side}`, item.id);
-                }
-            }
-        });
-        return slots;
-    }, [rack.equipment]);
+const RackComponent = ({
+    rack,
+    view,
+    onDrop,
+    onDelete,
+    onDragStart,
+    draggedItem,
+    dragOverData,
+    onDragOverRack,
+}) => {
+    const equipmentInView = useMemo(() =>
+        (rack.equipment || []).filter(item => item.rack_side.startsWith(view)),
+        [rack.equipment, view]
+    );
 
-    const isOccupied = (startRu, endRu, side, excludeId) => {
-        for (let ru = startRu; ru <= endRu; ru++) {
-            const occupantId = occupiedSlots.get(`${ru}-${side}`);
-            if (occupantId && occupantId !== excludeId) {
-                return true;
-            }
-        }
-        return false;
-    };
+    const rackBodyHeight = rack.ru_height * 25;
 
-    const handleDragOver = (e, ru, side) => {
+    const handleDragOver = (e) => {
         e.preventDefault();
-        if (draggedItem) {
-            setDragOverInfo({ ru, side });
-        }
+        if (!draggedItem) return;
+
+        const rackBody = e.currentTarget.getBoundingClientRect();
+        const template = draggedItem.isNew ? draggedItem.item : draggedItem.item.equipment_templates;
+        
+        if (!template) return;
+
+        const isFullWidth = template.width !== 'half';
+
+        const x = e.clientX - rackBody.left;
+        const isRightSide = x > rackBody.width / 2;
+
+        const y = e.clientY - rackBody.top;
+        const itemHeightInRUs = template.ru_height || 1;
+        const ruOffset = Math.floor(itemHeightInRUs / 2);
+        const calculatedRu = rack.ru_height - Math.floor(y / 25) - ruOffset;
+        
+        const side = `${view}${isRightSide ? '-right' : '-left'}`;
+
+        onDragOverRack({ rackId: rack.id, ru: calculatedRu, side });
     };
 
-    const handleDrop = (e, ru, side) => {
-        e.preventDefault();
-        const data = JSON.parse(e.dataTransfer.getData('application/json'));
-        const item = data.item;
-        const template = item.equipment_templates || item;
-        const itemHeight = template.ru_height || 1;
-        const dropPosition = ru - itemHeight + 1;
-        
-        if (dropPosition < 1) {
-             console.error("Drop failed: Item too tall for this position.");
-        } else {
-            onDrop(data, dropPosition, side);
-        }
-        
-        setDragOverInfo(null);
+    const handleDragLeave = () => {
+        onDragOverRack(null);
     };
 
-    const getHighlightStyle = () => {
-        if (!dragOverInfo || !draggedItem) return { display: 'none' };
-
-        const { ru, side } = dragOverInfo;
-        const item = draggedItem.item;
-        const template = item.equipment_templates || item;
-
-        const itemHeight = template.ru_height || 1;
-        const isHalf = template.width === 'half';
-        const dropPosition = ru - itemHeight + 1;
-
-        if (dropPosition < 1) return { display: 'none' };
-
-        let isInvalid = false;
-        if (isHalf) {
-            if (isOccupied(dropPosition, ru, side, draggedItem.isNew ? null : item.id)) {
-                isInvalid = true;
-            }
-        } else { // Full width item
-            if (isOccupied(dropPosition, ru, 'left', draggedItem.isNew ? null : item.id) || 
-                isOccupied(dropPosition, ru, 'right', draggedItem.isNew ? null : item.id)) {
-                isInvalid = true;
-            }
+    const renderRuColumn = () => {
+        const rus = [];
+        for (let i = rack.ru_height; i >= 1; i--) {
+            rus.push(
+                <div key={i} className="flex h-[25px] flex-shrink-0 items-center justify-center text-xs text-gray-500">
+                    {i}
+                </div>
+            );
         }
-
-        return {
-            display: 'block',
-            position: 'absolute',
-            left: isHalf && side === 'right' ? '50%' : '0',
-            width: isHalf ? '50%' : '100%',
-            bottom: `${(dropPosition - 1) * 1.5}rem`,
-            height: `${itemHeight * 1.5}rem`,
-            backgroundColor: isInvalid ? 'rgba(239, 68, 68, 0.8)' : 'rgba(59, 130, 246, 0.8)',
-            border: `1px dashed ${isInvalid ? '#EF4444' : '#3B82F6'}`,
-            zIndex: 10,
-        };
+        return rus;
     };
 
     return (
-        <div className="w-full bg-gray-900/50 p-4 rounded-lg flex gap-4">
-            {/* RU Labels */}
-            <div className="flex flex-col-reverse justify-end">
-                {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-right pr-2 select-none">{i + 1}</div>)}
-            </div>
-
-            <div className="flex-grow border-2 border-gray-600 rounded-md relative" onDragLeave={() => setDragOverInfo(null)}>
-                {/* Drop Zones */}
-                {Array.from({ length: rack.ru_height }, (_, i) => {
-                    const ru = rack.ru_height - i;
-                    return (
-                        <div key={ru} className="h-6 border-b border-gray-700/50 flex">
-                            <div className="w-1/2 h-full" onDragOver={(e) => handleDragOver(e, ru, 'left')} onDrop={(e) => handleDrop(e, ru, 'left')} />
-                            <div className="w-1/2 h-full border-l border-dashed border-gray-800" onDragOver={(e) => handleDragOver(e, ru, 'right')} onDrop={(e) => handleDrop(e, ru, 'right')} />
-                        </div>
-                    );
-                })}
-
-                {/* Placed Equipment */}
-                <div className="absolute inset-0 pointer-events-none">
-                    {(rack.equipment || []).map(item => (
-                        <div key={item.id} className="pointer-events-auto">
-                            <PlacedEquipmentItem item={item} onDragStart={onDragStart} onDelete={onDelete} />
-                        </div>
-                    ))}
-                    <div style={getHighlightStyle()} />
-                </div>
+        <div className="w-[350px] flex-shrink-0 flex flex-col" style={{ borderCollapse: 'collapse' }}>
+            <div className="bg-gray-800 rounded-t-lg p-4">
+                <h3 className="text-lg font-bold text-center text-white capitalize">{rack.rack_name} - {view} View</h3>
             </div>
             
-            {/* RU Labels */}
-            <div className="flex flex-col-reverse justify-end">
-                {Array.from({ length: rack.ru_height }, (_, i) => <div key={i} className="h-6 text-xs text-gray-500 text-left pl-2 select-none">{i + 1}</div>)}
+            <div className="relative flex-grow" style={{ minHeight: `${rackBodyHeight}px` }}>
+                <div className="absolute inset-0 rounded-b-lg flex overflow-hidden border border-gray-700">
+                    {/* Left RU Column */}
+                    <div className="w-8 border-r border-gray-700 flex flex-col bg-gray-900">
+                        {renderRuColumn()}
+                    </div>
+                    
+                    {/* The single, intelligent drop zone */}
+                    <div 
+                        className="relative flex-grow bg-gray-900"
+                        onDragOver={handleDragOver}
+                        onDrop={onDrop}
+                        onDragLeave={handleDragLeave}
+                    >
+                        {/* Render the visual background grid to restore the original look */}
+                        <RackBackgroundGrid height={rack.ru_height} />
+                        
+                        {/* Render Placed Equipment */}
+                        {equipmentInView.map(item => (
+                            <PlacedEquipmentItem
+                                key={item.id}
+                                item={item}
+                                onDelete={onDelete}
+                                onDragStart={onDragStart}
+                            />
+                        ))}
+                        
+                        {/* Render Ghost item when dragging over THIS specific rack */}
+                        {draggedItem && dragOverData && dragOverData.rackId === rack.id && dragOverData.side.startsWith(view) && (
+                            <GhostEquipmentItem 
+                                item={draggedItem}
+                                ru={dragOverData.ru}
+                                side={dragOverData.side}
+                                rackHeight={rack.ru_height}
+                            />
+                        )}
+                    </div>
+
+                    {/* Right RU Column */}
+                    <div className="w-8 border-l border-gray-700 flex flex-col bg-gray-900">
+                        {renderRuColumn()}
+                    </div>
+                </div>
             </div>
         </div>
     );

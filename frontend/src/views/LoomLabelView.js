@@ -1,5 +1,6 @@
 import React from 'react';
 import LabelManagerView from '../components/LabelManagerView';
+import { useShow } from '../contexts/ShowContext';
 
 const loomLabelFields = [
     { name: 'loom_name', label: 'Loom Name', type: 'text' },
@@ -8,14 +9,17 @@ const loomLabelFields = [
     { name: 'destination', label: 'Destination', type: 'text' }
 ];
 
-const LoomLabelView = ({ showData, onSave }) => (
-    <LabelManagerView 
-        sheetType="loom_sheets" 
-        pdfType="loom" 
-        showData={showData} 
-        onSave={onSave} 
-        labelFields={loomLabelFields} 
-    />
-);
+const LoomLabelView = () => {
+    const { showData, onSave } = useShow();
+    return (
+        <LabelManagerView 
+            sheetType="loom_sheets" 
+            pdfType="loom" 
+            showData={showData} 
+            onSave={onSave} 
+            labelFields={loomLabelFields} 
+        />
+    );
+};
 
 export default LoomLabelView;

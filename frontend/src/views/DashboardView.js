@@ -3,7 +3,7 @@ import { Plus, LogOut } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import ShowCard from '../components/ShowCard';
 
-const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading, user, onNavigate }) => {
+const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading, user }) => {
     const [profile, setProfile] = useState(null);
     const [profileLoading, setProfileLoading] = useState(true);
 
@@ -33,14 +33,12 @@ const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading
     }, [profile, user.email, profileLoading]);
 
     return (
-        <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+        <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
             <header className="flex items-center justify-between pb-8 border-b border-gray-700">
                 <div className="flex items-center gap-3">
-                    <img src={process.env.PUBLIC_URL + '/logo.png'} alt="ShowReady Logo" className="h-10 w-10" />
-                    <h1 className="text-3xl font-bold text-white">ShowReady</h1>
+                    <h1 className="text-3xl font-bold text-white">All Shows</h1>
                 </div>
                 <div className="flex items-center gap-4">
-                    <button onClick={() => onNavigate('account')} className="text-sm text-gray-400 hidden sm:block hover:text-white">{displayName}</button>
                     <button onClick={handleSignOut} className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors">
                         <LogOut size={18} />
                     </button>

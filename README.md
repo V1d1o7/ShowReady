@@ -1,87 +1,122 @@
-Production Label Suite (PVPy)
-=============================
+# ShowReady: Production Label Suite
 
-A comprehensive desktop application designed for the theatre and live production industry to create, manage, and print professional loom and case labels. Built with Python and a modern GUI, this tool streamlines the process of organizing and identifying equipment for any show.
+A comprehensive desktop application designed for the theatre and live production industry to create, manage, and print professional loom and case labels. Built with Python, FastAPI, and a modern React frontend, this tool streamlines the process of organizing and identifying equipment for any show.
 
-<img width="1920" height="1040" alt="Main Window" src="https://github.com/user-attachments/assets/2115605a-4f32-4e59-aee4-53660868afbf" />
+### Features
 
+* **Dual Label Editors**: Separate, purpose-built interfaces for creating both small-format loom labels and large-format case labels. The logic for generating these PDFs is handled by `app/pdf_utils.py`.
 
-Features
---------
+* **Show Manager**: A centralized system to manage different shows. Each show can have its own logo and contact information, as seen in `frontend/src/views/DashboardView.js` and `frontend/src/views/ShowInfoView.js`.
 
--   **Dual Label Editors**: Separate, purpose-built interfaces for creating both small-format loom labels and large-format case labels.
+* **Saved Label Sheets**: Save and load entire lists of loom or case labels. This is perfect for quickly reprinting common sets of labels without re-entering data.
 
--   **Show Manager**: A centralized system to manage different shows. Each show can have its own default logo and contact information, making it easy to switch between productions.
+* **Advanced Print Placement**: For printing corrections or one-off labels, a visual interface allows you to place labels in specific slots on a physical sheet, preventing waste. This is implemented in `frontend/src/components/AdvancedPrintModal.js` and `frontend/src/components/LabelManagerView.js`.
 
--   **Saved Label Sheets**: Save and load entire lists of loom or case labels. Perfect for quickly reprinting common sets of labels without re-entering data.
+* **Rack Builder**: A drag-and-drop interface for building virtual AV racks with a library of default and custom equipment templates. The core functionality is in `frontend/src/views/RackBuilderView.js` and `frontend/src/components/RackComponent.js`.
 
--   **Advanced Print Placement**: For printing corrections or one-off labels, a visual interface allows you to place labels in specific slots on a physical sheet, preventing waste.
+* **Admin Panel**: A restricted view for administrators to manage the default equipment library by creating, updating, and deleting folders and equipment templates. See `frontend/src/views/AdminView.js` and `app/api.py` for API routes.
 
--   **Modern Interface**: Built with a clean, dark-themed GUI that is easy to navigate.
+* **Modern Interface**: Built with a clean, dark-themed GUI that is easy to navigate using the styles in `frontend/src/index.css`.
 
--   **Flexible Data Import/Export**: Import and export label lists as CSV files to integrate with other software and workflows.
+* **Flexible Data Import/Export**: Import and export label lists as CSV files to integrate with other software and workflows.
 
-Installation
-------------
+* **Supabase Integration**: The backend uses Supabase for user authentication, SSO setup, and data management for shows and equipment libraries, as configured in `app/api.py`.
 
-This application is built with Python and requires a few external libraries.
+### Installation
 
-### 1\. Clone the Repository
+This application is built with Python and a React frontend, requiring a few external libraries. You will also need a Supabase project for the database and authentication.
+
+#### 1. Clone the Repository
 
 First, clone this repository to your local machine using Git. Open your terminal or command prompt and run:
 
 ```
-git clone https://github.com/V1d1o7/PVPy.git
-cd PVPy
+git clone [https://github.com/V1d1o7/ShowReady.git](https://github.com/V1d1o7/ShowReady.git)
+cd ShowReady
 
 ```
 
-### 2\. Prerequisites
+#### 2. Environment Variables
 
--   Ensure you have Python 3 installed on your system. You can download it from [python.org](https://www.python.org/).
+You need to create two `.env` files. The `.gitignore` file in the root directory ensures these files are not committed to Git.
 
-### 3\. Install Required Libraries
+**Backend `.env` File**
 
-Once you are inside the project folder in your terminal, run the following command to install all the necessary packages at once:
-
-```
-pip install customtkinter Pillow reportlab tkinterdnd2
+Create a file named `.env` in the **root directory** of the project with the following content:
 
 ```
+# Supabase connection details
+SUPABASE_URL="<your_supabase_project_url>"
+SUPABASE_KEY="<your_supabase_service_role_key>"
 
-Usage
------
+# Optional Supabase auth secrets (if enabled in config.toml)
+OPENAI_API_KEY="<your_openai_api_key>"
+S3_HOST="<your_s3_host>"
+S3_REGION="<your_s3_region>"
+S3_ACCESS_KEY="<your_s3_access_key>"
+S3_SECRET_KEY="<your_s3_secret_key>"
+SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN="<your_twilio_auth_token>"
+SUPABASE_AUTH_EXTERNAL_APPLE_SECRET="<your_apple_secret>"
 
-1.  **Launch the Application**: With your terminal still in the project folder, run the main application script:
+```
 
-    ```
-    python main_app.py
+**Frontend `.env` File**
 
-    ```
+Create a file named `.env` in the `frontend/` directory of the project with the following content:
 
-2.  **Navigate**: Use the sidebar on the left to switch between the **Loom Labels**, **Case Labels**, and **Show Manager** sections.
+```
+# Public keys for the React frontend
+REACT_APP_SUPABASE_URL="<your_supabase_project_url>"
+REACT_APP_SUPABASE_ANON_KEY="<your_supabase_anon_key>"
 
-3.  **Manage Shows**: It's recommended to start in the **Show Manager**. Here you can create a profile for your show and set a default logo. Make sure to set your show as "Active".
+```
 
-4.  **Create Labels**: Navigate to the appropriate label editor. The Case Labeler will automatically load the logo from your active show.
+#### 3. Backend Prerequisites
 
-5.  **Print**: Use the "Generate PDF" button for full, sequential sheets, or the "Advanced Print" button to place labels in specific slots for correction prints.
+Ensure you have Python 3 installed. From the project root directory, install the Python dependencies:
+
+```
+pip install -r requirements.txt
+
+```
+
+#### 4. Frontend Prerequisites
+
+Navigate to the `frontend/` directory and install the Node.js dependencies:
+
+```
+npm install
+
+```
+
+### Usage
+
+1. **Launch the Application**: In one terminal, start the Python backend from the project root:
+
+   ```
+   uvicorn app.main:app --reload
+   
+   ```
+
+   In a second terminal, start the React frontend from the `frontend/` directory:
+
+   ```
+   npm start
+   
+   ```
+
+2. **Navigate**: Use the sidebar on the left to switch between the **Loom Labels**, **Case Labels**, and **Show Manager** sections.
+
+3. **Manage Shows**: Start in the **Show Manager** to create a new show profile and set a default logo.
+
+4. **Create Labels**: Navigate to the appropriate label editor. The Case Labeler will automatically load the logo from your active show.
+
+5. **Print**: Use the **Generate PDF** button for full, sequential sheets, or the **Advanced Print** button to place labels in specific slots for correction prints.
 
 ### Loom Label Editor
 
-<img width="1920" height="1040" alt="Main Window" src="https://github.com/user-attachments/assets/2115605a-4f32-4e59-aee4-53660868afbf" />
-
-
 ### Case Label Editor
-
-<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/302efbb3-ba6a-4e4a-accb-6e7e9f854b72" />
-
 
 ### Show Manager
 
-<img width="1920" height="1040" alt="image" src="https://github.com/user-attachments/assets/45b31bf7-f554-4d9f-8fb7-71eed70809d7" />
-
-
 ### Advanced Print Window
-
-<img width="802" height="832" alt="image" src="https://github.com/user-attachments/assets/91c5f1e2-1e4a-41a2-91e7-3b9ff44ab479" />

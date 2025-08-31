@@ -68,6 +68,13 @@ class PanelLayout(BaseModel):
     background_svg: str
     connectors: List[Dict]
 
+# New model for defining a port on an equipment template
+class PortTemplate(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    label: str
+    type: str  # 'input' or 'output'
+    connector_type: str # 'HDMI', 'SDI', 'XLR', 'CAT6', 'RJ45' etc.
+
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     user_id: Optional[uuid.UUID] = None
@@ -77,14 +84,17 @@ class EquipmentTemplate(BaseModel):
     width: str = 'full'
     power_consumption_watts: Optional[int] = None
     panels: List[PanelLayout] = Field(default_factory=list)
+    ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
 
+# Updated create model to include ports
 class EquipmentTemplateCreate(BaseModel):
     model_number: str
     manufacturer: str
     ru_height: int
     width: str = 'full'
+    ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
 
 class RackEquipmentInstance(BaseModel):
@@ -94,18 +104,24 @@ class RackEquipmentInstance(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
+    ip_address: Optional[str] = None
+    x_pos: Optional[int] = None
+    y_pos: Optional[int] = None
+    page_number: Optional[int] = None
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
     ru_position: int
-    # --- THIS IS THE FIX ---
-    # The instance_name is now optional from the client because the server generates it.
-    instance_name: Optional[str] = None 
+    instance_name: Optional[str] = None
     rack_side: Optional[str] = None
 
 class RackEquipmentInstanceUpdate(BaseModel):
-    ru_position: int
+    ru_position: Optional[int] = None
     rack_side: Optional[str] = None
+    ip_address: Optional[str] = None
+    x_pos: Optional[int] = None
+    y_pos: Optional[int] = None
+    page_number: Optional[int] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
     id: uuid.UUID
@@ -114,11 +130,15 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     ru_position: int
     instance_name: str
     rack_side: Optional[str] = None
+    ip_address: Optional[str] = None
+    x_pos: Optional[int] = None
+    y_pos: Optional[int] = None
+    page_number: Optional[int] = 1
     equipment_templates: Optional[EquipmentTemplate] = None
 
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    show_name: str
+    show_name: Optional[str] = None
     user_id: uuid.UUID
     rack_name: str
     ru_height: int
@@ -128,12 +148,42 @@ class Rack(BaseModel):
 class RackCreate(BaseModel):
     rack_name: str
     ru_height: int
-    show_name: str
+    show_name: Optional[str] = None
 
 class RackUpdate(BaseModel):
     rack_name: Optional[str] = None
     ru_height: Optional[int] = None
     saved_to_library: Optional[bool] = None
+
+# New models for connections
+class Connection(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    show_id: uuid.UUID
+    source_device_id: uuid.UUID
+    source_port_id: uuid.UUID
+    destination_device_id: uuid.UUID
+    destination_port_id: uuid.UUID
+    cable_type: str
+    label: Optional[str] = None
+    length_ft: Optional[int] = None
+
+class ConnectionCreate(BaseModel):
+    source_device_id: uuid.UUID
+    source_port_id: uuid.UUID
+    destination_device_id: uuid.UUID
+    destination_port_id: uuid.UUID
+    cable_type: str
+    label: Optional[str] = None
+    length_ft: Optional[int] = None
+
+class ConnectionUpdate(BaseModel):
+    source_device_id: Optional[uuid.UUID] = None
+    source_port_id: Optional[uuid.UUID] = None
+    destination_device_id: Optional[uuid.UUID] = None
+    destination_port_id: Optional[uuid.UUID] = None
+    cable_type: Optional[str] = None
+    label: Optional[str] = None
+    length_ft: Optional[int] = None
 
 # --- Library Models ---
 class Folder(BaseModel):
@@ -148,3 +198,77 @@ class FolderCreate(BaseModel):
     name: str
     parent_id: Optional[uuid.UUID] = None
     nomenclature_prefix: Optional[str] = None
+
+class FolderUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[uuid.UUID] = None
+    nomenclature_prefix: Optional[str] = None
+
+class UserFolderUpdate(BaseModel):
+    name: Optional[str] = None
+    parent_id: Optional[uuid.UUID] = None
+    nomenclature_prefix: Optional[str] = None
+
+
+class EquipmentTemplateUpdate(BaseModel):
+    model_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    ru_height: Optional[int] = None
+    width: Optional[str] = None
+    ports: Optional[List[PortTemplate]] = None
+    folder_id: Optional[uuid.UUID] = None
+    
+class UserEquipmentTemplateUpdate(BaseModel):
+    model_number: Optional[str] = None
+    manufacturer: Optional[str] = None
+    ru_height: Optional[int] = None
+    width: Optional[str] = None
+    ports: Optional[List[PortTemplate]] = None
+    folder_id: Optional[uuid.UUID] = None
+
+class EquipmentCopy(BaseModel):
+    template_id: uuid.UUID
+    folder_id: Optional[uuid.UUID] = None
+
+class RackLoad(BaseModel):
+    template_rack_id: uuid.UUID
+    show_name: str
+
+# --- PDF Generation Models ---
+
+class PDFNodePosition(BaseModel):
+    x: float
+    y: float
+
+class PDFNodeData(BaseModel):
+    label: str
+    ip_address: Optional[str] = None
+    rack_name: Optional[str] = None
+    ru_position: Optional[int] = None
+    equipment_templates: EquipmentTemplate
+
+class PDFNode(BaseModel):
+    id: str
+    position: PDFNodePosition
+    data: PDFNodeData
+    width: float
+    height: float
+
+class PDFEdge(BaseModel):
+    id: str
+    source: str
+    target: str
+    sourceHandle: str
+    targetHandle: str
+    label: Optional[str] = None
+    data: Optional[Dict] = None
+
+class PDFPage(BaseModel):
+    page_number: int
+    nodes: List[PDFNode]
+    edges: List[PDFEdge]
+
+class WireDiagramPDFPayload(BaseModel):
+    pages: List[PDFPage]
+    page_size: str = "letter"
+    show_name: str

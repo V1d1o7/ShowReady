@@ -4,15 +4,20 @@ from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from gotrue.errors import AuthApiError
 import io
+import traceback
 from pydantic import BaseModel
 import uuid
 
+# Import all necessary models, including the previously missing ones
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
-    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate
+    RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
+    Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
+    FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
+    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
 from typing import List, Dict, Optional
 
 router = APIRouter()
@@ -78,11 +83,14 @@ async def create_default_equipment(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Creates a new default equipment template."""
+    ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
+
     insert_data = {
         "model_number": equipment_data.model_number,
         "manufacturer": equipment_data.manufacturer,
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
+        "ports": ports_data,
         "is_default": True,
     }
     if equipment_data.folder_id:
@@ -110,31 +118,29 @@ async def get_admin_library(admin_user = Depends(get_admin_user), supabase: Clie
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
 async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves the profile for the authenticated user. If not found, it creates one."""
+    """Retrieves the profile for the authenticated user."""
     try:
         response = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+        
+        if not response.data:
+            user_meta = user.user_metadata or {}
+            profile_to_create = {
+                'id': str(user.id),
+                'first_name': user_meta.get('first_name'),
+                'last_name': user_meta.get('last_name'),
+                'company_name': user_meta.get('company_name'),
+                'production_role': user_meta.get('production_role'),
+                'production_role_other': user_meta.get('production_role_other'),
+            }
+            insert_response = supabase.table('profiles').insert(profile_to_create).execute()
+            if insert_response.data:
+                return insert_response.data[0]
+            else:
+                raise HTTPException(status_code=500, detail="Failed to create user profile.")
+
         return response.data
     except Exception as e:
-        if 'PGRST116' in str(e) or 'The result contains 0 rows' in str(e):
-            try:
-                user_meta = user.user_metadata
-                profile_to_create = {
-                    'id': str(user.id),
-                    'first_name': user_meta.get('first_name'),
-                    'last_name': user_meta.get('last_name'),
-                    'company_name': user_meta.get('company_name'),
-                    'production_role': user_meta.get('production_role'),
-                    'production_role_other': user_meta.get('production_role_other'),
-                }
-                insert_response = supabase.table('profiles').insert(profile_to_create).execute()
-                if insert_response.data:
-                    return insert_response.data[0]
-                else:
-                    raise HTTPException(status_code=500, detail="Failed to create user profile after not finding one.")
-            except Exception as creation_error:
-                raise HTTPException(status_code=500, detail=f"Profile creation failed: {str(creation_error)}")
-        else:
-            raise HTTPException(status_code=500, detail=f"An unexpected error occurred while fetching profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
 async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -246,7 +252,11 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         full_rack_data = rack_data.model_dump()
         full_rack_data['user_id'] = str(user.id)
         
+        if not full_rack_data.get('show_name'):
+            full_rack_data['saved_to_library'] = True
+
         response = supabase.table('racks').insert(full_rack_data).execute()
+
         if response.data:
             new_rack = response.data[0]
             new_rack['equipment'] = []
@@ -254,6 +264,7 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         raise HTTPException(status_code=500, detail="Failed to create rack.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/racks", response_model=List[Rack], tags=["Racks"])
 async def list_racks(show_name: Optional[str] = None, from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -268,14 +279,82 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('racks').select('*').eq('id', rack_id).eq('user_id', user.id).single().execute()
+    # 1. Get the rack data
+    response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
     if not response.data:
-        raise HTTPException(status_code=404, detail="Rack not found")
+        raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to view it.")
     
-    equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', rack_id).execute()
     rack_data = response.data
-    rack_data['equipment'] = equipment_response.data
+    
+    # 2. Get all equipment instances for the rack
+    equipment_response = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(rack_id)).execute()
+    equipment_instances = equipment_response.data if equipment_response.data else []
+    
+    if not equipment_instances:
+        rack_data['equipment'] = []
+        return rack_data
+        
+    # 3. Get unique template IDs
+    template_ids = list(set(item['template_id'] for item in equipment_instances))
+    
+    # 4. Query for all needed templates
+    templates_response = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
+    templates_data = templates_response.data if templates_response.data else []
+    
+    # 5. Create a lookup map for easy access
+    template_map = {template['id']: template for template in templates_data}
+    
+    # 6. Attach the full template data to each equipment instance
+    for instance in equipment_instances:
+        instance['equipment_templates'] = template_map.get(instance['template_id'])
+        
+    rack_data['equipment'] = equipment_instances
     return rack_data
+
+@router.get("/shows/{show_name}/detailed_racks", response_model=List[Rack], tags=["Racks"])
+async def get_detailed_racks_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # 1. Get all racks for the show
+    racks_res = supabase.table('racks').select('*').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    if not racks_res.data:
+        return []
+    
+    racks = racks_res.data
+    rack_ids = [rack['id'] for rack in racks]
+    
+    # 2. Get all equipment instances for all racks in one query
+    equipment_res = supabase.table('rack_equipment_instances').select('*').in_('rack_id', rack_ids).execute()
+    equipment_instances = equipment_res.data if equipment_res.data else []
+    
+    if not equipment_instances:
+        # If there's no equipment, just return the racks with empty equipment lists
+        for rack in racks:
+            rack['equipment'] = []
+        return racks
+
+    # 3. Get all unique template IDs from the equipment
+    template_ids = list(set(item['template_id'] for item in equipment_instances))
+    
+    # 4. Get all needed equipment templates in one query
+    templates_res = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
+    template_map = {template['id']: template for template in templates_res.data}
+    
+    # 5. Attach templates to their instances
+    for instance in equipment_instances:
+        instance['equipment_templates'] = template_map.get(instance['template_id'])
+        
+    # 6. Create a map of rack_id to its equipment
+    rack_equipment_map = {}
+    for instance in equipment_instances:
+        rack_id = instance['rack_id']
+        if rack_id not in rack_equipment_map:
+            rack_equipment_map[rack_id] = []
+        rack_equipment_map[rack_id].append(instance)
+        
+    # 7. Attach the equipment lists to their parent racks
+    for rack in racks:
+        rack['equipment'] = rack_equipment_map.get(rack['id'], [])
+        
+    return racks
 
 @router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -284,6 +363,69 @@ async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depend
     if not response.data:
         raise HTTPException(status_code=404, detail="Rack not found to update")
     return response.data[0]
+
+@router.delete("/racks/{rack_id}", status_code=204, tags=["Racks"])
+async def delete_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    rack_to_delete = supabase.table('racks').select('id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
+    if not rack_to_delete.data:
+        raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to delete it.")
+
+    supabase.table('racks').delete().eq('id', str(rack_id)).execute()
+    return
+
+@router.post("/racks/load_from_library", response_model=Rack, tags=["Racks"])
+async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Loads a rack from the user's library into a show."""
+    try:
+        template_res = supabase.table('racks').select('*').eq('id', str(load_data.template_rack_id)).eq('user_id', str(user.id)).eq('saved_to_library', True).single().execute()
+        if not template_res.data:
+            raise HTTPException(status_code=404, detail="Library rack not found.")
+        template_rack = template_res.data
+
+        template_equip_res = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(template_rack['id'])).execute()
+        template_equipment = template_equip_res.data
+
+        new_rack_data = {
+            "rack_name": f"{template_rack['rack_name']} (Copy)",
+            "ru_height": template_rack['ru_height'],
+            "show_name": load_data.show_name,
+            "user_id": str(user.id),
+            "saved_to_library": False
+        }
+        new_rack_res = supabase.table('racks').insert(new_rack_data).execute()
+        if not new_rack_res.data:
+            raise HTTPException(status_code=500, detail="Failed to create new rack copy.")
+        new_rack = new_rack_res.data[0]
+
+        if template_equipment:
+            new_equipment_to_create = [
+                {
+                    "rack_id": new_rack['id'],
+                    "template_id": item['template_id'],
+                    "ru_position": item['ru_position'],
+                    "instance_name": item['instance_name'],
+                    "rack_side": item['rack_side'],
+                    "ip_address": item['ip_address'],
+                    "x_pos": item['x_pos'],
+                    "y_pos": item['y_pos']
+                } for item in template_equipment
+            ]
+            
+            new_equip_res = supabase.table('rack_equipment_instances').insert(new_equipment_to_create).execute()
+            if not new_equip_res.data:
+                supabase.table('racks').delete().eq('id', new_rack['id']).execute()
+                raise HTTPException(status_code=500, detail="Failed to copy equipment to new rack.")
+            
+            new_instance_ids = [item['id'] for item in new_equip_res.data]
+            final_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('id', new_instance_ids).execute()
+            new_rack['equipment'] = final_equipment_res.data
+        else:
+            new_rack['equipment'] = []
+
+        return new_rack
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # --- Equipment Endpoints ---
 @router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
@@ -310,16 +452,40 @@ async def add_equipment_to_rack(
     if new_item_end > rack_res.data['ru_height']:
         raise HTTPException(status_code=400, detail="Equipment does not fit in the rack at this position.")
 
-    for item in existing_equipment:
-        item_end = item['ru_position'] + item['equipment_templates']['ru_height'] - 1
-        if max(equipment_data.ru_position, item['ru_position']) <= min(new_item_end, item_end):
-            is_new_full = template['width'] == 'full'
-            is_item_full = item['equipment_templates']['width'] == 'full'
-            
-            if is_new_full or is_item_full:
-                raise HTTPException(status_code=409, detail="A full-width item conflicts with the desired placement.")
-            if equipment_data.rack_side == item['rack_side']:
-                raise HTTPException(status_code=409, detail=f"The {equipment_data.rack_side} side is already occupied in this RU range.")
+    # --- Collision Detection Logic ---
+    new_item_start = equipment_data.ru_position
+    new_item_end = new_item_start + template['ru_height'] - 1
+    new_item_is_full_width = template['width'] != 'half'
+    new_item_side = equipment_data.rack_side
+
+    for existing_item in existing_equipment:
+        existing_template = existing_item['equipment_templates']
+        existing_start = existing_item['ru_position']
+        existing_end = existing_start + existing_template['ru_height'] - 1
+
+        # Check for vertical overlap
+        if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
+            new_item_face = new_item_side.split('-')[0]
+            existing_side = existing_item['rack_side']
+            existing_face = existing_side.split('-')[0]
+
+            # Only check for collision if they are on the same face of the rack
+            if new_item_face == existing_face:
+                existing_is_full_width = existing_template['width'] != 'half'
+                
+                # Case 1: If either item is full-width, it's a guaranteed collision on the same face
+                if new_item_is_full_width or existing_is_full_width:
+                    raise HTTPException(
+                        status_code=409, 
+                        detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                    )
+
+                # Case 2: Both items are half-width. Collision only if they are on the same side.
+                if new_item_side == existing_side:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
+                    )
 
     prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
     base_name = prefix if prefix else template['model_number']
@@ -342,23 +508,118 @@ async def add_equipment_to_rack(
         "ru_position": equipment_data.ru_position,
         "rack_side": equipment_data.rack_side,
         "instance_name": new_instance_name
+        
     }
     
     response = supabase.table('rack_equipment_instances').insert(insert_data).execute()
     if response.data:
-        return response.data[0]
+        new_instance = response.data[0]
+        # Eagerly load the template data to match the GET endpoint's structure
+        new_instance['equipment_templates'] = template
+        return new_instance
+        
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
 
+@router.get("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
+async def get_equipment_instance(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves a single equipment instance with its template data."""
+    instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+    
+    if not instance_res.data:
+        raise HTTPException(status_code=404, detail="Equipment instance not found.")
+        
+    # Check if the user is authorized to view this instance
+    rack_res = supabase.table('racks').select('user_id').eq('id', instance_res.data['rack_id']).single().execute()
+    if not rack_res.data or str(rack_res.data['user_id']) != str(user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this equipment instance.")
+        
+    return instance_res.data
+
 @router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
-async def move_equipment_in_rack(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    update_dict = update_data.model_dump(exclude_unset=True)
+async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates the position, side, or IP address of a rack equipment instance."""
+    
+    try:
+        # Fetch the instance and its template and rack details
+        instance_res = supabase.table('rack_equipment_instances').select('*, racks(user_id, ru_height), equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+        
+        if not instance_res.data or not instance_res.data.get('racks'):
+            raise HTTPException(status_code=404, detail="Equipment instance not found.")
+
+        if str(instance_res.data['racks']['user_id']) != str(user.id):
+            raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
+
+        instance = instance_res.data
+        update_dict = update_data.model_dump(exclude_unset=True)
+
+        # If we are changing the position, we need to validate it
+        if 'ru_position' in update_dict or 'rack_side' in update_dict:
+            new_ru_position = update_dict.get('ru_position', instance['ru_position'])
+            ru_height = instance['equipment_templates']['ru_height']
+            rack_height = instance['racks']['ru_height']
+            
+            if (new_ru_position + ru_height - 1) > rack_height:
+                raise HTTPException(status_code=400, detail="Equipment does not fit at the new position.")
+
+            rack_id = instance['rack_id']
+            existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).neq('id', str(instance_id)).execute()
+            
+            new_item_start = new_ru_position
+            new_item_end = new_item_start + ru_height - 1
+            new_item_is_full_width = instance['equipment_templates']['width'] != 'half'
+            new_item_side = update_dict.get('rack_side', instance['rack_side'])
+
+            for existing_item in existing_equipment_res.data:
+                existing_template = existing_item['equipment_templates']
+                existing_start = existing_item['ru_position']
+                existing_end = existing_start + existing_template['ru_height'] - 1
+
+                if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
+                    new_item_face = new_item_side.split('-')[0]
+                    existing_side = existing_item['rack_side']
+                    existing_face = existing_side.split('-')[0]
+
+                    if new_item_face == existing_face:
+                        existing_is_full_width = existing_template['width'] != 'half'
+                        
+                        if new_item_is_full_width or existing_is_full_width:
+                            raise HTTPException(
+                                status_code=409, 
+                                detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                            )
+
+                        if new_item_side == existing_side:
+                            raise HTTPException(
+                                status_code=409,
+                                detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
+                            )
+
+    except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(status_code=500, detail=f"An error occurred during validation: {str(e)}")
+
     response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
+    
     if response.data:
+        # Re-fetch the updated instance to get the full object with nested data
+        final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+        if final_instance_res.data:
+            return final_instance_res.data
         return response.data[0]
+    
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
+
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
 async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    check_owner = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
+    if check_owner.data:
+        rack_id = check_owner.data['rack_id']
+        is_owner = supabase.table('racks').select('user_id').eq('id', rack_id).eq('user_id', str(user.id)).single().execute()
+        if not is_owner.data:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this equipment instance.")
+            
     supabase.table('rack_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
 
@@ -372,6 +633,227 @@ async def get_library(user = Depends(get_user), supabase: Client = Depends(get_s
         return { "folders": folders_response.data, "equipment": equipment_response.data }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
+
+@router.post("/library/folders", tags=["User Library"], response_model=Folder)
+async def create_user_folder(folder_data: FolderCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new folder in the user's personal library."""
+    insert_data = {
+        "name": folder_data.name,
+        "is_default": False,
+        "user_id": str(user.id),
+        "nomenclature_prefix": folder_data.nomenclature_prefix
+    }
+    if folder_data.parent_id:
+        insert_data["parent_id"] = str(folder_data.parent_id)
+
+    response = supabase.table('folders').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create folder.")
+    return response.data[0]
+
+@router.put("/library/folders/{folder_id}", tags=["User Library"], response_model=Folder)
+async def update_user_folder(folder_id: uuid.UUID, folder_data: UserFolderUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates a folder in the user's personal library."""
+    update_dict = folder_data.model_dump(exclude_unset=True)
+    if 'parent_id' in update_dict and update_dict['parent_id'] is not None:
+        update_dict['parent_id'] = str(update_dict['parent_id'])
+
+    response = supabase.table('folders').update(update_dict).eq('id', str(folder_id)).eq('user_id', str(user.id)).execute()
+
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Folder not found or you do not have permission to edit it.")
+    return response.data[0]
+
+@router.delete("/library/folders/{folder_id}", status_code=204, tags=["User Library"])
+async def delete_user_folder(folder_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes a folder from the user's personal library."""
+    
+    folder_to_delete = supabase.table('folders').select('id').eq('id', str(folder_id)).eq('user_id', str(user.id)).single().execute()
+    if not folder_to_delete.data:
+        raise HTTPException(status_code=404, detail="Folder not found or you do not have permission to delete it.")
+
+    subfolder_res = supabase.table('folders').select('id', count='exact').eq('parent_id', str(folder_id)).execute()
+    if subfolder_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a folder that contains subfolders.")
+
+    equipment_res = supabase.table('equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
+    if equipment_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete a folder that contains equipment.")
+        
+    supabase.table('folders').delete().eq('id', str(folder_id)).eq('user_id', str(user.id)).execute()
+    return
+
+@router.post("/library/equipment", tags=["User Library"], response_model=EquipmentTemplate)
+async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new equipment template in the user's personal library."""
+    ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
+    insert_data = {
+        "model_number": equipment_data.model_number,
+        "manufacturer": equipment_data.manufacturer,
+        "ru_height": equipment_data.ru_height,
+        "width": equipment_data.width,
+        "ports": ports_data,
+        "is_default": False,
+        "user_id": str(user.id)
+    }
+    if equipment_data.folder_id:
+        insert_data["folder_id"] = str(equipment_data.folder_id)
+        
+    response = supabase.table('equipment_templates').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create equipment template.")
+    return response.data[0]
+
+@router.put("/library/equipment/{equipment_id}", tags=["User Library"], response_model=EquipmentTemplate)
+async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEquipmentTemplateUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates an equipment template in the user's personal library."""
+    update_dict = equipment_data.model_dump(exclude_unset=True)
+    if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
+        update_dict['folder_id'] = str(update_dict['folder_id'])
+
+    response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('user_id', str(user.id)).execute()
+
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Equipment not found or you do not have permission to edit it.")
+    return response.data[0]
+
+@router.delete("/library/equipment/{equipment_id}", status_code=204, tags=["User Library"])
+async def delete_user_equipment(equipment_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes an equipment template from the user's personal library."""
+    supabase.table('equipment_templates').delete().eq('id', str(equipment_id)).eq('user_id', str(user.id)).execute()
+    return
+
+@router.post("/library/copy_equipment", tags=["Library"], response_model=EquipmentTemplate)
+async def copy_equipment_to_user_library(copy_data: EquipmentCopy, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Copies a default equipment template to the user's library."""
+    original_res = supabase.table('equipment_templates').select('*').eq('id', str(copy_data.template_id)).eq('is_default', True).single().execute()
+    if not original_res.data:
+        raise HTTPException(status_code=404, detail="Default equipment template not found.")
+    
+    original_template = original_res.data
+    new_template_data = {
+        "model_number": f"{original_template['model_number']} (Copy)",
+        "manufacturer": original_template['manufacturer'],
+        "ru_height": original_template['ru_height'],
+        "width": original_template['width'],
+        "ports": original_template['ports'],
+        "is_default": False,
+        "user_id": str(user.id),
+        "folder_id": str(copy_data.folder_id) if copy_data.folder_id else None
+    }
+    
+    response = supabase.table('equipment_templates').insert(new_template_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to copy equipment to user library.")
+    return response.data[0]
+
+# --- Wire Diagram Endpoints ---
+@router.post("/connections", tags=["Wire Diagram"])
+async def create_connection(connection_data: ConnectionCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new connection between two equipment ports."""
+    try:
+        source_device_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(connection_data.source_device_id)).single().execute()
+        dest_device_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(connection_data.destination_device_id)).single().execute()
+        
+        if not source_device_res.data or not dest_device_res.data:
+            raise HTTPException(status_code=404, detail="Source or destination device not found.")
+            
+        show_id_res = supabase.table('racks').select('show_name, user_id').eq('id', source_device_res.data['rack_id']).single().execute()
+        if not show_id_res.data or show_id_res.data['user_id'] != str(user.id):
+            raise HTTPException(status_code=403, detail="Not authorized to create a connection in this show.")
+
+        insert_data = connection_data.model_dump(mode='json')
+        insert_data['show_id'] = show_id_res.data['show_name']
+        
+        response = supabase.table('connections').insert(insert_data).execute()
+        if response.data:
+            return response.data[0]
+        raise HTTPException(status_code=500, detail="Failed to create connection.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/shows/{show_name}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstanceWithTemplate])
+async def get_unassigned_equipment(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all equipment for a show that has not been assigned to a wire diagram page."""
+    try:
+        # First, get all racks for the given show and user
+        racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+        if not racks_res.data:
+            return [] # No racks for this show, so no equipment
+
+        rack_ids = [rack['id'] for rack in racks_res.data]
+
+        # Now, get all equipment instances from those racks where page_number is null
+        # Eager load the template data as well, as the frontend will need it
+        equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).is_('page_number', None).execute()
+        
+        return equipment_res.data if equipment_res.data else []
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch unassigned equipment: {str(e)}")
+
+@router.get("/connections/{show_name}", tags=["Wire Diagram"])
+async def get_connections_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all connections for a specific show."""
+    try:
+        response = supabase.table('connections').select('*').eq('show_id', show_name).execute()
+        connections = response.data or []
+        
+        device_ids = {c['source_device_id'] for c in connections} | {c['destination_device_id'] for c in connections}
+        equipment_map = {}
+        if device_ids:
+            equipment_res = supabase.table('rack_equipment_instances').select('id, instance_name, ip_address, equipment_templates(model_number, ports)').in_('id', list(device_ids)).execute()
+            equipment_map = {e['id']: e for e in equipment_res.data}
+        
+        return {"connections": connections, "equipment": equipment_map}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch connections: {str(e)}")
+
+@router.get("/equipment/{instance_id}/connections", response_model=List[Connection], tags=["Wire Diagram"])
+async def get_connections_for_device(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all connections for a specific equipment instance."""
+    # First, verify the user has access to this equipment instance
+    instance_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
+    if not instance_res.data:
+        raise HTTPException(status_code=404, detail="Equipment instance not found.")
+    
+    rack_res = supabase.table('racks').select('user_id').eq('id', instance_res.data['rack_id']).single().execute()
+    if not rack_res.data or str(rack_res.data['user_id']) != str(user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this equipment's connections.")
+        
+    # Fetch connections where the instance is either a source or a destination
+    response = supabase.table('connections').select(
+        'id, show_id, source_device_id, source_port_id, destination_device_id, destination_port_id, cable_type, label, length_ft'
+    ).or_(
+        f'source_device_id.eq.{instance_id},destination_device_id.eq.{instance_id}'
+    ).execute()
+    
+    return response.data if response.data else []
+
+@router.put("/connections/{connection_id}", tags=["Wire Diagram"])
+async def update_connection(connection_id: uuid.UUID, update_data: ConnectionUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates a connection's details."""
+    try:
+        update_dict = update_data.model_dump(exclude_unset=True)
+        response = supabase.table('connections').update(update_dict).eq('id', str(connection_id)).execute()
+        if response.data:
+            return response.data[0]
+        raise HTTPException(status_code=404, detail="Connection not found or update failed.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/connections/{connection_id}", status_code=204, tags=["Wire Diagram"])
+async def delete_connection(connection_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes a specific connection."""
+    conn_res = supabase.table('connections').select('show_id').eq('id', str(connection_id)).single().execute()
+    if conn_res.data:
+        show_name = conn_res.data['show_id']
+        is_owner = supabase.table('shows').select('user_id').eq('name', show_name).eq('user_id', str(user.id)).single().execute()
+        if not is_owner.data:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this connection.")
+            
+    supabase.table('connections').delete().eq('id', str(connection_id)).execute()
+    return
 
 # --- File Upload Endpoint ---
 @router.post("/upload/logo", tags=["File Upload"])
@@ -427,6 +909,17 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
+@router.post("/pdf/wire-diagram", tags=["PDF Generation"])
+async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user)):
+    """Generates a PDF for the wire diagram."""
+    try:
+        pdf_buffer = generate_wire_diagram_pdf(payload)
+        return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+    except Exception as e:
+        print(f"Error generating wire diagram PDF: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+
 @router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])
 async def delete_default_folder(
     folder_id: uuid.UUID,
@@ -434,17 +927,14 @@ async def delete_default_folder(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Deletes a default library folder if it is empty."""
-    # Check for subfolders
     subfolder_res = supabase.table('folders').select('id', count='exact').eq('parent_id', str(folder_id)).execute()
     if subfolder_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete a folder that contains subfolders.")
 
-    # Check for equipment
     equipment_res = supabase.table('equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
     if equipment_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete a folder that contains equipment.")
 
-    # If empty, proceed with deletion
     supabase.table('folders').delete().eq('id', str(folder_id)).eq('is_default', True).execute()
     return
 
@@ -457,3 +947,41 @@ async def delete_default_equipment(
     """Admin: Deletes a default equipment template."""
     supabase.table('equipment_templates').delete().eq('id', str(equipment_id)).eq('is_default', True).execute()
     return
+    
+@router.put("/admin/folders/{folder_id}", tags=["Admin"], response_model=Folder)
+async def update_admin_folder(
+    folder_id: uuid.UUID,
+    folder_data: FolderUpdate,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Updates a default library folder, e.g., to change its parent."""
+    update_dict = folder_data.model_dump(exclude_unset=True)
+    
+    if 'parent_id' in update_dict and update_dict['parent_id'] is not None:
+        update_dict['parent_id'] = str(update_dict['parent_id'])
+
+    response = supabase.table('folders').update(update_dict).eq('id', str(folder_id)).eq('is_default', True).execute()
+
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Folder not found or not a default folder.")
+    return response.data[0]
+
+@router.put("/admin/equipment/{equipment_id}", tags=["Admin"], response_model=EquipmentTemplate)
+async def update_admin_equipment(
+    equipment_id: uuid.UUID,
+    equipment_data: EquipmentTemplateUpdate,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Updates a default equipment template, e.g., to change its folder."""
+    update_dict = equipment_data.model_dump(exclude_unset=True)
+
+    if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
+        update_dict['folder_id'] = str(update_dict['folder_id'])
+    
+    response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('is_default', True).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Equipment not found or not a default template.")
+    return response.data[0]

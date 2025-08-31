@@ -3,8 +3,10 @@ import { UploadCloud, Save } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
+import { useShow } from '../contexts/ShowContext';
 
-const ShowInfoView = ({ showData, onSave }) => {
+const ShowInfoView = () => {
+    const { showData, onSave } = useShow();
     const [formData, setFormData] = useState(showData.info);
     const [isUploading, setIsUploading] = useState(false);
     const [logoUrl, setLogoUrl] = useState(null);
