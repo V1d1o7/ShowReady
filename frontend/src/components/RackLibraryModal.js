@@ -33,7 +33,7 @@ const RackLibraryModal = ({ isOpen, onClose, onRackLoad }) => {
                     libraryRacks.map(rack => (
                         <button 
                             key={rack.id}
-                            onClick={() => onRackLoad(rack.id)}
+                            onClick={() => onRackLoad(rack)}
                             className="w-full flex justify-between items-center p-4 bg-gray-700 hover:bg-gray-600 rounded-lg text-left transition-colors"
                         >
                             <div>

@@ -233,6 +233,7 @@ class EquipmentCopy(BaseModel):
 class RackLoad(BaseModel):
     template_rack_id: uuid.UUID
     show_name: str
+    new_rack_name: str
 
 # --- PDF Generation Models ---
 

@@ -76,7 +76,7 @@ const RackComponent = ({
                 <h3 className="text-lg font-bold text-center text-white capitalize">{rack.rack_name} - {view} View</h3>
             </div>
             
-            <div className="relative flex-grow" style={{ minHeight: `${rackBodyHeight}px` }}>
+            <div className="relative" style={{ height: `${rackBodyHeight}px` }}>
                 <div className="absolute inset-0 rounded-b-lg flex overflow-hidden border border-gray-700">
                     {/* Left RU Column */}
                     <div className="w-8 border-r border-gray-700 flex flex-col bg-gray-900">

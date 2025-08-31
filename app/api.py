@@ -375,18 +375,22 @@ async def delete_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Cl
 
 @router.post("/racks/load_from_library", response_model=Rack, tags=["Racks"])
 async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Loads a rack from the user's library into a show."""
+    """Loads a rack from the user's library into a show, using a user-provided name and ensuring it's unique."""
     try:
+        # 1. Fetch the template rack from the library
         template_res = supabase.table('racks').select('*').eq('id', str(load_data.template_rack_id)).eq('user_id', str(user.id)).eq('saved_to_library', True).single().execute()
         if not template_res.data:
             raise HTTPException(status_code=404, detail="Library rack not found.")
         template_rack = template_res.data
 
-        template_equip_res = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(template_rack['id'])).execute()
-        template_equipment = template_equip_res.data
+        # 2. Check for name uniqueness
+        existing_rack_res = supabase.table('racks').select('id').eq('show_name', load_data.show_name).eq('user_id', str(user.id)).eq('rack_name', load_data.new_rack_name).execute()
+        if existing_rack_res.data:
+            raise HTTPException(status_code=409, detail=f"A rack with the name '{load_data.new_rack_name}' already exists in this show.")
 
+        # 3. Create the new rack with the unique name
         new_rack_data = {
-            "rack_name": f"{template_rack['rack_name']} (Copy)",
+            "rack_name": load_data.new_rack_name,
             "ru_height": template_rack['ru_height'],
             "show_name": load_data.show_name,
             "user_id": str(user.id),
@@ -396,6 +400,10 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
         if not new_rack_res.data:
             raise HTTPException(status_code=500, detail="Failed to create new rack copy.")
         new_rack = new_rack_res.data[0]
+
+        # 4. Copy equipment from the template to the new rack
+        template_equip_res = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(template_rack['id'])).execute()
+        template_equipment = template_equip_res.data
 
         if template_equipment:
             new_equipment_to_create = [
@@ -413,9 +421,11 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
             
             new_equip_res = supabase.table('rack_equipment_instances').insert(new_equipment_to_create).execute()
             if not new_equip_res.data:
+                # Rollback rack creation if equipment copy fails
                 supabase.table('racks').delete().eq('id', new_rack['id']).execute()
                 raise HTTPException(status_code=500, detail="Failed to copy equipment to new rack.")
             
+            # Eagerly load equipment details for the response
             new_instance_ids = [item['id'] for item in new_equip_res.data]
             final_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('id', new_instance_ids).execute()
             new_rack['equipment'] = final_equipment_res.data
@@ -424,7 +434,12 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
 
         return new_rack
 
+    except HTTPException as e:
+        raise e
     except Exception as e:
+        # Catch potential database errors (like unique constraint) that might not be caught by the manual check
+        if '23505' in str(e): # 23505 is the postgres code for unique_violation
+             raise HTTPException(status_code=409, detail=f"A rack with the name '{load_data.new_rack_name}' already exists in this show.")
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Equipment Endpoints ---

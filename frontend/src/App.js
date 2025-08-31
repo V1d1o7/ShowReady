@@ -78,54 +78,56 @@ const MainLayout = ({ session, profile }) => {
 
 
     return (
-        <>
+        <div className="flex flex-col h-screen">
             <Navbar profile={profile} />
-            <Routes>
-                <Route
-                    path="/"
-                    element={
-                        <DashboardView
-                            shows={shows}
-                            onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
-                            onNewShow={() => setIsNewShowModalOpen(true)}
-                            onDeleteShow={handleDeleteShow}
-                            isLoading={isLoadingShows}
-                            user={session.user}
-                        />
-                    }
-                />
-                <Route path="/show/:showName" element={<ShowWrapper />}>
-                    <Route path="" element={<ShowView />}>
-                        <Route path="info" element={<ShowInfoView />} />
-                        <Route path="loomlabels" element={<LoomLabelView />} />
-                        <Route path="caselabels" element={<CaseLabelView />} />
-                        <Route path="rackbuilder" element={<RackBuilderView />} />
-                        <Route path="wirediagram" element={<WireDiagramView />} />
+            <main className="flex-grow min-h-0 overflow-y-auto">
+                <Routes>
+                    <Route
+                        path="/"
+                        element={
+                            <DashboardView
+                                shows={shows}
+                                onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
+                                onNewShow={() => setIsNewShowModalOpen(true)}
+                                onDeleteShow={handleDeleteShow}
+                                isLoading={isLoadingShows}
+                                user={session.user}
+                            />
+                        }
+                    />
+                    <Route path="/show/:showName" element={<ShowWrapper />}>
+                        <Route path="" element={<ShowView />}>
+                            <Route path="info" element={<ShowInfoView />} />
+                            <Route path="loomlabels" element={<LoomLabelView />} />
+                            <Route path="caselabels" element={<CaseLabelView />} />
+                            <Route path="rackbuilder" element={<RackBuilderView />} />
+                            <Route path="wirediagram" element={<WireDiagramView />} />
+                        </Route>
                     </Route>
-                </Route>
-                <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
-                <Route path="/sso-setup" element={<AdvancedSSOView />} />
-                <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
-                    <Route index element={<Navigate to="equipment" replace />} />
-                    <Route path="equipment" element={<EquipmentLibraryView />} />
-                    <Route path="racks" element={<UserRackBuilderView />} />
-                </Route>
-                <Route
-                    path="/mgmt"
-                    element={
-                        <ProtectedRoute profile={profile} adminOnly={true}>
-                            <AdminView />
-                        </ProtectedRoute>
-                    }
-                />
-            </Routes>
+                    <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
+                    <Route path="/sso-setup" element={<AdvancedSSOView />} />
+                    <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
+                        <Route index element={<Navigate to="equipment" replace />} />
+                        <Route path="equipment" element={<EquipmentLibraryView />} />
+                        <Route path="racks" element={<UserRackBuilderView />} />
+                    </Route>
+                    <Route
+                        path="/mgmt"
+                        element={
+                            <ProtectedRoute profile={profile} adminOnly={true}>
+                                <AdminView />
+                            </ProtectedRoute>
+                        }
+                    />
+                </Routes>
+            </main>
             <NewShowModal
                 isOpen={isNewShowModalOpen}
                 onClose={() => setIsNewShowModalOpen(false)}
                 onSubmit={handleCreateShow}
             
             />
-        </>
+        </div>
     );
 };
 

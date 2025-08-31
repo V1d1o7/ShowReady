@@ -473,7 +473,7 @@ const WireDiagramView = () => {
     if (error) return <div className="p-8 text-center text-red-400">Error: {error}</div>;
 
     return (
-        <div className="h-[calc(100vh-220px)] w-full flex flex-row rounded-xl bg-gray-800/50" data-testid="wire-diagram-view">
+        <div className="h-full w-full flex flex-row rounded-xl bg-gray-800/50" data-testid="wire-diagram-view">
             <CustomDragLayer draggingItem={draggingItem} />
             <LibrarySidebar
                 unassignedEquipment={unassignedEquipment}

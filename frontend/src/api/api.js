@@ -163,10 +163,10 @@ export const api = {
         body: JSON.stringify(copyData),
     }).then(handleResponse),
     getLibraryRacks: async () => fetch(`/api/racks?from_library=true`, { headers: await getAuthHeader() }).then(handleResponse),
-    copyRackFromLibrary: async (rackId, showName) => fetch('/api/racks/load_from_library', {
+    copyRackFromLibrary: async (rackId, showName, newRackName) => fetch('/api/racks/load_from_library', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },
-        body: JSON.stringify({ template_rack_id: rackId, show_name: showName }),
+        body: JSON.stringify({ template_rack_id: rackId, show_name: showName, new_rack_name: newRackName }),
     }).then(handleResponse),
     getUnassignedEquipment: async (showName) => fetch(`/api/shows/${showName}/unassigned_equipment`, { headers: await getAuthHeader() }).then(handleResponse),
     generateWireDiagramPdf: async (payload) => fetch('/api/pdf/wire-diagram', {

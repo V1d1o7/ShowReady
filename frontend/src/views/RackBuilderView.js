@@ -6,6 +6,7 @@ import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
+import NamePromptModal from '../components/NamePromptModal';
 import RackComponent from '../components/RackComponent';
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
@@ -18,6 +19,8 @@ const RackBuilderView = () => {
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
+    const [isNamePromptOpen, setIsNamePromptOpen] = useState(false);
+    const [rackToCopy, setRackToCopy] = useState(null);
     const [selectedRackId, setSelectedRackId] = useState(null);
     const [activeRack, setActiveRack] = useState(null);
     const [draggedItem, setDraggedItem] = useState(null);
@@ -107,9 +110,16 @@ const RackBuilderView = () => {
         setIsNewEquipModalOpen(false);
     };
 
-    const handleLoadRackFromLibrary = async (templateRackId) => {
+    const handleLoadRackFromLibrary = (templateRack) => {
+        setIsRackLibraryOpen(false);
+        setRackToCopy(templateRack);
+        setIsNamePromptOpen(true);
+    };
+
+    const handleConfirmCopyRack = async (newName) => {
+        if (!rackToCopy) return;
         try {
-            const newRack = await api.copyRackFromLibrary(templateRackId, showName);
+            const newRack = await api.copyRackFromLibrary(rackToCopy.id, showName, newName);
             setRacks(prevRacks => [...prevRacks, newRack]);
             setSelectedRackId(newRack.id);
             setActiveRack(newRack);
@@ -118,7 +128,8 @@ const RackBuilderView = () => {
             console.error("Failed to load rack from library:", error);
             toast.error(`Error: ${error.message}`);
         }
-        setIsRackLibraryOpen(false);
+        setIsNamePromptOpen(false);
+        setRackToCopy(null);
     };
     
     const handleDeleteEquipment = async (instanceId) => {
@@ -348,7 +359,7 @@ const RackBuilderView = () => {
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <div className="flex justify-between h-[calc(100vh-250px)]" onDragEnd={handleDragEnd}>
+        <div className="grid grid-cols-[auto_1fr_auto] gap-8 h-full" onDragEnd={handleDragEnd}>
             <Toaster position="bottom-center" />
             <RackList
                 racks={racks}
@@ -358,40 +369,43 @@ const RackBuilderView = () => {
                 onUpdateRack={handleUpdateRack}
                 selectedRackId={selectedRackId}
                 showName={showName}
+                onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
             />
-            <div className="overflow-x-auto pb-4 flex justify-center gap-8">
-                {activeRack ? (
-                    <>
-                        <RackComponent
-                            key={`${activeRack.id}-front`}
-                            rack={activeRack}
-                            view="front"
-                            onDrop={handleDrop}
-                            onDelete={handleDeleteEquipment}
-                            onDragStart={handleDragStart}
-                            draggedItem={draggedItem}
-                            dragOverData={dragOverData}
-                            onDragOverRack={setDragOverData}
-                        />
-                        <RackComponent
-                            key={`${activeRack.id}-rear`}
-                            rack={activeRack}
-                            view="rear"
-                            onDrop={handleDrop}
-                            onDelete={handleDeleteEquipment}
-                            onDragStart={handleDragStart}
-                            draggedItem={draggedItem}
-                            dragOverData={dragOverData}
-                            onDragOverRack={setDragOverData}
-                        />
-                    </>
-                ) : (
-                    <div className="flex flex-col items-center justify-center text-center text-gray-500 w-[732px]">
-                        <HardDrive size={48} className="mb-4" />
-                        <h3 className="text-lg font-bold">No Rack Selected</h3>
-                        <p>Select a rack from the left panel to begin, or create a new one.</p>
-                    </div>
-                )}
+            <div className="overflow-auto pb-4">
+                <div className="flex justify-center gap-8">
+                    {activeRack ? (
+                        <>
+                            <RackComponent
+                                key={`${activeRack.id}-front`}
+                                rack={activeRack}
+                                view="front"
+                                onDrop={handleDrop}
+                                onDelete={handleDeleteEquipment}
+                                onDragStart={handleDragStart}
+                                draggedItem={draggedItem}
+                                dragOverData={dragOverData}
+                                onDragOverRack={setDragOverData}
+                            />
+                            <RackComponent
+                                key={`${activeRack.id}-rear`}
+                                rack={activeRack}
+                                view="rear"
+                                onDrop={handleDrop}
+                                onDelete={handleDeleteEquipment}
+                                onDragStart={handleDragStart}
+                                draggedItem={draggedItem}
+                                dragOverData={dragOverData}
+                                onDragOverRack={setDragOverData}
+                            />
+                        </>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center text-center text-gray-500 w-[732px]">
+                            <HardDrive size={48} className="mb-4" />
+                            <h3 className="text-lg font-bold">No Rack Selected</h3>
+                            <p>Select a rack from the left panel to begin, or create a new one.</p>
+                        </div>
+                    )}
+                </div>
             </div>
             <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
                 <div className="flex justify-between items-center mb-4">
@@ -402,11 +416,6 @@ const RackBuilderView = () => {
                 </div>
                 <div className="flex-grow overflow-y-auto pr-2">
                     <UserTreeView library={library} onContextMenu={handleContextMenu} onDragStart={(e, item) => handleDragStart(e, item, true)} />
-                </div>
-                <div className="pt-4 border-t border-gray-700">
-                    <button onClick={() => setIsRackLibraryOpen(true)} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                        <Library size={16} /> Load from Rack Library
-                    </button>
                 </div>
             </div>
             
@@ -423,6 +432,16 @@ const RackBuilderView = () => {
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
+            <NamePromptModal
+                isOpen={isNamePromptOpen}
+                onClose={() => {
+                    setIsNamePromptOpen(false);
+                    setRackToCopy(null);
+                }}
+                onSubmit={handleConfirmCopyRack}
+                title="Name New Rack"
+                initialValue={rackToCopy ? `${rackToCopy.rack_name} (Copy)` : ''}
+            />
         </div>
     );
 };

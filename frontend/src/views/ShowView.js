@@ -18,16 +18,16 @@ const ShowView = () => {
         return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Show...</div></div>;
     }
 
-    const containerClass = "p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto";
+    const containerClass = "p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto h-full flex flex-col";
 
     return (
         <div className={containerClass}>
-            <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
+            <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700 flex-shrink-0">
                 <div className="flex items-center gap-4">
                     <h1 className="text-2xl sm:text-3xl font-bold text-white truncate">{decodeURIComponent(showName)}</h1>
                 </div>
             </header>
-            <div className="flex border-b border-gray-700 mb-6">
+            <div className="flex border-b border-gray-700 mb-6 flex-shrink-0">
                 {tabs.map(tab => (
                     <NavLink
                         key={tab.path}
@@ -42,7 +42,7 @@ const ShowView = () => {
                     </NavLink>
                 ))}
             </div>
-            <main>
+            <main className="flex-grow min-h-0">
                 <Outlet />
             </main>
         </div>
