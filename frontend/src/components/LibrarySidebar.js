@@ -1,11 +1,6 @@
 import React from 'react';
 
-const LibrarySidebar = ({ unassignedEquipment = [] }) => {
-
-    const onDragStart = (event, equipment) => {
-        event.dataTransfer.setData('application/reactflow', JSON.stringify(equipment));
-        event.dataTransfer.effectAllowed = 'move';
-    };
+const LibrarySidebar = ({ unassignedEquipment = [], onDragStart, setDraggingItem }) => {
 
     if (!unassignedEquipment) {
         return <div className="p-4 text-gray-400">Loading...</div>;
@@ -20,7 +15,8 @@ const LibrarySidebar = ({ unassignedEquipment = [] }) => {
                         <div
                             key={equipment.id}
                             className="p-2 bg-gray-700 rounded-md cursor-grab text-white hover:bg-gray-600"
-                            onDragStart={(event) => onDragStart(event, equipment)}
+                            onDragStart={(e) => onDragStart(e, equipment)}
+                            onDragEnd={() => setDraggingItem(null)}
                             draggable
                         >
                             {equipment.instance_name}

@@ -15,6 +15,7 @@ import DeviceNode from '../components/DeviceNode';
 import CustomEdge from '../components/CustomEdge';
 import WireDiagramPdfModal from '../components/WireDiagramPdfModal';
 import LibrarySidebar from '../components/LibrarySidebar';
+import CustomDragLayer from '../components/CustomDragLayer';
 import { ReactFlowProvider } from 'reactflow';
 import { useShow } from '../contexts/ShowContext';
 
@@ -69,6 +70,21 @@ const WireDiagramView = () => {
     const [numTabs, setNumTabs] = useState(1);
     const [unassignedEquipment, setUnassignedEquipment] = useState([]);
     const [justDroppedNode, setJustDroppedNode] = useState(null);
+    const [draggingItem, setDraggingItem] = useState(null);
+
+    const onDragStart = (event, equipment) => {
+        const { zoom } = getViewport();
+        const equipmentWithZoom = { ...equipment, zoom };
+
+        event.dataTransfer.setData('application/reactflow', JSON.stringify(equipment));
+        event.dataTransfer.effectAllowed = 'move';
+        
+        const img = new Image();
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        event.dataTransfer.setDragImage(img, 0, 0);
+
+        setDraggingItem(equipmentWithZoom);
+    };
 
 
     const fetchData = useCallback(async () => {
@@ -138,7 +154,7 @@ const WireDiagramView = () => {
             fitView({ padding: 0.1 });
         }, 100);
 
-    }, [showName, setNodes, setEdges, fitView]);
+    }, [showName, setNodes, setEdges]);
 
     const fetchUnassignedEquipment = useCallback(async () => {
         if (!showName) return;
@@ -181,8 +197,9 @@ const WireDiagramView = () => {
                 const connections = await api.getConnectionsForDevice(justDroppedNode.id);
 
                 if (connections && connections.length > 0) {
-                    const allNodes = getNodes(); 
+                    const allNodes = getNodes();
                     const nodePageMap = new Map(allNodes.map(n => [n.id, n.data.page_number]));
+                    nodePageMap.set(justDroppedNode.id, justDroppedNode.data.page_number);
                     
                     const newEdges = connections.map(conn => {
                         const sourcePage = nodePageMap.get(conn.source_device_id.toString());
@@ -295,7 +312,8 @@ const WireDiagramView = () => {
         event.dataTransfer.dropEffect = 'move';
     }, []);
 
-    const onDrop = useCallback(async (event) => {
+    const onDrop = useCallback((event) => {
+        setDraggingItem(null);
         event.preventDefault();
 
         const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
@@ -305,73 +323,76 @@ const WireDiagramView = () => {
             return;
         }
 
-        try {
-            const fullEquipmentData = await api.getEquipmentInstance(equipmentData.id);
+        const panePosition = {
+            x: event.clientX - reactFlowBounds.left,
+            y: event.clientY - reactFlowBounds.top,
+        };
+        const viewport = getViewport();
+        const position = {
+            x: (panePosition.x - viewport.x) / viewport.zoom,
+            y: (panePosition.y - viewport.y) / viewport.zoom,
+        };
 
-            const panePosition = {
-                x: event.clientX - reactFlowBounds.left,
-                y: event.clientY - reactFlowBounds.top,
-            };
-            const viewport = getViewport();
-            const position = {
-                x: (panePosition.x - viewport.x) / viewport.zoom,
-                y: (panePosition.y - viewport.y) / viewport.zoom,
-            };
+        const newNode = {
+            id: equipmentData.id.toString(),
+            type: 'device',
+            position,
+            data: { ...equipmentData, label: equipmentData.instance_name, page_number: activeTab },
+            hidden: false,
+        };
 
-            const newNode = {
-                id: fullEquipmentData.id.toString(),
-                type: 'device',
-                position,
-                data: { ...fullEquipmentData, label: fullEquipmentData.instance_name, page_number: activeTab },
-                hidden: false,
-            };
+        setNodes((nds) => nds.concat(newNode));
+        setUnassignedEquipment(current => current.filter(eq => eq.id !== equipmentData.id));
+        setJustDroppedNode(newNode);
 
-            await api.updateEquipmentInstance(fullEquipmentData.id, {
-                x_pos: Math.round(position.x),
-                y_pos: Math.round(position.y),
-                page_number: activeTab,
-            });
+        api.updateEquipmentInstance(equipmentData.id, {
+            x_pos: Math.round(position.x),
+            y_pos: Math.round(position.y),
+            page_number: activeTab,
+        }).catch(err => {
+            console.error("Failed to save placed equipment:", err);
+            // Simple rollback for now
+            setNodes((nds) => nds.filter(n => n.id !== newNode.id));
+            setUnassignedEquipment(current => [...current, equipmentData]);
+            alert("Failed to save equipment position. It has been returned to the library.");
+        });
+    }, [activeTab, getViewport, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
 
-            setNodes((nds) => nds.concat(newNode));
-            
-            setUnassignedEquipment(current => current.filter(eq => eq.id !== equipmentData.id));
-
-            setJustDroppedNode(newNode);
-
-        } catch (err) {
-            console.error("Failed to place new equipment:", err);
-            alert(`Error placing equipment: ${err.message}`);
-        }
-    }, [activeTab, getViewport, setNodes, setUnassignedEquipment, setJustDroppedNode]);
-
-    const onNodesChangeCustom = useCallback(async (changes) => {
+    const onNodesChangeCustom = useCallback((changes) => {
         const currentEdges = getEdges();
+        const currentNodes = getNodes();
+
         for (const change of changes) {
             if (change.type === 'remove') {
                 const nodeId = change.id;
+
+                // Fire and forget background API calls
                 const connectedEdges = currentEdges.filter(e => e.source === nodeId || e.target === nodeId);
-                
-                try {
-                    if (connectedEdges.length > 0) {
-                        const deletionPromises = connectedEdges.map(edge => api.deleteConnection(edge.data.db_id));
-                        await Promise.all(deletionPromises);
-                    }
-
-                    await api.updateEquipmentInstance(nodeId, {
-                        page_number: null,
-                        x_pos: null,
-                        y_pos: null
+                if (connectedEdges.length > 0) {
+                    const deletionPromises = connectedEdges.map(edge => api.deleteConnection(edge.data.db_id));
+                    Promise.all(deletionPromises).catch(err => {
+                        console.error("Failed to delete one or more connections for node:", nodeId, err);
+                        // No rollback, as it's complex. Just log the error.
                     });
+                }
+                
+                api.updateEquipmentInstance(nodeId, {
+                    page_number: null,
+                    x_pos: null,
+                    y_pos: null
+                }).catch(err => {
+                    console.error("Failed to unassign equipment:", nodeId, err);
+                });
 
-                    const nodeToRemove = getNodes().find(n => n.id === nodeId);
-                    if (nodeToRemove) {
-                        setUnassignedEquipment(current => [...current, nodeToRemove.data]);
-                    }
-                } catch (err) {
-                    console.error("Failed to delete node and its connections:", err);
+                // Optimistic UI update for unassigned equipment list
+                const nodeToRemove = currentNodes.find(n => n.id === nodeId);
+                if (nodeToRemove) {
+                    setUnassignedEquipment(current => [...current, nodeToRemove.data]);
                 }
             }
         }
+        
+        // Let React Flow handle the node removal from the canvas
         onNodesChange(changes);
     }, [onNodesChange, getEdges, getNodes, setUnassignedEquipment]);
 
@@ -453,7 +474,12 @@ const WireDiagramView = () => {
 
     return (
         <div className="h-[calc(100vh-220px)] w-full flex flex-row rounded-xl bg-gray-800/50" data-testid="wire-diagram-view">
-            <LibrarySidebar unassignedEquipment={unassignedEquipment} />
+            <CustomDragLayer draggingItem={draggingItem} />
+            <LibrarySidebar
+                unassignedEquipment={unassignedEquipment}
+                onDragStart={onDragStart}
+                setDraggingItem={setDraggingItem}
+            />
             <div className="flex-grow flex flex-col">
                 <div className="flex-shrink-0 flex items-center justify-between p-2 border-b border-gray-700">
                     <div className="flex items-center gap-1">
@@ -501,6 +527,7 @@ const WireDiagramView = () => {
                         onDragOver={onDragOver}
                         nodeTypes={nodeTypes}
                         edgeTypes={edgeTypes}
+                        deleteKeyCode={['Backspace', 'Delete']}
                         className="bg-gray-900"
                         proOptions={{ hideAttribution: true }}
                     >

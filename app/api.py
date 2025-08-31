@@ -15,7 +15,7 @@ from .models import (
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
-    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload
+    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
 from typing import List, Dict, Optional
@@ -772,7 +772,7 @@ async def create_connection(connection_data: ConnectionCreate, user = Depends(ge
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/shows/{show_name}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstance])
+@router.get("/shows/{show_name}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstanceWithTemplate])
 async def get_unassigned_equipment(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all equipment for a show that has not been assigned to a wire diagram page."""
     try:

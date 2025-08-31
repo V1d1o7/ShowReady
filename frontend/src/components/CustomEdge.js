@@ -1,58 +1,46 @@
 import React from 'react';
-import { getBezierPath } from 'reactflow';
+import { StepEdge } from 'reactflow';
 
-export default function CustomEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  style = {},
-  data,
-  markerEnd,
-}) {
-  const [edgePath, labelX, labelY] = getBezierPath({
+export default function CustomEdge(props) {
+  const {
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
-    targetPosition,
-  });
+    data,
+  } = props;
+
+  // Manually calculate the center for the label
+  const labelX = (sourceX + targetX) / 2;
+  const labelY = (sourceY + targetY) / 2;
 
   return (
     <>
-      <path
-        id={id}
-        style={style}
-        className="react-flow__edge-path"
-        d={edgePath}
-        markerEnd={markerEnd}
-      />
-      <foreignObject
-        width="1"
-        height="1"
-        x={sourceX + 5}
-        y={sourceY - 15}
-        style={{ overflow: 'visible' }}
-        requiredExtensions="http://www.w3.org/1999/xhtml"
-      >
-          <div
-            style={{
-              padding: '2px 4px',
-              borderRadius: '4px',
-              fontSize: '8px',
-              fontWeight: 'bold',
-              color: '#fff',
-              backgroundColor: '#27272a',
-              display: 'inline-block',
-            }}
-          >
-            {data.label}
-          </div>
-      </foreignObject>
+      <StepEdge {...props} borderRadius={10} />
+      {data.label && (
+        <foreignObject
+          width="40"
+          height="30"
+          x={labelX - 20} // Offset by half width
+          y={labelY - 15} // Offset by half height
+          style={{ overflow: 'visible', textAlign: 'center' }}
+          requiredExtensions="http://www.w3.org/1999/xhtml"
+        >
+            <div
+              style={{
+                padding: '2px 4px',
+                borderRadius: '4px',
+                fontSize: '8px',
+                fontWeight: 'bold',
+                color: '#fff',
+                backgroundColor: '#27272a',
+                display: 'inline-block',
+              }}
+            >
+              {data.label}
+            </div>
+        </foreignObject>
+      )}
     </>
   );
 }

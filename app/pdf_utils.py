@@ -13,11 +13,11 @@ from reportlab.lib.enums import TA_CENTER
 
 from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload
 
+tabloid = (11 * inch, 17 * inch)
 PAGE_SIZES = {
-    "letter": letter,
-    "legal": letter, # Placeholder
-    "tabloid": letter, # Placeholder
-    "a4": letter, # Placeholder
+    "letter": landscape(letter),
+    "tabloid": landscape(tabloid),
+    "22x17": (22 * inch, 17 * inch),
 }
 
 def parse_color(color_string: Optional[str]) -> colors.Color:
@@ -215,9 +215,15 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
     scale_y = DRAW_AREA_HEIGHT / content_height if content_height > 0 else 1
     scale = min(scale_x, scale_y, 1.0) # Don't scale up, only down
 
+    # Calculate centering offsets
+    scaled_content_width = content_width * scale
+    scaled_content_height = content_height * scale
+    offset_x = (DRAW_AREA_WIDTH - scaled_content_width) / 2
+    offset_y = (DRAW_AREA_HEIGHT - scaled_content_height) / 2
+
     c.saveState()
-    # Set origin to top-left of drawing area
-    c.translate(MARGIN, height - MARGIN - TITLE_BLOCK_HEIGHT)
+    # Set origin to top-left of drawing area, including centering offsets
+    c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
     # Adjust for content origin
     c.translate(-min_x * scale, min_y * scale)
 
@@ -238,7 +244,7 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
     c.restoreState() # Back to default
     
     # --- Start drawing content ---
-    c.translate(MARGIN, height - MARGIN - TITLE_BLOCK_HEIGHT)
+    c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
     c.translate(-min_x * scale, min_y * scale)
 
     port_locations = {}
@@ -324,7 +330,7 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
 
 def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
     buffer = io.BytesIO()
-    page_size = landscape(PAGE_SIZES.get(payload.page_size.lower(), letter))
+    page_size = PAGE_SIZES.get(payload.page_size.lower(), landscape(letter))
     c = canvas.Canvas(buffer, pagesize=page_size)
 
     if not payload.pages:
