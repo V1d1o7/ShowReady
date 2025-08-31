@@ -107,7 +107,7 @@ class RackEquipmentInstance(BaseModel):
     ip_address: Optional[str] = None
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
-    page_number: Optional[int] = 1
+    page_number: Optional[int] = None
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
@@ -121,6 +121,7 @@ class RackEquipmentInstanceUpdate(BaseModel):
     ip_address: Optional[str] = None
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
+    page_number: Optional[int] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
     id: uuid.UUID

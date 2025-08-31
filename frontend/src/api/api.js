@@ -66,6 +66,7 @@ export const api = {
     deleteAccount: async () => fetch('/api/profile', { method: 'DELETE', headers: await getAuthHeader() }),
     createRack: async (rackData) => fetch('/api/racks', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(rackData) }).then(handleResponse),
     getRacksForShow: async (showName) => fetch(`/api/racks?show_name=${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    getDetailedRacksForShow: async (showName) => fetch(`/api/shows/${showName}/detailed_racks`, { headers: await getAuthHeader() }).then(handleResponse),
     getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
     updateRack: async (rackId, rackData) => fetch(`/api/racks/${rackId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(rackData) }).then(handleResponse),
     deleteRack: async (rackId) => fetch(`/api/racks/${rackId}`, { method: 'DELETE', headers: await getAuthHeader() }),
@@ -74,6 +75,7 @@ export const api = {
     getLibrary: async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse),
     moveEquipmentInRack: async (instanceId, newPositionData) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) }, body: JSON.stringify(newPositionData) }).then(handleResponse),
     deleteEquipmentFromRack: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'DELETE', headers: await getAuthHeader() }),
+    getEquipmentInstance: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { headers: await getAuthHeader() }).then(handleResponse),
     getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
     createAdminFolder: async (folderData) => fetch('/api/admin/folders', {
         method: 'POST',
@@ -95,6 +97,7 @@ export const api = {
     }),
     
     getConnectionsForShow: async (showName) => fetch(`/api/connections/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    getConnectionsForDevice: async (instanceId) => fetch(`/api/equipment/${instanceId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
     createConnection: async (connectionData) => fetch('/api/connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(await getAuthHeader()) },

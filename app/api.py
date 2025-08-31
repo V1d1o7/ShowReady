@@ -311,6 +311,51 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     rack_data['equipment'] = equipment_instances
     return rack_data
 
+@router.get("/shows/{show_name}/detailed_racks", response_model=List[Rack], tags=["Racks"])
+async def get_detailed_racks_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # 1. Get all racks for the show
+    racks_res = supabase.table('racks').select('*').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    if not racks_res.data:
+        return []
+    
+    racks = racks_res.data
+    rack_ids = [rack['id'] for rack in racks]
+    
+    # 2. Get all equipment instances for all racks in one query
+    equipment_res = supabase.table('rack_equipment_instances').select('*').in_('rack_id', rack_ids).execute()
+    equipment_instances = equipment_res.data if equipment_res.data else []
+    
+    if not equipment_instances:
+        # If there's no equipment, just return the racks with empty equipment lists
+        for rack in racks:
+            rack['equipment'] = []
+        return racks
+
+    # 3. Get all unique template IDs from the equipment
+    template_ids = list(set(item['template_id'] for item in equipment_instances))
+    
+    # 4. Get all needed equipment templates in one query
+    templates_res = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
+    template_map = {template['id']: template for template in templates_res.data}
+    
+    # 5. Attach templates to their instances
+    for instance in equipment_instances:
+        instance['equipment_templates'] = template_map.get(instance['template_id'])
+        
+    # 6. Create a map of rack_id to its equipment
+    rack_equipment_map = {}
+    for instance in equipment_instances:
+        rack_id = instance['rack_id']
+        if rack_id not in rack_equipment_map:
+            rack_equipment_map[rack_id] = []
+        rack_equipment_map[rack_id].append(instance)
+        
+    # 7. Attach the equipment lists to their parent racks
+    for rack in racks:
+        rack['equipment'] = rack_equipment_map.get(rack['id'], [])
+        
+    return racks
+
 @router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     update_data = rack_update.model_dump(exclude_unset=True)
@@ -474,6 +519,21 @@ async def add_equipment_to_rack(
         return new_instance
         
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
+
+@router.get("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
+async def get_equipment_instance(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves a single equipment instance with its template data."""
+    instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+    
+    if not instance_res.data:
+        raise HTTPException(status_code=404, detail="Equipment instance not found.")
+        
+    # Check if the user is authorized to view this instance
+    rack_res = supabase.table('racks').select('user_id').eq('id', instance_res.data['rack_id']).single().execute()
+    if not rack_res.data or str(rack_res.data['user_id']) != str(user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this equipment instance.")
+        
+    return instance_res.data
 
 @router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
 async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -748,6 +808,27 @@ async def get_connections_for_show(show_name: str, user = Depends(get_user), sup
         return {"connections": connections, "equipment": equipment_map}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch connections: {str(e)}")
+
+@router.get("/equipment/{instance_id}/connections", response_model=List[Connection], tags=["Wire Diagram"])
+async def get_connections_for_device(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all connections for a specific equipment instance."""
+    # First, verify the user has access to this equipment instance
+    instance_res = supabase.table('rack_equipment_instances').select('rack_id').eq('id', str(instance_id)).single().execute()
+    if not instance_res.data:
+        raise HTTPException(status_code=404, detail="Equipment instance not found.")
+    
+    rack_res = supabase.table('racks').select('user_id').eq('id', instance_res.data['rack_id']).single().execute()
+    if not rack_res.data or str(rack_res.data['user_id']) != str(user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this equipment's connections.")
+        
+    # Fetch connections where the instance is either a source or a destination
+    response = supabase.table('connections').select(
+        'id, show_id, source_device_id, source_port_id, destination_device_id, destination_port_id, cable_type, label, length_ft'
+    ).or_(
+        f'source_device_id.eq.{instance_id},destination_device_id.eq.{instance_id}'
+    ).execute()
+    
+    return response.data if response.data else []
 
 @router.put("/connections/{connection_id}", tags=["Wire Diagram"])
 async def update_connection(connection_id: uuid.UUID, update_data: ConnectionUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

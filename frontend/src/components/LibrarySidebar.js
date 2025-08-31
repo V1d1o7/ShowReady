@@ -1,44 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { useShow } from '../contexts/ShowContext';
-import { api } from '../api/api';
+import React from 'react';
 
-const LibrarySidebar = () => {
-    const { showName } = useShow();
-    const [unassignedEquipment, setUnassignedEquipment] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
-
-    useEffect(() => {
-        if (!showName) return;
-
-        const fetchUnassignedEquipment = async () => {
-            setIsLoading(true);
-            setError(null);
-            try {
-                const data = await api.getUnassignedEquipment(showName);
-                setUnassignedEquipment(data);
-            } catch (err) {
-                console.error("Failed to fetch unassigned equipment:", err);
-                setError("Could not load library items.");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchUnassignedEquipment();
-    }, [showName]);
+const LibrarySidebar = ({ unassignedEquipment = [] }) => {
 
     const onDragStart = (event, equipment) => {
         event.dataTransfer.setData('application/reactflow', JSON.stringify(equipment));
         event.dataTransfer.effectAllowed = 'move';
     };
 
-    if (isLoading) {
+    if (!unassignedEquipment) {
         return <div className="p-4 text-gray-400">Loading...</div>;
-    }
-
-    if (error) {
-        return <div className="p-4 text-red-400">{error}</div>;
     }
 
     return (
@@ -54,7 +24,7 @@ const LibrarySidebar = () => {
                             draggable
                         >
                             {equipment.instance_name}
-                            <div className="text-xs text-gray-400">{equipment.equipment_templates.model_number}</div>
+                            <div className="text-xs text-gray-400">{equipment.equipment_templates?.model_number}</div>
                         </div>
                     ))
                 ) : (
