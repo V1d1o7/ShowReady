@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
 import { Plus, Library, HardDrive } from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
@@ -55,9 +56,10 @@ const UserRackBuilderView = () => {
         try {
             await api.createRack({ rack_name: rackData.rackName, ru_height: parseInt(rackData.ruHeight, 10) });
             onUpdate();
+            toast.success("Rack template created successfully!");
         } catch (error) {
             console.error("Failed to create rack:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsNewRackModalOpen(false);
     };
@@ -119,9 +121,10 @@ const UserRackBuilderView = () => {
         try {
             await api.deleteRack(rackId);
             onUpdate();
+            toast.success("Rack template deleted.");
         } catch (error) {
             console.error("Failed to delete rack:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
     };
 
@@ -129,9 +132,10 @@ const UserRackBuilderView = () => {
         try {
             await api.updateRack(rackId, rackData);
             onUpdate();
+            toast.success("Rack template updated.");
         } catch (error) {
             console.error("Failed to update rack:", error)
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
     };
 
@@ -139,9 +143,10 @@ const UserRackBuilderView = () => {
         try {
             await api.createUserEquipment(equipmentData);
             onUpdate();
+            toast.success("Equipment created successfully.");
         } catch (error) {
             console.error("Failed to create user equipment:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsNewEquipModalOpen(false);
     };
@@ -150,9 +155,10 @@ const UserRackBuilderView = () => {
         try {
             await api.copyRackFromLibrary(templateRackId);
             onUpdate();
+            toast.success("Rack loaded successfully!");
         } catch (error) {
             console.error("Failed to load rack from library:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsRackLibraryOpen(false);
     };
@@ -161,6 +167,7 @@ const UserRackBuilderView = () => {
         if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
         try {
             await api.deleteEquipmentFromRack(instanceId);
+            toast.success("Equipment removed from rack.");
             // Optimistically update UI
             setActiveRack(currentRack => ({
                 ...currentRack,
@@ -168,7 +175,7 @@ const UserRackBuilderView = () => {
             }));
         } catch (error) {
             console.error("Failed to delete equipment:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
             onUpdate(); // Re-fetch on error to revert optimistic update
         }
     };
@@ -193,7 +200,7 @@ const UserRackBuilderView = () => {
         const { ru, side } = dragOverData;
 
         if (checkCollision(activeRack, draggedItem, ru, side)) {
-            alert("Placement overlaps with existing equipment or is out of bounds.");
+            toast.error("Placement overlaps with existing equipment or is out of bounds.");
             cleanup();
             return;
         }
@@ -207,21 +214,53 @@ const UserRackBuilderView = () => {
         const finalSide = isFullWidth ? side.replace(/-left|-right/g, '') : side;
         
         if (draggedItem.isNew) {
+            const optimisticId = `optimistic-${Date.now()}`;
+            const optimisticItem = {
+                id: optimisticId,
+                rack_id: activeRack.id,
+                ru_position: ru,
+                rack_side: finalSide,
+                instance_name: `${draggedItem.item.model_number}`,
+                equipment_templates: { ...itemTemplate },
+            };
+
+            setActiveRack(currentRack => ({
+                ...currentRack,
+                equipment: [...currentRack.equipment, optimisticItem]
+            }));
+            
             const payload = { template_id: draggedItem.item.id, ru_position: ru, rack_side: finalSide };
             api.addEquipmentToRack(activeRack.id, payload)
-               .then(() => onUpdate())
-               .catch(err => {
-                    alert(`Error adding equipment: ${err.message}`);
+               .then(() => {
                     onUpdate();
+                    toast.success("Equipment added.");
+               })
+               .catch(err => {
+                    toast.error(`Error adding equipment: ${err.message}`);
+                    setActiveRack(currentRack => ({
+                        ...currentRack,
+                        equipment: currentRack.equipment.filter(item => item.id !== optimisticId)
+                    }));
                });
         } else {
+            const originalEquipmentState = activeRack.equipment;
             const movedItemId = draggedItem.item.id;
+
+            const updatedEquipment = originalEquipmentState.map(equip =>
+                equip.id === movedItemId ? { ...equip, ru_position: ru, rack_side: finalSide } : equip
+            );
+            
+            setActiveRack({ ...activeRack, equipment: updatedEquipment });
+
             const payload = { ru_position: ru, rack_side: finalSide };
             api.updateEquipmentInstance(movedItemId, payload)
-                .then(() => onUpdate())
-                .catch(err => {
-                    alert(`Failed to save move: ${err.message}`);
+                .then(() => {
                     onUpdate();
+                    toast.success("Equipment move saved.");
+                })
+                .catch(err => {
+                    toast.error(`Failed to save move: ${err.message}`);
+                    setActiveRack({ ...activeRack, equipment: originalEquipmentState });
                 });
         }
         
@@ -245,10 +284,10 @@ const UserRackBuilderView = () => {
         try {
             await api.copyEquipmentToLibrary({ template_id: item.id, folder_id: null });
             onUpdate();
-            alert(`${item.model_number} copied to your library!`);
+            toast.success(`${item.model_number} copied to your library!`);
         } catch (error) {
             console.error("Failed to copy equipment:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setContextMenu(null);
     };
@@ -272,7 +311,8 @@ const UserRackBuilderView = () => {
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <div className="flex justify-between h-[calc(100vh-250px)]" onDragEnd={handleDragEnd}>
+        <div className="grid grid-cols-[auto_1fr_auto] gap-8 h-full" onDragEnd={handleDragEnd}>
+            <Toaster position="bottom-center" />
             <RackList
                 racks={racks}
                 onSelectRack={onSelectRack}
@@ -280,40 +320,44 @@ const UserRackBuilderView = () => {
                 onDeleteRack={handleDeleteRack}
                 onUpdateRack={handleUpdateRack}
                 selectedRackId={selectedRackId}
+                // onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
+                title="My Rack Templates"
             />
-            <div className="overflow-x-auto pb-4 flex justify-center gap-8">
-                {activeRack ? (
-                    <>
-                        <RackComponent
-                            key={`${activeRack.id}-front`}
-                            rack={activeRack}
-                            view="front"
-                            onDrop={handleDrop}
-                            onDelete={handleDeleteEquipment}
-                            onDragStart={(e, item) => handleDragStart(e, item, false)}
-                            draggedItem={draggedItem}
-                            dragOverData={dragOverData}
-                            onDragOverRack={setDragOverData}
-                        />
-                        <RackComponent
-                            key={`${activeRack.id}-rear`}
-                            rack={activeRack}
-                            view="rear"
-                            onDrop={handleDrop}
-                            onDelete={handleDeleteEquipment}
-                            onDragStart={(e, item) => handleDragStart(e, item, false)}
-                            draggedItem={draggedItem}
-                            dragOverData={dragOverData}
-                            onDragOverRack={setDragOverData}
-                        />
-                    </>
-                ) : (
-                    <div className="flex flex-col items-center justify-center text-center text-gray-500 w-[732px]">
-                        <HardDrive size={48} className="mb-4" />
-                        <h3 className="text-lg font-bold">No Rack Selected</h3>
-                        <p>Select a rack from the left panel to begin, or create a new one.</p>
-                    </div>
-                )}
+            <div className="overflow-auto pb-4">
+                <div className="flex justify-center gap-8">
+                    {activeRack ? (
+                        <>
+                            <RackComponent
+                                key={`${activeRack.id}-front`}
+                                rack={activeRack}
+                                view="front"
+                                onDrop={handleDrop}
+                                onDelete={handleDeleteEquipment}
+                                onDragStart={(e, item) => handleDragStart(e, item, false)}
+                                draggedItem={draggedItem}
+                                dragOverData={dragOverData}
+                                onDragOverRack={setDragOverData}
+                            />
+                            <RackComponent
+                                key={`${activeRack.id}-rear`}
+                                rack={activeRack}
+                                view="rear"
+                                onDrop={handleDrop}
+                                onDelete={handleDeleteEquipment}
+                                onDragStart={(e, item) => handleDragStart(e, item, false)}
+                                draggedItem={draggedItem}
+                                dragOverData={dragOverData}
+                                onDragOverRack={setDragOverData}
+                            />
+                        </>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center text-center text-gray-500 w-[732px]">
+                            <HardDrive size={48} className="mb-4" />
+                            <h3 className="text-lg font-bold">No Rack Selected</h3>
+                            <p>Select a rack from the left panel to begin, or create a new one.</p>
+                        </div>
+                    )}
+                </div>
             </div>
             <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
                 <div className="flex justify-between items-center mb-4">
@@ -324,11 +368,6 @@ const UserRackBuilderView = () => {
                 </div>
                 <div className="flex-grow overflow-y-auto pr-2">
                     <UserTreeView library={library} onContextMenu={handleContextMenu} onDragStart={(e, item) => handleDragStart(e, item, true)} />
-                </div>
-                <div className="pt-4 border-t border-gray-700">
-                    <button onClick={() => setIsRackLibraryOpen(true)} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                        <Library size={16} /> Load from Rack Library
-                    </button>
                 </div>
             </div>
             

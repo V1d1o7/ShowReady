@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Edit, Trash2, Save, Library } from 'lucide-react';
 import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, showName, onLoadFromRackLibrary }) => {
+const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, showName, onLoadFromRackLibrary, title = 'Show Racks' }) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -14,7 +14,7 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
         <>
             <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
                 <div className="flex justify-between items-center mb-3">
-                    <h3 className="text-lg font-bold text-white">{'Show Racks'}</h3>
+                    <h3 className="text-lg font-bold text-white">{title}</h3>
                     <div className="flex items-center gap-2">
                         <button
                             onClick={onNewRack}
@@ -42,12 +42,13 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                         </div>
                     ))}
                 </div>
-                {/* Corrected button code with the new prop */}
-                <div className="pt-4 border-t border-gray-700">
-                    <button onClick={onLoadFromRackLibrary} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                        <Library size={16} /> Load from Rack Library
-                    </button>
-                </div>
+                {onLoadFromRackLibrary && (
+                    <div className="pt-4 border-t border-gray-700">
+                        <button onClick={onLoadFromRackLibrary} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                            <Library size={16} /> Load from Rack Library
+                        </button>
+                    </div>
+                )}
             </div>
             {editingRack && (
                 <EditRackModal

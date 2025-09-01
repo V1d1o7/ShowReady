@@ -15,6 +15,11 @@ const EquipmentLibraryView = () => {
         onNewEquipment,
     } = useLibrary();
 
+    const userLibrary = {
+        folders: library.folders.filter(f => !f.is_default),
+        equipment: library.equipment.filter(e => !e.is_default),
+    };
+
     return (
         <Card className="max-w-4xl mx-auto">
             <div className="flex justify-between items-center mb-4">
@@ -33,8 +38,7 @@ const EquipmentLibraryView = () => {
                     <p>Loading library...</p>
                 ) : (
                     <UserTreeView
-                        folders={library.folders.filter(f => !f.is_default)}
-                        equipment={library.equipment.filter(e => !e.is_default)}
+                        library={userLibrary}
                         onDeleteFolder={onDeleteFolder}
                         onDeleteEquipment={onDeleteEquipment}
                         onEditItem={onEditItem}

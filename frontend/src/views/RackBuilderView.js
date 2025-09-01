@@ -370,6 +370,7 @@ const RackBuilderView = () => {
                 selectedRackId={selectedRackId}
                 showName={showName}
                 onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
+                title="Show Racks"
             />
             <div className="overflow-auto pb-4">
                 <div className="flex justify-center gap-8">
