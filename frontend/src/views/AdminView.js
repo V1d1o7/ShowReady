@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { Plus, Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, GripVertical, Edit } from 'lucide-react';
@@ -177,7 +176,6 @@ const NewFolderModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
 
 
 const AdminView = () => {
-    const navigate = useNavigate();
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [isLoading, setIsLoading] = useState(true);
     const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
@@ -330,16 +328,16 @@ const AdminView = () => {
 
     return (
         <>
-            <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
-                <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
+            <div className="h-full flex flex-col p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto w-full">
+                <header className="flex-shrink-0 flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                     <div className="flex items-center gap-4">
                         <h1 className="text-2xl sm:text-3xl font-bold text-white">Super Admin Panel</h1>
                     </div>
                 </header>
-                <main className="space-y-8">
+                <main className="flex-grow min-h-0">
                     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-                        <Card>
-                            <div className="flex justify-between items-center mb-4">
+                        <Card className="h-full flex flex-col">
+                            <div className="flex-shrink-0 flex justify-between items-center mb-4">
                                 <h2 className="text-xl font-bold text-white">Default Equipment Library</h2>
                                 <div className="flex gap-2">
                                     <button onClick={() => setIsFolderModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
@@ -350,7 +348,7 @@ const AdminView = () => {
                                     </button>
                                 </div>
                             </div>
-                            <div className="p-4 bg-gray-900/50 rounded-lg">
+                            <div className="flex-grow min-h-0 overflow-y-auto p-4 bg-gray-900/50 rounded-lg">
                                <AdminTreeView 
                                    folders={library.folders} 
                                    equipment={library.equipment} 
@@ -396,3 +394,4 @@ const AdminView = () => {
 };
 
 export default AdminView;
+

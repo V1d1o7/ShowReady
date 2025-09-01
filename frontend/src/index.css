@@ -6,6 +6,11 @@
 /* You can still keep your custom base styles here if needed. */
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
 
+html, body, #root {
+  height: 100%;
+  overflow: hidden; /* Prevent body scrolling */
+}
+
 body {
   margin: 0;
   font-family: 'Space Mono', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -41,3 +46,4 @@ input, select, textarea, button {
 h1, h2, h3, h4, h5, h6 {
     font-family: 'Space Mono', monospace;
 }
+

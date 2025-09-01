@@ -178,7 +178,7 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
                                     <button onClick={() => handleEditItem(node, 'folder')} className="p-1 text-gray-500 hover:text-amber-400">
                                         <Edit size={14} />
                                     </button>
-                                    <button onClick={() => handleDeleteFolder(node.id)} className="p-1 text-gray-500 hover:text-red-400">
+                                    <button onClick={() => onDeleteFolder(node.id)} className="p-1 text-gray-500 hover:text-red-400">
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
@@ -208,10 +208,10 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
                     </div>
                     {isUserItem && (
                         <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleEditItem(node, 'equipment')} className="p-1 text-gray-500 hover:text-amber-400">
+                            <button onClick={() => onEditItem(node, 'equipment')} className="p-1 text-gray-500 hover:text-amber-400">
                                 <Edit size={14} />
                             </button>
-                            <button onClick={() => handleDeleteEquipment(node.id)} className="p-1 text-gray-500 hover:text-red-400">
+                            <button onClick={() => onDeleteEquipment(node.id)} className="p-1 text-gray-500 hover:text-red-400">
                                 <Trash2 size={14} />
                             </button>
                         </div>
@@ -282,3 +282,4 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
 };
 
 export default UserTreeView;
+

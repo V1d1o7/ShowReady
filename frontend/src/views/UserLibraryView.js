@@ -157,14 +157,14 @@ const UserLibraryView = () => {
 
     return (
         <LibraryProvider value={contextValue}>
-            <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
-                <header className="flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
+            <div className="h-full flex flex-col p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto w-full">
+                <header className="flex-shrink-0 flex items-center justify-between pb-6 mb-6 border-b border-gray-700">
                     <div className="flex items-center gap-4">
                         <h1 className="text-2xl sm:text-3xl font-bold text-white">My Library</h1>
                     </div>
                 </header>
 
-                <div className="flex border-b border-gray-700 mb-6">
+                <div className="flex-shrink-0 flex border-b border-gray-700 mb-6">
                     <NavLink to="equipment" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <Package size={18} /> Equipment Library
                     </NavLink>
@@ -173,7 +173,7 @@ const UserLibraryView = () => {
                     </NavLink>
                 </div>
 
-                <main>
+                <main className="flex-grow min-h-0">
                     <Outlet />
                 </main>
             </div>
@@ -219,3 +219,4 @@ const UserLibraryView = () => {
 };
 
 export default UserLibraryView;
+

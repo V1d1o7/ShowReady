@@ -27,7 +27,6 @@ import Navbar from './components/Navbar';
 import { ShowProvider } from './contexts/ShowContext';
 
 
-// This wrapper component now handles the logic that was previously in App.js
 const MainLayout = ({ session, profile }) => {
     const [shows, setShows] = useState([]);
     const [isLoadingShows, setIsLoadingShows] = useState(true);
@@ -70,7 +69,7 @@ const MainLayout = ({ session, profile }) => {
         if (!window.confirm(`Are you sure you want to delete "${showNameToDelete}"?`)) return;
         try {
             await api.deleteShow(showNameToDelete);
-            loadShows(); // Refresh the list after deletion
+            loadShows();
         } catch (error) {
             console.error("Failed to delete show:", error);
         }
@@ -78,10 +77,10 @@ const MainLayout = ({ session, profile }) => {
 
 
     return (
-        <div className="flex flex-col h-screen">
+        <div className="flex flex-col h-full">
             <Navbar profile={profile} />
-            <main className="flex-grow min-h-0 overflow-y-auto">
-                <Routes>
+            <main className="flex-grow min-h-0">
+                 <Routes>
                     <Route
                         path="/"
                         element={
@@ -132,7 +131,6 @@ const MainLayout = ({ session, profile }) => {
 };
 
 
-// Main App component is now simpler
 export default function App() {
     const [session, setSession] = useState(null);
     const [profile, setProfile] = useState(null);
@@ -170,13 +168,12 @@ export default function App() {
     }
 
     return (
-        <div className="bg-gray-900 text-gray-300 font-sans min-h-screen">
+        <div className="bg-gray-900 text-gray-300 font-sans h-full">
             {!session ? <Auth /> : <MainLayout session={session} profile={profile} />}
         </div>
     );
 }
 
-// Wrapper for ShowView to handle its own data loading via URL parameters
 const ShowWrapper = () => {
     const { showName } = useParams();
     const [showData, setShowData] = useState(null);
@@ -216,3 +213,4 @@ const ShowWrapper = () => {
         </ShowProvider>
     );
 };
+

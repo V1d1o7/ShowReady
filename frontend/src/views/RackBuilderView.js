@@ -359,7 +359,7 @@ const RackBuilderView = () => {
     if (isLoading) return <div className="p-8 text-center text-gray-400">Loading Rack Builder...</div>;
 
     return (
-        <div className="grid grid-cols-[auto_1fr_auto] gap-8 h-full" onDragEnd={handleDragEnd}>
+        <div className="flex flex-row gap-8 h-full" onDragEnd={handleDragEnd}>
             <Toaster position="bottom-center" />
             <RackList
                 racks={racks}
@@ -372,7 +372,7 @@ const RackBuilderView = () => {
                 onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
                 title="Show Racks"
             />
-            <div className="overflow-auto pb-4">
+            <div className="flex-grow overflow-auto pb-4">
                 <div className="flex justify-center gap-8">
                     {activeRack ? (
                         <>
@@ -400,7 +400,7 @@ const RackBuilderView = () => {
                             />
                         </>
                     ) : (
-                        <div className="flex flex-col items-center justify-center text-center text-gray-500 w-[732px]">
+                        <div className="flex flex-col items-center justify-center text-center text-gray-500 w-full h-full">
                             <HardDrive size={48} className="mb-4" />
                             <h3 className="text-lg font-bold">No Rack Selected</h3>
                             <p>Select a rack from the left panel to begin, or create a new one.</p>
@@ -409,13 +409,13 @@ const RackBuilderView = () => {
                 </div>
             </div>
             <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex-shrink-0 flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-white">Library</h2>
                     <button onClick={() => setIsNewEquipModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400">
                         <Plus size={16} /> New
                     </button>
                 </div>
-                <div className="flex-grow overflow-y-auto pr-2">
+                <div className="flex-grow min-h-0 overflow-y-auto pr-2">
                     <UserTreeView library={library} onContextMenu={handleContextMenu} onDragStart={(e, item) => handleDragStart(e, item, true)} />
                 </div>
             </div>
@@ -448,3 +448,4 @@ const RackBuilderView = () => {
 };
 
 export default RackBuilderView;
+
