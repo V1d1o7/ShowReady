@@ -365,7 +365,7 @@ const UserRackBuilderView = () => {
                     </button>
                 </div>
                 <div className="flex-grow min-h-0 overflow-y-auto pr-2">
-                    <UserTreeView library={library} onContextMenu={handleContextMenu} onDragStart={(e, item) => handleDragStart(e, item, true)} />
+                    <UserTreeView library={library} onDragStart={(e, item) => handleDragStart(e, item, true)} />
                 </div>
             </div>
             

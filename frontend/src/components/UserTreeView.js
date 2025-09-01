@@ -4,7 +4,7 @@ import { api } from '../api/api';
 import EditUserFolderModal from './EditUserFolderModal';
 import EditUserEquipmentModal from './EditUserEquipmentModal';
 
-const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment, onEditItem }) => {
+const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment, onEditItem, showDefaultLibrary = true }) => {
     const [expandedFolders, setExpandedFolders] = useState({});
     const [editingItem, setEditingItem] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
@@ -86,37 +86,60 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
 
         const showReadyRoot = { id: 'showready-root', name: 'ShowReady Library', children: [] };
         const userRoot = { id: 'user-root', name: 'Your Equipment', children: [] };
-        const itemsById = {};
-
-        [...library.folders, ...library.equipment].forEach(item => {
-            itemsById[item.id] = { ...item, children: [] };
+        
+        const foldersById = {};
+        library.folders.forEach(f => {
+            foldersById[f.id] = { ...f, children: [] };
         });
 
-        Object.values(itemsById).forEach(item => {
-            const parentId = item.parent_id || item.folder_id;
-            if (parentId && itemsById[parentId]) {
-                itemsById[parentId].children.push(item);
+        const orphanEquipment = [];
+        library.equipment.forEach(e => {
+            if (e.folder_id && foldersById[e.folder_id]) {
+                foldersById[e.folder_id].children.push(e);
             } else {
-                if (item.is_default) {
-                    showReadyRoot.children.push(item);
-                } else {
-                    userRoot.children.push(item);
-                }
+                orphanEquipment.push(e);
             }
         });
-        
-        Object.values(itemsById).forEach(item => {
-            item.children.sort((a, b) => {
+
+        const orphanFolders = [];
+        Object.values(foldersById).forEach(folder => {
+            if (folder.parent_id && foldersById[folder.parent_id]) {
+                foldersById[folder.parent_id].children.push(folder);
+            } else {
+                orphanFolders.push(folder);
+            }
+        });
+
+        [...orphanFolders, ...orphanEquipment].forEach(item => {
+            if (item.is_default) {
+                showReadyRoot.children.push(item);
+            } else {
+                userRoot.children.push(item);
+            }
+        });
+
+        const sortChildren = (node) => {
+            if (!node.children || node.children.length === 0) return;
+            node.children.sort((a, b) => {
                 const aIsFolder = 'parent_id' in a || (a.children && a.children.length > 0);
                 const bIsFolder = 'parent_id' in b || (b.children && b.children.length > 0);
                 if (aIsFolder && !bIsFolder) return -1;
                 if (!aIsFolder && bIsFolder) return 1;
                 return (a.name || a.model_number).localeCompare(b.name || b.model_number);
             });
-        });
+            node.children.forEach(sortChildren);
+        };
 
-        return [showReadyRoot, userRoot];
-    }, [library]);
+        sortChildren(showReadyRoot);
+        sortChildren(userRoot);
+
+        const roots = [userRoot];
+        if (showDefaultLibrary) {
+            roots.unshift(showReadyRoot);
+        }
+
+        return roots.filter(root => root.children.length > 0);
+    }, [library, showDefaultLibrary]);
 
     const userFolderTree = useMemo(() => {
         if (!library || !library.folders) return [];
@@ -133,7 +156,7 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
             }
         });
         return roots;
-    }, [library]);
+    }, [library.folders]);
 
     const renderNode = (node) => {
         const isFolder = 'parent_id' in node || (node.children && node.children.some(child => 'parent_id' in child));
@@ -155,7 +178,7 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
                                     <button onClick={() => handleEditItem(node, 'folder')} className="p-1 text-gray-500 hover:text-amber-400">
                                         <Edit size={14} />
                                     </button>
-                                    <button onClick={() => handleDeleteFolder(node.id)} className="p-1 text-gray-500 hover:text-red-400">
+                                    <button onClick={() => onDeleteFolder(node.id)} className="p-1 text-gray-500 hover:text-red-400">
                                         <Trash2 size={14} />
                                     </button>
                                 </div>
@@ -175,7 +198,7 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
              <li key={node.id} className="group my-1">
                  <div
                     draggable
-                    onDragStart={(e) => onDragStart(e, node)}
+                    onDragStart={(e) => onDragStart && onDragStart(e, node)}
                     className="flex items-center flex-grow p-2 rounded-md hover:bg-gray-700 cursor-grab"
                     onContextMenu={(e) => handleContextMenu(e, node)}
                 >
@@ -185,10 +208,10 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
                     </div>
                     {isUserItem && (
                         <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleEditItem(node, 'equipment')} className="p-1 text-gray-500 hover:text-amber-400">
+                            <button onClick={() => onEditItem(node, 'equipment')} className="p-1 text-gray-500 hover:text-amber-400">
                                 <Edit size={14} />
                             </button>
-                            <button onClick={() => handleDeleteEquipment(node.id)} className="p-1 text-gray-500 hover:text-red-400">
+                            <button onClick={() => onDeleteEquipment(node.id)} className="p-1 text-gray-500 hover:text-red-400">
                                 <Trash2 size={14} />
                             </button>
                         </div>
