@@ -2,6 +2,21 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 import uuid
 
+# --- Sender Identity Model ---
+class SenderIdentity(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    name: str
+    email: str
+    sender_login_email: str
+    app_password: str
+
+class SenderIdentityCreate(BaseModel):
+    name: str
+    email: str
+    sender_login_email: str
+    app_password: str
+
+
 # --- User Profile Model ---
 class UserProfile(BaseModel):
     id: uuid.UUID
@@ -273,3 +288,4 @@ class WireDiagramPDFPayload(BaseModel):
     pages: List[PDFPage]
     page_size: str = "letter"
     show_name: str
+
