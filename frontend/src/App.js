@@ -58,6 +58,8 @@ const MainLayout = ({ session, profile }) => {
         try {
             const newShowData = { info: { show_name: newShowName }, loom_sheets: {}, case_sheets: {} };
             await api.saveShow(newShowName, newShowData);
+            // After creating, immediately reload the list of shows
+            await loadShows();
             navigate(`/show/${encodeURIComponent(newShowName)}/info`);
         } catch (error) {
             console.error("Failed to create show:", error);
@@ -94,7 +96,7 @@ const MainLayout = ({ session, profile }) => {
                             />
                         }
                     />
-                    <Route path="/show/:showName" element={<ShowWrapper />}>
+                    <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
                         <Route path="" element={<ShowView />}>
                             <Route path="info" element={<ShowInfoView />} />
                             <Route path="loomlabels" element={<LoomLabelView />} />
@@ -174,7 +176,7 @@ export default function App() {
     );
 }
 
-const ShowWrapper = () => {
+const ShowWrapper = ({ onShowUpdate }) => {
     const { showName } = useParams();
     const [showData, setShowData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -200,8 +202,20 @@ const ShowWrapper = () => {
 
     const handleSaveShowData = async (updatedData) => {
         try {
-            await api.saveShow(showName, updatedData);
+            const originalName = showName;
+            const newName = updatedData.info.show_name;
+
+            await api.saveShow(originalName, updatedData);
             setShowData(updatedData);
+            
+            if (onShowUpdate) {
+                onShowUpdate();
+            }
+
+            // If the name was changed, we must navigate to the new URL
+            if (newName && newName !== originalName) {
+                navigate(`/show/${encodeURIComponent(newName)}/info`, { replace: true });
+            }
         } catch (error) {
             console.error("Failed to save show data:", error);
         }
