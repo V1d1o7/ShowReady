@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Response
+from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Response, Header
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
 from gotrue.errors import AuthApiError
@@ -7,17 +7,20 @@ import io
 import traceback
 from pydantic import BaseModel
 import uuid
+from html import escape
 
-# Import all necessary models, including the previously missing ones
+# Import all necessary models
 from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
-    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate
+    UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
+    SenderIdentity, SenderIdentityCreate
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
+from .email_utils import create_email_html, send_email
 from typing import List, Dict, Optional
 
 router = APIRouter()
@@ -25,6 +28,7 @@ router = APIRouter()
 # --- Supabase Configuration ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+BUCKET_NAME = "logos"
 
 # --- Supabase Client Dependency ---
 def get_supabase_client():
@@ -48,6 +52,18 @@ async def get_user(request: Request, supabase: Client = Depends(get_supabase_cli
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+# --- Token Dependency for File Uploads ---
+async def get_user_from_token(authorization: str = Header(...), supabase: Client = Depends(get_supabase_client)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
+    token = authorization.split(" ")[1]
+    try:
+        user_response = supabase.auth.get_user(token)
+        return user_response.user
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid token for user")
+
+
 # --- Admin Authentication Dependency ---
 async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Dependency that checks if the user has the 'admin' role."""
@@ -58,6 +74,103 @@ async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(ge
         return user
     except Exception:
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
+
+# --- Email Payload Model ---
+class AdminEmailPayload(BaseModel):
+    sender_id: uuid.UUID
+    to_role: str
+    subject: str
+    body: str
+
+# --- Admin Endpoints ---
+@router.post("/admin/send-email", tags=["Admin"])
+async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Sends an email to users based on their role."""
+    try:
+        # Fetch the selected sender identity
+        sender_res = supabase.table('sender_identities').select('*').eq('id', str(payload.sender_id)).single().execute()
+        if not sender_res.data:
+            raise HTTPException(status_code=404, detail="Sender identity not found.")
+        sender = SenderIdentity(**sender_res.data)
+
+        # 1. Fetch profiles based on role criteria
+        query = supabase.table('profiles').select('*')
+        if payload.to_role != "all":
+            query = query.or_(f"role.eq.{payload.to_role},production_role.eq.{payload.to_role}")
+        
+        profiles_res = query.execute()
+        if not profiles_res.data:
+            return JSONResponse(content={"message": f"No users found with the role '{payload.to_role}'. No emails sent."}, status_code=200)
+
+        recipient_profiles = profiles_res.data
+        
+        # 2. Get all users from auth schema to create an email lookup map
+        all_users_res = supabase.auth.admin.list_users()
+        # Corrected line: Iterate directly over the response, as it appears to be a list
+        email_map = {user.id: user.email for user in all_users_res}
+
+        sent_count = 0
+        failed_count = 0
+        for profile in recipient_profiles:
+            user_id = profile.get('id')
+            user_email = email_map.get(user_id)
+            
+            if user_email:
+                try:
+                    html_content = create_email_html(profile, payload.body)
+                    send_email(user_email, payload.subject, html_content, sender)
+                    sent_count += 1
+                except Exception as e:
+                    print(f"Failed to send email to {user_email}: {e}")
+                    failed_count += 1
+        
+        return {"message": f"Email process completed. Sent: {sent_count}, Failed: {failed_count}."}
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An error occurred while sending emails: {str(e)}")
+
+
+@router.get("/admin/user-roles", tags=["Admin"])
+async def get_user_roles(admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Gets a list of all unique user roles for the email composer."""
+    try:
+        profiles_response = supabase.table('profiles').select('role, production_role').execute()
+        if not profiles_response.data:
+            return {"roles": []}
+        
+        system_roles = set()
+        production_roles = set()
+        for profile in profiles_response.data:
+            if profile.get('role'):
+                system_roles.add(profile['role'])
+            if profile.get('production_role'):
+                production_roles.add(profile['production_role'])
+        
+        # Combine and filter out any None or empty values
+        all_roles = list(filter(None, sorted(list(system_roles.union(production_roles)))))
+        return {"roles": all_roles}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch roles: {str(e)}")
+
+# --- Sender Identity Management ---
+@router.get("/admin/senders", tags=["Admin"], response_model=List[SenderIdentity])
+async def get_senders(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    response = supabase.table('sender_identities').select('id, name, email, sender_login_email, app_password').execute()
+    return response.data
+
+@router.post("/admin/senders", tags=["Admin"], response_model=SenderIdentity)
+async def create_sender(sender_data: SenderIdentityCreate, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    response = supabase.table('sender_identities').insert(sender_data.model_dump()).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create sender identity.")
+    return response.data[0]
+
+@router.delete("/admin/senders/{sender_id}", tags=["Admin"], status_code=204)
+async def delete_sender(sender_id: uuid.UUID, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    supabase.table('sender_identities').delete().eq('id', str(sender_id)).execute()
+    return
 
 # --- Admin Library Management Endpoints ---
 @router.post("/admin/folders", tags=["Admin"], response_model=Folder)
@@ -244,6 +357,32 @@ async def delete_show(show_name: str, user = Depends(get_user), supabase: Client
         return
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- File Upload Endpoint ---
+@router.post("/upload/logo", tags=["File Upload"])
+async def upload_logo(file: UploadFile = File(...), user = Depends(get_user_from_token), supabase: Client = Depends(get_supabase_client)):
+    """Uploads a logo for the authenticated user."""
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File provided is not an image.")
+    
+    try:
+        filename = os.path.basename(file.filename)
+        safe_filename = "".join(c for c in filename if c.isalnum() or c in ['.', '_', '-']).strip()
+        if not safe_filename:
+            raise HTTPException(status_code=400, detail="Invalid filename.")
+
+        file_path_in_bucket = f"{user.id}/{uuid.uuid4()}-{safe_filename}"
+        file_content = await file.read()
+        
+        supabase.storage.from_(BUCKET_NAME).upload(
+            path=file_path_in_bucket,
+            file=file_content,
+            file_options={'cache-control': '3600', 'upsert': 'true'}
+        )
+        
+        return JSONResponse(content={"logo_path": file_path_in_bucket})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Logo upload failed: {str(e)}")
 
 # --- AV Rack Endpoints ---
 @router.post("/racks", response_model=Rack, tags=["Racks"])
@@ -726,6 +865,11 @@ async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEqu
     if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
         update_dict['folder_id'] = str(update_dict['folder_id'])
 
+    if 'ports' in update_dict and update_dict['ports'] is not None:
+        for port in update_dict['ports']:
+            if 'id' in port and isinstance(port['id'], uuid.UUID):
+                port['id'] = str(port['id'])
+
     response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('user_id', str(user.id)).execute()
 
     if not response.data:
@@ -850,6 +994,11 @@ async def update_connection(connection_id: uuid.UUID, update_data: ConnectionUpd
     """Updates a connection's details."""
     try:
         update_dict = update_data.model_dump(exclude_unset=True)
+        # Convert any UUIDs in the update data to strings
+        for key, value in update_dict.items():
+            if isinstance(value, uuid.UUID):
+                update_dict[key] = str(value)
+                
         response = supabase.table('connections').update(update_dict).eq('id', str(connection_id)).execute()
         if response.data:
             return response.data[0]
@@ -869,32 +1018,6 @@ async def delete_connection(connection_id: uuid.UUID, user = Depends(get_user), 
             
     supabase.table('connections').delete().eq('id', str(connection_id)).execute()
     return
-
-# --- File Upload Endpoint ---
-@router.post("/upload/logo", tags=["File Upload"])
-async def upload_logo(file: UploadFile = File(...), user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Uploads a logo for the authenticated user."""
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File provided is not an image.")
-    
-    try:
-        filename = os.path.basename(file.filename)
-        safe_filename = "".join(c for c in filename if c.isalnum() or c in ['.', '_', '-']).strip()
-        if not safe_filename:
-            raise HTTPException(status_code=400, detail="Invalid filename.")
-
-        file_path_in_bucket = f"{user.id}/{uuid.uuid4()}-{safe_filename}"
-        file_content = await file.read()
-        
-        supabase.storage.from_('logos').upload(
-            path=file_path_in_bucket,
-            file=file_content,
-            file_options={'cache-control': '3600', 'upsert': 'true'}
-        )
-        
-        return JSONResponse(content={"logo_path": file_path_in_bucket})
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Logo upload failed: {str(e)}")
 
 # --- PDF Generation Endpoints ---
 class LoomLabelPayload(BaseModel):
@@ -995,8 +1118,14 @@ async def update_admin_equipment(
     if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
         update_dict['folder_id'] = str(update_dict['folder_id'])
     
+    if 'ports' in update_dict and update_dict['ports'] is not None:
+        for port in update_dict['ports']:
+            if 'id' in port and isinstance(port['id'], uuid.UUID):
+                port['id'] = str(port['id'])
+    
     response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('is_default', True).execute()
     
     if not response.data:
         raise HTTPException(status_code=404, detail="Equipment not found or not a default template.")
     return response.data[0]
+

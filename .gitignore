@@ -44,3 +44,7 @@ coverage/
 ####################
 .DS_Store
 Thumbs.db
+
+# Secretes #
+####################
+service-account.json
