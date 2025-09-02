@@ -1,122 +1,96 @@
-# ShowReady: Production Label Suite
+# ShowReady: Production Label & Rack Design Suite
 
-A comprehensive desktop application designed for the theatre and live production industry to create, manage, and print professional loom and case labels. Built with Python, FastAPI, and a modern React frontend, this tool streamlines the process of organizing and identifying equipment for any show.
+![ShowReady Logo](frontend/public/logo.png)
 
-### Features
+**Tired of messy labels and confusing rack diagrams? ShowReady is here to help!**
 
-* **Dual Label Editors**: Separate, purpose-built interfaces for creating both small-format loom labels and large-format case labels. The logic for generating these PDFs is handled by `app/pdf_utils.py`.
+ShowReady is a powerful, all-in-one web application designed specifically for the fast-paced world of theatre and live production. It streamlines your workflow, helping you create, manage, and print professional loom and case labels, as well as design and visualize your equipment racks. Say goodbye to last-minute sharpie-on-gaff-tape labels and hello to organized, professional-grade production management.
 
-* **Show Manager**: A centralized system to manage different shows. Each show can have its own logo and contact information, as seen in `frontend/src/views/DashboardView.js` and `frontend/src/views/ShowInfoView.js`.
+## ✨ Features
 
-* **Saved Label Sheets**: Save and load entire lists of loom or case labels. This is perfect for quickly reprinting common sets of labels without re-entering data.
+ShowReady is packed with features to make your life easier.
 
-* **Advanced Print Placement**: For printing corrections or one-off labels, a visual interface allows you to place labels in specific slots on a physical sheet, preventing waste. This is implemented in `frontend/src/components/AdvancedPrintModal.js` and `frontend/src/components/LabelManagerView.js`.
+### 📝 Dual Label Editors
 
-* **Rack Builder**: A drag-and-drop interface for building virtual AV racks with a library of default and custom equipment templates. The core functionality is in `frontend/src/views/RackBuilderView.js` and `frontend/src/components/RackComponent.js`.
+Two purpose-built editors for all your labeling needs.
 
-* **Admin Panel**: A restricted view for administrators to manage the default equipment library by creating, updating, and deleting folders and equipment templates. See `frontend/src/views/AdminView.js` and `app/api.py` for API routes.
+*   **Loom Label Editor**: Perfect for creating small-format, detailed labels for individual cables and looms.
+*   **Case Label Editor**: Design large-format, easy-to-read labels for all your road cases.
 
-* **Modern Interface**: Built with a clean, dark-themed GUI that is easy to navigate using the styles in `frontend/src/index.css`.
+<img width="1923" height="953" alt="image" src="https://github.com/user-attachments/assets/88b4eedf-c5af-4a0f-b24c-a872d701cc64" />
 
-* **Flexible Data Import/Export**: Import and export label lists as CSV files to integrate with other software and workflows.
+### 🚀 Show Manager
 
-* **Supabase Integration**: The backend uses Supabase for user authentication, SSO setup, and data management for shows and equipment libraries, as configured in `app/api.py`.
+Keep your projects organized with the centralized Show Manager.
 
-### Installation
+*   Create separate profiles for each show.
+*   Add custom logos and contact information to your labels for a professional touch.
 
-This application is built with Python and a React frontend, requiring a few external libraries. You will also need a Supabase project for the database and authentication.
+<img width="1919" height="959" alt="image" src="https://github.com/user-attachments/assets/4ab09620-d149-4129-b864-4958a2be8412" />
 
-#### 1. Clone the Repository
+### 💾 Saved Label Sheets
 
-First, clone this repository to your local machine using Git. Open your terminal or command prompt and run:
+Never re-type the same label list again!
 
-```
-git clone [https://github.com/V1d1o7/ShowReady.git](https://github.com/V1d1o7/ShowReady.git)
-cd ShowReady
+*   Save and load entire sheets of loom or case labels.
+*   Perfect for reprinting common label sets for recurring jobs.
 
-```
+### 🖨️ Advanced Print Placement
 
-#### 2. Environment Variables
+Save paper and time with our smart printing options.
 
-You need to create two `.env` files. The `.gitignore` file in the root directory ensures these files are not committed to Git.
+*   Visually place labels on a digital sheet to print on partially used label stock.
+*   Ideal for one-off corrections without wasting a full sheet.
 
-**Backend `.env` File**
+<img width="1917" height="959" alt="image" src="https://github.com/user-attachments/assets/19608602-803c-4e79-aa19-6704d34db988" />
 
-Create a file named `.env` in the **root directory** of the project with the following content:
+### 🏗️ Drag-and-Drop Rack Builder
 
-```
-# Supabase connection details
-SUPABASE_URL="<your_supabase_project_url>"
-SUPABASE_KEY="<your_supabase_service_role_key>"
+Design and visualize your AV and equipment racks with ease.
 
-# Optional Supabase auth secrets (if enabled in config.toml)
-OPENAI_API_KEY="<your_openai_api_key>"
-S3_HOST="<your_s3_host>"
-S3_REGION="<your_s3_region>"
-S3_ACCESS_KEY="<your_s3_access_key>"
-S3_SECRET_KEY="<your_s3_secret_key>"
-SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN="<your_twilio_auth_token>"
-SUPABASE_AUTH_EXTERNAL_APPLE_SECRET="<your_apple_secret>"
+*   Drag and drop equipment from the library to build your rack.
+*   Create a virtual representation of your physical setup.
+*   Generates a clean, readable wire diagram.
 
-```
+<img width="1919" height="959" alt="image" src="https://github.com/user-attachments/assets/15db5cce-87e5-4882-a213-a420e5ee2159" />
 
-**Frontend `.env` File**
+### 📚 Equipment Library & Admin Panel
 
-Create a file named `.env` in the `frontend/` directory of the project with the following content:
+Manage your equipment inventory with a powerful library system.
 
-```
-# Public keys for the React frontend
-REACT_APP_SUPABASE_URL="<your_supabase_project_url>"
-REACT_APP_SUPABASE_ANON_KEY="<your_supabase_anon_key>"
+*   Comes with a default library of common AV equipment.
+*   Create, edit, and manage your own custom equipment templates.
+*   An admin panel to manage the default equipment library.
 
-```
+<img width="1917" height="957" alt="image" src="https://github.com/user-attachments/assets/a8011336-ca70-41f7-a7ba-ca4f2e444270" />
 
-#### 3. Backend Prerequisites
+### supabase Integration
 
-Ensure you have Python 3 installed. From the project root directory, install the Python dependencies:
+Leverages the power of Supabase for a secure and scalable backend.
 
-```
-pip install -r requirements.txt
+*   User authentication and SSO.
+*   Data management for shows, libraries, and racks.
 
-```
+## 🛠️ Tech Stack
 
-#### 4. Frontend Prerequisites
+*   **Backend**: Python with FastAPI
+*   **Frontend**: React, Tailwind CSS
+*   **Database & Auth**: Supabase
+*   **UI Components**: Lucide Icons, React Hot Toast
+*   **Drag & Drop**: @dnd-kit
+*   **Diagramming**: React Flow
 
-Navigate to the `frontend/` directory and install the Node.js dependencies:
+## 🚀 Future Features
 
-```
-npm install
+ShowReady is constantly evolving. Here are some of the features we're planning to add:
 
-```
+*   **Switch Config**: Manage and document network switch configurations.
+*   **Patch Panel Design/Layout**: Design and visualize patch panel layouts.
+*   **Loom Designer/Cable Schedule**: Create detailed cable schedules and loom designs.
+*   **And many more!**
 
-### Usage
+## 🙏 Acknowledgements
 
-1. **Launch the Application**: In one terminal, start the Python backend from the project root:
+A big thank you to the open-source libraries and tools that made ShowReady possible.
 
-   ```
-   uvicorn app.main:app --reload
-   
-   ```
-
-   In a second terminal, start the React frontend from the `frontend/` directory:
-
-   ```
-   npm start
-   
-   ```
-
-2. **Navigate**: Use the sidebar on the left to switch between the **Loom Labels**, **Case Labels**, and **Show Manager** sections.
-
-3. **Manage Shows**: Start in the **Show Manager** to create a new show profile and set a default logo.
-
-4. **Create Labels**: Navigate to the appropriate label editor. The Case Labeler will automatically load the logo from your active show.
-
-5. **Print**: Use the **Generate PDF** button for full, sequential sheets, or the **Advanced Print** button to place labels in specific slots for correction prints.
-
-### Loom Label Editor
-
-### Case Label Editor
-
-### Show Manager
-
-### Advanced Print Window
+---
