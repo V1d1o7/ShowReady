@@ -200,6 +200,7 @@ export const api = {
     createSenderIdentity: async (data) => fetch('/api/admin/senders', {
         method: 'POST',
         headers: await getAuthHeader(),
+        // REMOVED: app_password from being sent
         body: JSON.stringify(data),
     }).then(handleResponse),
     deleteSenderIdentity: async (id) => fetch(`/api/admin/senders/${id}`, {
@@ -207,4 +208,3 @@ export const api = {
         headers: await getAuthHeader()
     }).then(handleResponse),
 };
-

@@ -19,19 +19,18 @@ const SenderManager = ({ senders, onUpdate }) => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [loginEmail, setLoginEmail] = useState('');
-    const [appPassword, setAppPassword] = useState('');
 
     const handleAddSender = async (e) => {
         e.preventDefault();
         try {
-            await api.createSenderIdentity({ name, email, sender_login_email: loginEmail, app_password: appPassword });
+            // REMOVED: app_password from this object
+            await api.createSenderIdentity({ name, email, sender_login_email: loginEmail });
             toast.success("Sender identity added!");
             onUpdate();
             setIsModalOpen(false);
             setName('');
             setEmail('');
             setLoginEmail('');
-            setAppPassword('');
         } catch (error) {
             toast.error(`Failed to add sender: ${error.message}`);
         }
@@ -77,7 +76,7 @@ const SenderManager = ({ senders, onUpdate }) => {
                     <InputField label="Display Name" value={name} onChange={(e) => setName(e.target.value)} required />
                     <InputField label="Display Email (From Address)" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
                     <InputField label="Login Email (for SMTP)" type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required />
-                    <InputField label="Google App Password" type="password" value={appPassword} onChange={(e) => setAppPassword(e.target.value)} required />
+                    {/* REMOVED: Google App Password InputField */}
                     <div className="flex justify-end gap-4 pt-4">
                         <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
                         <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Save Sender</button>
@@ -600,4 +599,3 @@ const AdminView = () => {
 };
 
 export default AdminView;
-
