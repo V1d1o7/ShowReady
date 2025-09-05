@@ -68,11 +68,21 @@ async def get_user_from_token(authorization: str = Header(...), supabase: Client
 async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Dependency that checks if the user has the 'admin' role."""
     try:
-        profile_response = supabase.table('profiles').select('role').eq('id', user.id).single().execute()
-        if not profile_response.data or profile_response.data.get('role') != 'admin':
+        # Check if the user has the 'admin' role in the user_roles table
+        user_roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
+        
+        if not user_roles_res.data:
+            raise HTTPException(status_code=403, detail="User has no assigned roles.")
+
+        roles = [role['roles']['name'] for role in user_roles_res.data if 'roles' in role and role['roles']]
+        
+        if 'admin' not in roles:
             raise HTTPException(status_code=403, detail="User is not an administrator.")
+            
         return user
-    except Exception:
+    except Exception as e:
+        # Log the exception for debugging purposes
+        traceback.print_exc()
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
 
 # --- Email Payload Model ---
@@ -81,7 +91,6 @@ class AdminEmailPayload(BaseModel):
     to_role: str
     subject: str
     body: str
-
 # --- Admin Endpoints ---
 @router.post("/admin/send-email", tags=["Admin"])
 async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
@@ -93,16 +102,30 @@ async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_
             raise HTTPException(status_code=404, detail="Sender identity not found.")
         sender = SenderIdentity(**sender_res.data)
 
-        # 1. Fetch profiles based on role criteria
-        query = supabase.table('profiles').select('*')
-        if payload.to_role != "all":
-            query = query.or_(f"role.eq.{payload.to_role},production_role.eq.{payload.to_role}")
-        
-        profiles_res = query.execute()
-        if not profiles_res.data:
-            return JSONResponse(content={"message": f"No users found with the role '{payload.to_role}'. No emails sent."}, status_code=200)
+        # 1. Fetch users based on role criteria
+        if payload.to_role == "all":
+            profiles_res = supabase.table('profiles').select('*').execute()
+            recipient_profiles = profiles_res.data
+        else:
+            # Find the role_id for the given role name
+            role_res = supabase.table('roles').select('id').eq('name', payload.to_role).single().execute()
+            if not role_res.data:
+                raise HTTPException(status_code=404, detail=f"Role '{payload.to_role}' not found.")
+            role_id = role_res.data['id']
+            
+            # Find all user_ids with that role
+            user_roles_res = supabase.table('user_roles').select('user_id').eq('role_id', role_id).execute()
+            if not user_roles_res.data:
+                 return JSONResponse(content={"message": f"No users found with the role '{payload.to_role}'. No emails sent."}, status_code=200)
+            
+            user_ids = [item['user_id'] for item in user_roles_res.data]
+            
+            # Fetch the profiles for those user_ids
+            profiles_res = supabase.table('profiles').select('*').in_('id', user_ids).execute()
+            recipient_profiles = profiles_res.data
 
-        recipient_profiles = profiles_res.data
+        if not recipient_profiles:
+            return JSONResponse(content={"message": f"No users found with the role '{payload.to_role}'. No emails sent."}, status_code=200)
         
         # 2. Get all users from auth schema to create an email lookup map
         all_users_res = supabase.auth.admin.list_users()
@@ -135,20 +158,11 @@ async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_
 async def get_user_roles(admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
     """Admin: Gets a list of all unique user roles for the email composer."""
     try:
-        profiles_response = supabase.table('profiles').select('role, production_role').execute()
-        if not profiles_response.data:
+        roles_response = supabase.table('roles').select('name').execute()
+        if not roles_response.data:
             return {"roles": []}
         
-        system_roles = set()
-        production_roles = set()
-        for profile in profiles_response.data:
-            if profile.get('role'):
-                system_roles.add(profile['role'])
-            if profile.get('production_role'):
-                production_roles.add(profile['production_role'])
-        
-        # Combine and filter out any None or empty values
-        all_roles = list(filter(None, sorted(list(system_roles.union(production_roles)))))
+        all_roles = sorted([role['name'] for role in roles_response.data])
         return {"roles": all_roles}
         
     except Exception as e:
@@ -227,15 +241,109 @@ async def get_admin_library(admin_user = Depends(get_admin_user), supabase: Clie
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
 
+# --- Admin User Management ---
+class UserWithProfile(UserProfile):
+    email: str
+    
+@router.get("/admin/users", tags=["Admin"], response_model=List[UserWithProfile])
+async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    try:
+        auth_users_res = supabase.auth.admin.list_users()
+        auth_users_map = {user.id: user for user in auth_users_res}
+        
+        profiles_res = supabase.table('profiles').select('*').in_('id', list(auth_users_map.keys())).execute()
+        
+        roles_res = supabase.table('user_roles').select('user_id, roles(name)').execute()
+        roles_map = {}
+        for item in roles_res.data:
+            if item['user_id'] not in roles_map:
+                roles_map[item['user_id']] = []
+            if item.get('roles'):
+                roles_map[item['user_id']].append(item['roles']['name'])
+
+        users_with_profiles = []
+        for profile in profiles_res.data:
+            user_id = profile['id']
+            auth_user = auth_users_map.get(user_id)
+            if auth_user:
+                user_data = {
+                    **profile,
+                    "email": auth_user.email,
+                    "roles": roles_map.get(user_id, [])
+                }
+                users_with_profiles.append(UserWithProfile(**user_data))
+                
+        return users_with_profiles
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch users: {str(e)}")
+
+class UserRolesUpdate(BaseModel):
+    roles: List[str]
+
+@router.put("/admin/users/{user_id}/roles", tags=["Admin"], status_code=204)
+async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    try:
+        # Get all role IDs from the roles table
+        all_roles_res = supabase.table('roles').select('id, name').execute()
+        role_name_to_id = {role['name']: role['id'] for role in all_roles_res.data}
+        
+        # Validate that all provided roles exist
+        for role_name in payload.roles:
+            if role_name not in role_name_to_id:
+                raise HTTPException(status_code=400, detail=f"Role '{role_name}' does not exist.")
+        
+        # Delete existing roles for the user
+        supabase.table('user_roles').delete().eq('user_id', str(user_id)).execute()
+        
+        # Insert new roles
+        if payload.roles:
+            new_user_roles = [
+                {'user_id': str(user_id), 'role_id': role_name_to_id[role_name]}
+                for role_name in payload.roles
+            ]
+            supabase.table('user_roles').insert(new_user_roles).execute()
+            
+        return
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update user roles: {str(e)}")
+
+# --- Admin Metrics ---
+@router.get("/admin/metrics", tags=["Admin"])
+async def get_metrics(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    # This is a placeholder. In a real application, you would query the database for these metrics.
+    user_count_res = supabase.table('profiles').select('id', count='exact').execute()
+    shows_count_res = supabase.table('shows').select('name', count='exact').execute()
+    racks_count_res = supabase.table('racks').select('id', count='exact').execute()
+
+    # This is a complex query, so for now we'll just return a placeholder
+    most_used_equipment = "Shure ULXD4Q"
+    custom_items_created = 150 # Placeholder
+
+    return {
+        "userCount": user_count_res.count,
+        "signUps": 0, # Placeholder, would need to query by created_at
+        "showsCount": shows_count_res.count,
+        "racksCount": racks_count_res.count,
+        "mostUsedEquipment": most_used_equipment,
+        "customItemsCreated": custom_items_created
+    }
+
 
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
 async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves the profile for the authenticated user."""
+    """Retrieves the profile for the authenticated user, including their roles."""
     try:
-        response = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+        # Fetch profile and roles sequentially
+        profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+        roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
+
+        profile_data = profile_res.data
         
-        if not response.data:
+        if not profile_data:
+            # Create profile if it doesn't exist
             user_meta = user.user_metadata or {}
             profile_to_create = {
                 'id': str(user.id),
@@ -246,13 +354,17 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
                 'production_role_other': user_meta.get('production_role_other'),
             }
             insert_response = supabase.table('profiles').insert(profile_to_create).execute()
-            if insert_response.data:
-                return insert_response.data[0]
-            else:
-                raise HTTPException(status_code=500, detail="Failed to create user profile.")
+            if not insert_response.data:
+                 raise HTTPException(status_code=500, detail="Failed to create user profile.")
+            profile_data = insert_response.data[0]
 
-        return response.data
+        # Extract role names
+        roles = [role['roles']['name'] for role in roles_res.data if 'roles' in role and role['roles']]
+        profile_data['roles'] = roles
+
+        return profile_data
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
@@ -1128,4 +1240,3 @@ async def update_admin_equipment(
     if not response.data:
         raise HTTPException(status_code=404, detail="Equipment not found or not a default template.")
     return response.data[0]
-

@@ -10,12 +10,28 @@ class SenderIdentity(BaseModel):
     sender_login_email: str
     app_password: str
 
+class SenderIdentityPublic(BaseModel):
+    id: uuid.UUID
+    name: str
+    email: str
+    sender_login_email: str
+
 class SenderIdentityCreate(BaseModel):
     name: str
     email: str
     sender_login_email: str
     app_password: str
 
+
+# --- Role Models ---
+class Role(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: Optional[str] = None
+
+class UserRole(BaseModel):
+    user_id: uuid.UUID
+    role_id: uuid.UUID
 
 # --- User Profile Model ---
 class UserProfile(BaseModel):
@@ -25,7 +41,7 @@ class UserProfile(BaseModel):
     company_name: Optional[str] = None
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
-    role: Optional[str] = 'user'
+    roles: List[str] = []
 
 class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -33,7 +49,6 @@ class UserProfileUpdate(BaseModel):
     company_name: Optional[str] = None
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
-    role: Optional[str] = None
 
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):
@@ -288,4 +303,3 @@ class WireDiagramPDFPayload(BaseModel):
     pages: List[PDFPage]
     page_size: str = "letter"
     show_name: str
-
