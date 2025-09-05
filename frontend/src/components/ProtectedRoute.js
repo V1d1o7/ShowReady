@@ -7,7 +7,7 @@ const ProtectedRoute = ({ profile, adminOnly = false, children }) => {
         return <div>Loading...</div>;
     }
 
-    if (adminOnly && profile.role !== 'admin') {
+    if (adminOnly && (!profile.roles || !profile.roles.includes('admin'))) {
         // Redirect them to the home page if they are not an admin
         return <Navigate to="/" replace />;
     }

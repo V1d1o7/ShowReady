@@ -8,9 +8,12 @@ import DashboardView from './views/DashboardView';
 import ShowView from './views/ShowView';
 import AccountView from './views/AccountView';
 import AdvancedSSOView from './views/AdvancedSSOView';
-import AdminView from './views/AdminView';
+import AdminLayout from './layouts/AdminLayout';
+import EmailView from './views/admin/EmailView';
+import EquipmentLibraryView from './views/admin/EquipmentLibraryView';
+import UserManagementView from './views/admin/UserManagementView';
+import MetricsView from './views/admin/MetricsView';
 import UserLibraryView from './views/UserLibraryView';
-import EquipmentLibraryView from './views/EquipmentLibraryView';
 import UserRackBuilderView from './views/UserRackBuilderView';
 import ShowInfoView from './views/ShowInfoView';
 import LoomLabelView from './views/LoomLabelView';
@@ -109,17 +112,23 @@ const MainLayout = ({ session, profile }) => {
                     <Route path="/sso-setup" element={<AdvancedSSOView />} />
                     <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
                         <Route index element={<Navigate to="equipment" replace />} />
-                        <Route path="equipment" element={<EquipmentLibraryView />} />
+                        <Route path="equipment" element={<UserLibraryView />} />
                         <Route path="racks" element={<UserRackBuilderView />} />
                     </Route>
                     <Route
                         path="/mgmt"
                         element={
                             <ProtectedRoute profile={profile} adminOnly={true}>
-                                <AdminView />
+                                <AdminLayout />
                             </ProtectedRoute>
                         }
-                    />
+                    >
+                        <Route index element={<Navigate to="email" replace />} />
+                        <Route path="email" element={<EmailView />} />
+                        <Route path="equipment-library" element={<EquipmentLibraryView />} />
+                        <Route path="user-management" element={<UserManagementView />} />
+                        <Route path="metrics" element={<MetricsView />} />
+                    </Route>
                 </Routes>
             </main>
             <NewShowModal

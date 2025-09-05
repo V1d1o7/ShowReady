@@ -50,7 +50,7 @@ const Navbar = ({ profile }) => {
                                 <User size={16} className="mr-2" />
                                 Account
                             </NavLink>
-                            {profile?.role === 'admin' && (
+                            {profile?.roles?.includes('admin') && (
                                 <NavLink
                                     to="/mgmt"
                                     className={({ isActive }) =>
