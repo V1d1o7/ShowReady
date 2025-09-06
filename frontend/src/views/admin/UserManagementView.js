@@ -8,15 +8,16 @@ const UserManagementView = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // This will be implemented once the backend is ready
-        // api.getUsers().then(setUsers).catch(err => toast.error("Failed to fetch users."));
-        setIsLoading(false);
-        // Mock data for now
-        setUsers([
-            { id: 1, email: 'test1@example.com', first_name: 'Test', last_name: 'User 1', roles: ['user'], status: 'active' },
-            { id: 2, email: 'admin@example.com', first_name: 'Admin', last_name: 'User', roles: ['admin', 'user'], status: 'active' },
-            { id: 3, email: 'test2@example.com', first_name: 'Test', last_name: 'User 2', roles: ['user'], status: 'suspended' },
-        ]);
+        setIsLoading(true);
+        api.getAllUsers()
+            .then(setUsers)
+            .catch(err => {
+                toast.error("Failed to fetch users.");
+                console.error(err);
+            })
+            .finally(() => {
+                setIsLoading(false);
+            });
     }, []);
 
     if (isLoading) {

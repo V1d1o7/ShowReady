@@ -187,6 +187,27 @@ export const api = {
         body: JSON.stringify(payload),
     }).then(handleResponse),
 
+    // --- Admin Metrics Endpoints ---
+    getMetrics: async () => fetch('/api/admin/metrics', { headers: await getAuthHeader() }).then(handleResponse),
+    
+    // --- Admin User Management Endpoints ---
+    getAllUsers: async () => fetch('/api/admin/users', { headers: await getAuthHeader() }).then(handleResponse),
+    getUserDetails: async (userId) => fetch(`/api/admin/users/${userId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    updateUserRoles: async (userId, roles) => fetch(`/api/admin/users/${userId}/roles`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ roles }),
+    }).then(handleResponse),
+    updateUserStatus: async (userId, status) => fetch(`/api/admin/users/${userId}/status`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ status }),
+    }).then(handleResponse),
+    deleteUser: async (userId) => fetch(`/api/admin/users/${userId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
+    }),
+    
     // --- Admin Email Endpoints ---
     getAdminUserRoles: async () => fetch('/api/admin/user-roles', { headers: await getAuthHeader() }).then(handleResponse),
     adminSendEmail: async (payload) => fetch('/api/admin/send-email', {
@@ -200,7 +221,6 @@ export const api = {
     createSenderIdentity: async (data) => fetch('/api/admin/senders', {
         method: 'POST',
         headers: await getAuthHeader(),
-        // REMOVED: app_password from being sent
         body: JSON.stringify(data),
     }).then(handleResponse),
     deleteSenderIdentity: async (id) => fetch(`/api/admin/senders/${id}`, {

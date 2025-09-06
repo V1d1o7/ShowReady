@@ -23,18 +23,16 @@ const MetricsView = () => {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // This will be implemented once the backend is ready
-        // api.getMetrics().then(setMetrics).catch(err => toast.error("Failed to fetch metrics."));
-        setIsLoading(false);
-        // Mock data for now
-        setMetrics({
-            userCount: 125,
-            signUps: 12,
-            showsCount: 34,
-            racksCount: 89,
-            mostUsedEquipment: 'Shure ULXD4Q',
-            customItemsCreated: 210,
-        });
+        setIsLoading(true);
+        api.getMetrics()
+            .then(setMetrics)
+            .catch(err => {
+                toast.error("Failed to fetch metrics.");
+                console.error(err);
+            })
+            .finally(() => {
+                setIsLoading(false);
+            });
     }, []);
 
     if (isLoading) {
