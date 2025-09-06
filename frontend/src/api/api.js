@@ -191,22 +191,25 @@ export const api = {
     getMetrics: async () => fetch('/api/admin/metrics', { headers: await getAuthHeader() }).then(handleResponse),
     
     // --- Admin User Management Endpoints ---
-    getAllUsers: async () => fetch('/api/admin/users', { headers: await getAuthHeader() }).then(handleResponse),
-    getUserDetails: async (userId) => fetch(`/api/admin/users/${userId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    getAllUsers: async (searchTerm) => {
+        const url = searchTerm ? `/api/admin/users?search=${encodeURIComponent(searchTerm)}` : '/api/admin/users';
+        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
+    },
+    getAllRoles: async () => fetch('/api/admin/user-roles', { headers: await getAuthHeader() }).then(handleResponse),
     updateUserRoles: async (userId, roles) => fetch(`/api/admin/users/${userId}/roles`, {
         method: 'PUT',
         headers: await getAuthHeader(),
         body: JSON.stringify({ roles }),
     }).then(handleResponse),
-    updateUserStatus: async (userId, status) => fetch(`/api/admin/users/${userId}/status`, {
-        method: 'PUT',
+    suspendUser: async (userId, payload) => fetch(`/api/admin/users/${userId}/suspend`, {
+        method: 'POST',
         headers: await getAuthHeader(),
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(payload),
     }).then(handleResponse),
-    deleteUser: async (userId) => fetch(`/api/admin/users/${userId}`, {
-        method: 'DELETE',
-        headers: await getAuthHeader()
-    }),
+    unsuspendUser: async (userId) => fetch(`/api/admin/users/${userId}/unsuspend`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
     
     // --- Admin Email Endpoints ---
     getAdminUserRoles: async () => fetch('/api/admin/user-roles', { headers: await getAuthHeader() }).then(handleResponse),
