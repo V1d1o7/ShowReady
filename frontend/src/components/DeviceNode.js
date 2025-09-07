@@ -5,8 +5,8 @@ const DeviceNode = ({ data }) => {
     const { label, ip_address, rack_name, ru_position, equipment_templates } = data;
     const ports = equipment_templates?.ports || [];
 
-    const inputPorts = ports.filter(p => p.type === 'input');
-    const outputPorts = ports.filter(p => p.type === 'output');
+    const inputPorts = ports.filter(p => p.type === 'input' || p.type === 'io');
+    const outputPorts = ports.filter(p => p.type === 'output' || p.type === 'io');
 
     // --- Final Corrected Logic ---
 
@@ -74,7 +74,7 @@ const DeviceNode = ({ data }) => {
                         type="target"
                         position={Position.Left}
                         id={`port-in-${port.id}`}
-                        className="!bg-teal-400 !w-3 !h-3"
+                        className={port.type === 'io' ? '!bg-blue-400 !w-3 !h-3' : '!bg-teal-400 !w-3 !h-3'}
                     />
                     <p className="ml-5 text-xs font-mono">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
                 </div>
@@ -92,7 +92,7 @@ const DeviceNode = ({ data }) => {
                         type="source"
                         position={Position.Right}
                         id={`port-out-${port.id}`}
-                        className="!bg-amber-400 !w-3 !h-3"
+                        className={port.type === 'io' ? '!bg-blue-400 !w-3 !h-3' : '!bg-amber-400 !w-3 !h-3'}
                     />
                 </div>
             ))}

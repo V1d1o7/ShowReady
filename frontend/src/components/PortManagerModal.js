@@ -30,6 +30,7 @@ const PortManagerModal = ({ isOpen, onClose, ports, setPorts }) => {
                             <select value={newPort.type} onChange={(e) => setNewPort({ ...newPort, type: e.target.value })} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
                                 <option value="input">Input</option>
                                 <option value="output">Output</option>
+                                <option value="io">IO</option>
                             </select>
                         </div>
                         <InputField label="Connector Type" type="text" value={newPort.connector_type} onChange={(e) => setNewPort({ ...newPort, connector_type: e.target.value })} placeholder="e.g., HDMI, SDI, RJ45" required />
