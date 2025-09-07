@@ -165,10 +165,10 @@ const UserLibraryView = () => {
                 </header>
 
                 <div className="flex-shrink-0 flex border-b border-gray-700 mb-6">
-                    <NavLink to="equipment" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
+                    <NavLink to="/library/equipment" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <Package size={18} /> Equipment Library
                     </NavLink>
-                    <NavLink to="racks" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
+                    <NavLink to="/library/racks" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <HardDrive size={18} /> Rack Library
                     </NavLink>
                 </div>

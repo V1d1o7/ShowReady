@@ -10,10 +10,11 @@ import AccountView from './views/AccountView';
 import AdvancedSSOView from './views/AdvancedSSOView';
 import AdminLayout from './layouts/AdminLayout';
 import EmailView from './views/admin/EmailView';
-import EquipmentLibraryView from './views/admin/EquipmentLibraryView';
+import AdminEquipmentLibraryView from './views/admin/EquipmentLibraryView';
 import UserManagementView from './views/admin/UserManagementView';
 import MetricsView from './views/admin/MetricsView';
 import UserLibraryView from './views/UserLibraryView';
+import EquipmentLibraryView from './views/EquipmentLibraryView';
 import UserRackBuilderView from './views/UserRackBuilderView';
 import ShowInfoView from './views/ShowInfoView';
 import LoomLabelView from './views/LoomLabelView';
@@ -112,7 +113,7 @@ const MainLayout = ({ session, profile }) => {
                     <Route path="/sso-setup" element={<AdvancedSSOView />} />
                     <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
                         <Route index element={<Navigate to="equipment" replace />} />
-                        <Route path="equipment" element={<UserLibraryView />} />
+                        <Route path="equipment" element={<EquipmentLibraryView />} />
                         <Route path="racks" element={<UserRackBuilderView />} />
                     </Route>
                     <Route
@@ -125,7 +126,7 @@ const MainLayout = ({ session, profile }) => {
                     >
                         <Route index element={<Navigate to="email" replace />} />
                         <Route path="email" element={<EmailView />} />
-                        <Route path="equipment-library" element={<EquipmentLibraryView />} />
+                        <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
                         <Route path="user-management" element={<UserManagementView />} />
                         <Route path="metrics" element={<MetricsView />} />
                     </Route>
