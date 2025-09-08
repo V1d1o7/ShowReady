@@ -5,8 +5,9 @@ const DeviceNode = ({ data }) => {
     const { label, ip_address, rack_name, ru_position, equipment_templates } = data;
     const ports = equipment_templates?.ports || [];
 
-    const inputPorts = ports.filter(p => p.type === 'input' || p.type === 'io');
-    const outputPorts = ports.filter(p => p.type === 'output' || p.type === 'io');
+    const inputPorts = ports.filter(p => p.type === 'input');
+    const outputPorts = ports.filter(p => p.type === 'output');
+    const ioPorts = ports.filter(p => p.type === 'io');
 
     // --- Final Corrected Logic ---
 
@@ -27,7 +28,7 @@ const DeviceNode = ({ data }) => {
     // Aesthetic padding above the first port and below the last one.
     const listPadding = 15; 
 
-    const maxPorts = Math.max(inputPorts.length, outputPorts.length);
+    const maxPorts = Math.max(inputPorts.length + ioPorts.length, outputPorts.length);
 
     // Calculate the total height required for the list of port slots.
     const portsListHeight = maxPorts * portSpacing;
@@ -74,11 +75,39 @@ const DeviceNode = ({ data }) => {
                         type="target"
                         position={Position.Left}
                         id={`port-in-${port.id}`}
-                        className={port.type === 'io' ? '!bg-blue-400 !w-3 !h-3' : '!bg-teal-400 !w-3 !h-3'}
+                        className={'!bg-teal-400 !w-3 !h-3'}
                     />
                     <p className="ml-5 text-xs font-mono">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
                 </div>
             ))}
+
+            {/* IO Ports */}
+            {ioPorts.map((port, index) => (
+                <div
+                    key={port.id}
+                    className="absolute left-0 flex items-center h-8"
+                    style={{ top: `${portsStartY + ((inputPorts.length + index) * portSpacing)}px` }}
+                >
+                    {/* The target handle (the visible blue dot). It is rendered first, so it's underneath. */}
+                    <Handle
+                        type="target"
+                        position={Position.Left}
+                        id={`port-in-${port.id}`}
+                        className="!bg-blue-400 !w-3 !h-3"
+                    />
+                    {/* The source handle is a transparent overlay to capture drag events. 
+                        It's rendered second, so it will be on top of the target handle, capturing the click.
+                        It's made slightly larger to make it easier to grab. */}
+                    <Handle
+                        type="source"
+                        position={Position.Left}
+                        id={`port-out-${port.id}`}
+                        className="!bg-transparent !w-5 !h-5 !border-0"
+                    />
+                    <p className="ml-5 text-xs font-mono">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
+                </div>
+            ))}
+
 
             {/* Output Ports */}
             {outputPorts.map((port, index) => (
@@ -92,7 +121,7 @@ const DeviceNode = ({ data }) => {
                         type="source"
                         position={Position.Right}
                         id={`port-out-${port.id}`}
-                        className={port.type === 'io' ? '!bg-blue-400 !w-3 !h-3' : '!bg-amber-400 !w-3 !h-3'}
+                        className={'!bg-amber-400 !w-3 !h-3'}
                     />
                 </div>
             ))}

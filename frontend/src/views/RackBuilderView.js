@@ -8,6 +8,7 @@ import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import NamePromptModal from '../components/NamePromptModal';
 import RackComponent from '../components/RackComponent';
+import RackPdfModal from '../components/RackPdfModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 
@@ -19,6 +20,7 @@ const RackBuilderView = () => {
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
+    const [isRackPdfModalOpen, setIsRackPdfModalOpen] = useState(false);
     const [isNamePromptOpen, setIsNamePromptOpen] = useState(false);
     const [rackToCopy, setRackToCopy] = useState(null);
     const [selectedRackId, setSelectedRackId] = useState(null);
@@ -130,6 +132,37 @@ const RackBuilderView = () => {
         }
         setIsNamePromptOpen(false);
         setRackToCopy(null);
+    };
+
+    const handleGenerateRackPdf = async ({ pageSize }) => {
+        toast.loading('Generating PDF...');
+        try {
+            const detailedRacks = await api.getDetailedRacksForShow(showName);
+            
+            const payload = {
+                racks: detailedRacks,
+                show_name: showName,
+                page_size: pageSize,
+            };
+
+            const pdfBlob = await api.generateRacksPdf(payload);
+            const url = window.URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${showName}-racks.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            toast.dismiss();
+            toast.success('PDF generated successfully!');
+        } catch (err) {
+            console.error("Failed to generate PDF:", err);
+            toast.dismiss();
+            toast.error(`Failed to generate PDF: ${err.message}`);
+        } finally {
+            setIsRackPdfModalOpen(false);
+        }
     };
     
     const handleDeleteEquipment = async (instanceId) => {
@@ -368,8 +401,8 @@ const RackBuilderView = () => {
                 onDeleteRack={handleDeleteRack}
                 onUpdateRack={handleUpdateRack}
                 selectedRackId={selectedRackId}
-                showName={showName}
                 onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
+                onExportPdf={() => setIsRackPdfModalOpen(true)}
                 title="Show Racks"
             />
             <div className="flex-grow overflow-auto pb-4">
@@ -433,6 +466,7 @@ const RackBuilderView = () => {
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
+            <RackPdfModal isOpen={isRackPdfModalOpen} onClose={() => setIsRackPdfModalOpen(false)} onGenerate={handleGenerateRackPdf} />
             <NamePromptModal
                 isOpen={isNamePromptOpen}
                 onClose={() => {
