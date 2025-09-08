@@ -17,7 +17,7 @@ from .models import (
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
-    SenderIdentity, SenderIdentityCreate, RackPDFPayload
+    SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf, generate_racks_pdf
 from .email_utils import create_email_html, send_email
@@ -85,13 +85,56 @@ async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(ge
         traceback.print_exc()
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
 
+from .email_utils import create_email_html, send_email
 # --- Email Payload Model ---
 class AdminEmailPayload(BaseModel):
     sender_id: uuid.UUID
     to_role: str
     subject: str
     body: str
+
+class NewUser(BaseModel):
+    name: str
+    email: str
+
+class NewUserListPayload(BaseModel):
+    sender_id: uuid.UUID
+    recipients: List[NewUser]
+    subject: str
+    body: str
+
 # --- Admin Endpoints ---
+@router.post("/admin/send-new-user-list-email", tags=["Admin"])
+async def admin_send_new_user_list_email(payload: NewUserListPayload, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Sends a personalized email to a list of specified new users."""
+    try:
+        # Fetch the selected sender identity
+        sender_res = supabase.table('sender_identities').select('*').eq('id', str(payload.sender_id)).single().execute()
+        if not sender_res.data:
+            raise HTTPException(status_code=404, detail="Sender identity not found.")
+        sender = SenderIdentity(**sender_res.data)
+
+        sent_count = 0
+        failed_count = 0
+
+        for recipient in payload.recipients:
+            try:
+                # Create a personalized user profile for the email template
+                user_profile = {"first_name": recipient.name}
+                html_content = create_email_html(user_profile, payload.body)
+                
+                send_email(recipient.email, payload.subject, html_content, sender)
+                sent_count += 1
+            except Exception as e:
+                print(f"Failed to send email to {recipient.email}: {e}")
+                failed_count += 1
+        
+        return {"message": f"Email process completed. Sent: {sent_count}, Failed: {failed_count}."}
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An error occurred while sending emails: {str(e)}")
+
 @router.post("/admin/send-email", tags=["Admin"])
 async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
     """Admin: Sends an email to users based on their role."""
@@ -169,9 +212,9 @@ async def get_user_roles(admin_user = Depends(get_admin_user), supabase: Client 
         raise HTTPException(status_code=500, detail=f"Failed to fetch roles: {str(e)}")
 
 # --- Sender Identity Management ---
-@router.get("/admin/senders", tags=["Admin"], response_model=List[SenderIdentity])
+@router.get("/admin/senders", tags=["Admin"], response_model=List[SenderIdentityPublic])
 async def get_senders(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
-    response = supabase.table('sender_identities').select('id, name, email, sender_login_email, app_password').execute()
+    response = supabase.table('sender_identities').select('id, name, email, sender_login_email').execute()
     return response.data
 
 @router.post("/admin/senders", tags=["Admin"], response_model=SenderIdentity)

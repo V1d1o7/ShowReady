@@ -8,7 +8,6 @@ class SenderIdentity(BaseModel):
     name: str
     email: str
     sender_login_email: str
-    app_password: str
 
 class SenderIdentityPublic(BaseModel):
     id: uuid.UUID
@@ -20,7 +19,6 @@ class SenderIdentityCreate(BaseModel):
     name: str
     email: str
     sender_login_email: str
-    app_password: str
 
 
 # --- Role Models ---

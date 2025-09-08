@@ -191,6 +191,11 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(payload),
     }).then(handleResponse),
+    sendNewUserListEmail: async (payload) => fetch('/api/admin/send-new-user-list-email', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(payload),
+    }).then(handleResponse),
 
     // --- Admin Metrics Endpoints ---
     getMetrics: async () => fetch('/api/admin/metrics', { headers: await getAuthHeader() }).then(handleResponse),
