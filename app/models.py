@@ -303,3 +303,10 @@ class WireDiagramPDFPayload(BaseModel):
     pages: List[PDFPage]
     page_size: str = "letter"
     show_name: str
+
+# --- Rack PDF Generation Models ---
+
+class RackPDFPayload(BaseModel):
+    racks: List[Rack]
+    show_name: str
+    page_size: str = "letter"

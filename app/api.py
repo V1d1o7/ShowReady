@@ -17,9 +17,9 @@ from .models import (
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
-    SenderIdentity, SenderIdentityCreate
+    SenderIdentity, SenderIdentityCreate, RackPDFPayload
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf, generate_racks_pdf
 from .email_utils import create_email_html, send_email
 from typing import List, Dict, Optional
 
@@ -1167,6 +1167,17 @@ async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends
         return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
     except Exception as e:
         print(f"Error generating wire diagram PDF: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+
+@router.post("/pdf/racks", tags=["PDF Generation"])
+async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user)):
+    """Generates a PDF for the rack builder view."""
+    try:
+        pdf_buffer = generate_racks_pdf(payload)
+        return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+    except Exception as e:
+        print(f"Error generating rack PDF: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
