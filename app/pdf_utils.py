@@ -4,19 +4,19 @@ from datetime import datetime
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
-from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.pagesizes import letter, landscape, portrait
 from reportlab.lib import colors
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER
 
-from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload
+from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPayload
 
 tabloid = (11 * inch, 17 * inch)
 PAGE_SIZES = {
-    "letter": landscape(letter),
-    "tabloid": landscape(tabloid),
+    "letter": portrait(letter),
+    "tabloid": portrait(tabloid),
     "22x17": (22 * inch, 17 * inch),
 }
 
@@ -171,6 +171,105 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
         draw_single_case_label(c, slot_index, logo_bytes, label_info.send_to, label_info.contents)
         if slot_index == 1 or i == len(labels_to_draw) - 1:
             c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: Rack):
+    """Draws a single rack, including its front and rear views, onto the canvas."""
+    RACK_FRAME_WIDTH = 3.5 * inch
+    RACK_LABEL_WIDTH = 0.3 * inch
+    SIDE_PADDING = 0.5 * inch
+    RU_HEIGHT = 0.22 * inch
+
+    rack_content_height = rack_data.ru_height * RU_HEIGHT
+    
+    # We draw two racks (front and rear) side-by-side
+    for i, view in enumerate(['front', 'rear']):
+        view_x_start = x_start + (i * (RACK_FRAME_WIDTH + SIDE_PADDING))
+        
+        y_bottom = y_top - rack_content_height
+
+        # --- Draw Frame and Title ---
+        c.setStrokeColor(colors.black)
+        c.setLineWidth(1)
+        c.rect(view_x_start, y_bottom, RACK_FRAME_WIDTH, rack_content_height)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawCentredString(view_x_start + RACK_FRAME_WIDTH / 2, y_top + 0.15 * inch, f"{rack_data.rack_name} - {view.upper()}")
+
+        # --- Draw RU Labels and Rail lines ---
+        c.setFont("Helvetica", 5)
+        c.setStrokeColor(colors.lightgrey)
+        for ru in range(1, rack_data.ru_height + 1):
+            ru_y_top = y_bottom + ru * RU_HEIGHT
+            c.line(view_x_start, ru_y_top, view_x_start + RACK_FRAME_WIDTH, ru_y_top)
+
+            # Draw number labels on the left and right rails
+            c.setFillColor(colors.black)
+            text_y = ru_y_top - (RU_HEIGHT / 2) - 2 # Center text in the RU
+            c.drawCentredString(view_x_start - (RACK_LABEL_WIDTH / 2), text_y, str(ru))
+            c.drawCentredString(view_x_start + RACK_FRAME_WIDTH + (RACK_LABEL_WIDTH / 2), text_y, str(ru))
+        
+        # --- Draw Equipment ---
+        equip_list = [e for e in rack_data.equipment if e.rack_side and e.rack_side.startswith(view)]
+        
+        for equip in equip_list:
+            equip_template = equip.equipment_templates
+            if not equip_template: continue
+            
+            equip_ru_height = equip_template.ru_height
+            equip_bottom_y = y_bottom + (equip.ru_position - 1) * RU_HEIGHT
+            equip_height = equip_ru_height * RU_HEIGHT
+            
+            is_half_width = equip_template.width == 'half'
+            equip_width = (RACK_FRAME_WIDTH / 2) if is_half_width else RACK_FRAME_WIDTH
+            
+            equip_x_start = view_x_start
+            if is_half_width:
+                if equip.rack_side.endswith('-right'):
+                    equip_x_start += RACK_FRAME_WIDTH / 2
+            
+            c.setFillColorRGB(0.88, 0.88, 0.88)
+            c.setStrokeColor(colors.black)
+            c.rect(equip_x_start, equip_bottom_y, equip_width, equip_height, fill=1, stroke=1)
+            
+            # --- Draw Equipment Labels ---
+            # Center instance name
+            c.setFillColor(colors.black)
+            c.setFont("Helvetica-Bold", 8)
+            text_x = equip_x_start + (equip_width / 2)
+            text_y = equip_bottom_y + (equip_height / 2) - 4
+            c.drawCentredString(text_x, text_y, equip.instance_name or equip_template.model_number)
+
+            # Model number in upper right
+            c.setFont("Helvetica", 6)
+            c.drawRightString(equip_x_start + equip_width - 0.05 * inch, equip_bottom_y + equip_height - 0.1 * inch, equip_template.model_number)
+
+
+def generate_racks_pdf(payload: RackPDFPayload) -> io.BytesIO:
+    """Generates a PDF document from a list of racks."""
+    buffer = io.BytesIO()
+    page_size = PAGE_SIZES.get(payload.page_size.lower(), portrait(letter))
+    c = canvas.Canvas(buffer, pagesize=page_size)
+    width, height = page_size
+    
+    MARGIN = 0.5 * inch
+    
+    for rack in payload.racks:
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(MARGIN, height - MARGIN, payload.show_name)
+        c.setFont("Helvetica", 10)
+        c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        
+        y_top = height - MARGIN - (0.5 * inch)
+        
+        RACK_TOTAL_WIDTH = (3.5 * inch) * 2 + 0.5 * inch
+        x_start = (width - RACK_TOTAL_WIDTH) / 2
+        
+        draw_single_rack(c, x_start, y_top, rack)
+        
+        c.showPage()
+
     c.save()
     buffer.seek(0)
     return buffer

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Save, Library } from 'lucide-react';
+import { Plus, Edit, Trash2, Library, Download } from 'lucide-react';
 import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, showName, onLoadFromRackLibrary, title = 'Show Racks' }) => {
+const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, onLoadFromRackLibrary, onExportPdf, title = 'Show Racks' }) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -42,13 +42,19 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                         </div>
                     ))}
                 </div>
-                {onLoadFromRackLibrary && (
-                    <div className="pt-4 border-t border-gray-700">
+                
+                <div className="pt-4 border-t border-gray-700 flex flex-col gap-2">
+                    {onLoadFromRackLibrary && (
                         <button onClick={onLoadFromRackLibrary} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
                             <Library size={16} /> Load from Rack Library
                         </button>
-                    </div>
-                )}
+                    )}
+                    {onExportPdf && (
+                         <button onClick={onExportPdf} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                            <Download size={16} /> Export as PDF
+                        </button>
+                    )}
+                </div>
             </div>
             {editingRack && (
                 <EditRackModal

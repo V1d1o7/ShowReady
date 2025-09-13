@@ -4,6 +4,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from html import escape
 from .models import SenderIdentity
+from datetime import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -134,6 +135,44 @@ def create_email_html(user_profile: dict, body_text: str) -> str:
     </html>
     """
     return html_template
+
+def create_general_email_html(body: str) -> str:
+    """
+    Creates a standardized HTML email template for users without a profile.
+    """
+    # This uses a similar structure to your existing template but without personalization.
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>A Message from ShowReady</title>
+        <style>
+            body {{ font-family: sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }}
+            .container {{ max-width: 600px; margin: 20px auto; background-color: #ffffff; border: 1px solid #dddddd; border-radius: 8px; overflow: hidden; }}
+            .header {{ background-color: #1a1a1a; color: #ffffff; padding: 20px; text-align: center; }}
+            .header h1 {{ margin: 0; color: #ffbf00; }}
+            .content {{ padding: 30px; color: #333333; line-height: 1.6; }}
+            .footer {{ background-color: #f4f4f4; color: #888888; text-align: center; padding: 20px; font-size: 12px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>ShowReady</h1>
+            </div>
+            <div class="content">
+                {body}
+            </div>
+            <div class="footer">
+                <p>&copy; {datetime.now().year} ShowReady. All rights reserved.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html_content
 
 def send_email(recipient_email: str, subject: str, html_content: str, sender: SenderIdentity):
     """
