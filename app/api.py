@@ -17,9 +17,11 @@ from .models import (
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
-    SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload
+    SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
+    Loom, LoomCreate, LoomUpdate, LoomWithCables,
+    Cable, CableCreate, CableUpdate, LoomBuilderPDFPayload
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf, generate_racks_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf, generate_racks_pdf, generate_loom_builder_pdf
 from .email_utils import create_email_html, send_email
 from typing import List, Dict, Optional
 
@@ -512,6 +514,113 @@ async def delete_show(show_name: str, user = Depends(get_user), supabase: Client
         return
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Loom Builder Endpoints ---
+
+# -- Looms (Containers) --
+@router.get("/shows/{show_name}/looms", response_model=List[Loom], tags=["Loom Builder"])
+async def get_looms_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all loom containers for a specific show."""
+    show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found or access denied.")
+    
+    response = supabase.table('looms').select('*').eq('show_name', show_name).eq('user_id', user.id).execute()
+    return response.data
+
+@router.post("/looms", response_model=Loom, tags=["Loom Builder"])
+async def create_loom(loom_data: LoomCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new loom container for a show."""
+    show_res = supabase.table('shows').select('id').eq('name', loom_data.show_name).eq('user_id', user.id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found or access denied.")
+
+    insert_data = loom_data.model_dump()
+    insert_data['user_id'] = str(user.id)
+    
+    response = supabase.table('looms').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create loom.")
+    return response.data[0]
+
+@router.put("/looms/{loom_id}", response_model=Loom, tags=["Loom Builder"])
+async def update_loom(loom_id: uuid.UUID, loom_data: LoomUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates an existing loom container."""
+    loom_res = supabase.table('looms').select('id').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
+    if not loom_res.data:
+        raise HTTPException(status_code=404, detail="Loom not found or access denied.")
+
+    update_data = loom_data.model_dump(exclude_unset=True)
+    response = supabase.table('looms').update(update_data).eq('id', str(loom_id)).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to update loom.")
+    return response.data[0]
+
+@router.delete("/looms/{loom_id}", status_code=204, tags=["Loom Builder"])
+async def delete_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes a loom container and all its associated cables."""
+    loom_res = supabase.table('looms').select('id').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
+    if not loom_res.data:
+        raise HTTPException(status_code=404, detail="Loom not found or access denied.")
+        
+    supabase.table('looms').delete().eq('id', str(loom_id)).execute() # RLS and CASCADE will handle deletion
+    return
+
+# -- Cables (within a Loom) --
+@router.get("/looms/{loom_id}/cables", response_model=List[Cable], tags=["Loom Builder"])
+async def get_cables_for_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves all cables for a specific loom."""
+    loom_res = supabase.table('looms').select('id').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
+    if not loom_res.data:
+        raise HTTPException(status_code=404, detail="Loom not found or access denied.")
+        
+    response = supabase.table('cables').select('*').eq('loom_id', str(loom_id)).execute()
+    return response.data
+
+@router.post("/cables", response_model=Cable, tags=["Loom Builder"])
+async def create_cable(cable_data: CableCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new cable within a loom."""
+    loom_res = supabase.table('looms').select('id').eq('id', str(cable_data.loom_id)).eq('user_id', user.id).single().execute()
+    if not loom_res.data:
+        raise HTTPException(status_code=403, detail="Access denied: you do not own the parent loom.")
+    
+    insert_data = cable_data.model_dump()
+    response = supabase.table('cables').insert(insert_data).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to create cable.")
+    return response.data[0]
+
+@router.put("/cables/{cable_id}", response_model=Cable, tags=["Loom Builder"])
+async def update_cable(cable_id: uuid.UUID, cable_data: CableUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates an existing cable."""
+    cable_res = supabase.table('cables').select('loom_id').eq('id', str(cable_id)).single().execute()
+    if not cable_res.data:
+        raise HTTPException(status_code=404, detail="Cable not found.")
+    
+    loom_res = supabase.table('looms').select('id').eq('id', str(cable_res.data['loom_id'])).eq('user_id', user.id).single().execute()
+    if not loom_res.data:
+        raise HTTPException(status_code=403, detail="Access denied: you do not own the parent loom.")
+        
+    update_data = cable_data.model_dump(exclude_unset=True)
+    response = supabase.table('cables').update(update_data).eq('id', str(cable_id)).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to update cable.")
+    return response.data[0]
+
+@router.delete("/cables/{cable_id}", status_code=204, tags=["Loom Builder"])
+async def delete_cable(cable_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Deletes a cable."""
+    cable_res = supabase.table('cables').select('loom_id').eq('id', str(cable_id)).single().execute()
+    if not cable_res.data:
+        return # Idempotent delete
+
+    loom_res = supabase.table('looms').select('id').eq('id', str(cable_res.data['loom_id'])).eq('user_id', user.id).single().execute()
+    if not loom_res.data:
+        raise HTTPException(status_code=403, detail="Access denied: you do not own the parent loom.")
+        
+    supabase.table('cables').delete().eq('id', str(cable_id)).execute()
+    return
 
 # --- File Upload Endpoint ---
 @router.post("/upload/logo", tags=["File Upload"])
@@ -1183,6 +1292,43 @@ class CaseLabelPayload(BaseModel):
     labels: List[CaseLabel]
     logo_path: Optional[str] = None
     placement: Optional[Dict[str, int]] = None
+
+@router.post("/pdf/loom_builder-labels", tags=["PDF Generation"])
+async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # To generate the PDF, we need the full loom objects with their cables.
+    # The payload only gives us loom IDs, so we need to fetch the data.
+    loom_ids = [loom.id for loom in payload.looms]
+    
+    # Verify user has access to all requested looms
+    looms_res = supabase.table('looms').select('id, user_id').in_('id', loom_ids).execute()
+    for loom in looms_res.data:
+        if loom['user_id'] != str(user.id):
+            raise HTTPException(status_code=403, detail="You do not have access to one or more of the requested looms.")
+
+    # Fetch all cables for the requested looms
+    cables_res = supabase.table('cables').select('*').in_('loom_id', loom_ids).execute()
+    
+    # Group cables by loom_id
+    cables_by_loom = {}
+    for cable in cables_res.data:
+        loom_id = cable['loom_id']
+        if loom_id not in cables_by_loom:
+            cables_by_loom[loom_id] = []
+        cables_by_loom[loom_id].append(cable)
+        
+    # Build the full payload for the PDF utility
+    final_looms = []
+    for loom_data in payload.looms:
+        loom_with_cables = LoomWithCables(
+            **loom_data.model_dump(),
+            cables=[Cable(**c) for c in cables_by_loom.get(str(loom_data.id), [])]
+        )
+        final_looms.append(loom_with_cables)
+    
+    pdf_payload = LoomBuilderPDFPayload(looms=final_looms, show_name=payload.show_name)
+    
+    pdf_buffer = generate_loom_builder_pdf(pdf_payload)
+    return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
 @router.post("/pdf/loom-labels", tags=["PDF Generation"])
 async def create_loom_label_pdf(payload: LoomLabelPayload, user = Depends(get_user)):

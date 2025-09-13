@@ -11,7 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER
 
-from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPayload
+from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables
 
 tabloid = (11 * inch, 17 * inch)
 PAGE_SIZES = {
@@ -171,6 +171,99 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
         draw_single_case_label(c, slot_index, logo_bytes, label_info.send_to, label_info.contents)
         if slot_index == 1 or i == len(labels_to_draw) - 1:
             c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer
+
+def draw_single_cable_pdf_page(c: canvas.Canvas, cable: "Cable", loom_name: str, show_name: str):
+    width, height = letter
+    MARGIN = 0.5 * inch
+    
+    # --- Header ---
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(width / 2, height - MARGIN, "Loom Build Sheet")
+    c.setFont("Helvetica", 12)
+    c.drawString(MARGIN, height - MARGIN, show_name)
+    c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+    
+    # --- Main Info ---
+    y_pos = height - MARGIN - (0.75 * inch)
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(MARGIN, y_pos, "Loom:")
+    c.setFont("Helvetica", 14)
+    c.drawString(MARGIN + 1 * inch, y_pos, loom_name)
+
+    y_pos -= 0.3 * inch
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(MARGIN, y_pos, "Label:")
+    c.setFont("Helvetica", 14)
+    c.drawString(MARGIN + 1 * inch, y_pos, cable.label_content)
+
+    y_pos -= 0.5 * inch
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(MARGIN, y_pos, "Cable Type:")
+    c.setFont("Helvetica", 12)
+    c.drawString(MARGIN + 1.5 * inch, y_pos, cable.cable_type)
+    
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(MARGIN + 4 * inch, y_pos, "Length:")
+    c.setFont("Helvetica", 12)
+    c.drawString(MARGIN + 5 * inch, y_pos, f"{cable.length_ft} ft" if cable.length_ft else "N/A")
+    
+    # --- Origin / Destination ---
+    y_pos -= 0.75 * inch
+    c.setStrokeColor(colors.lightgrey)
+    c.line(MARGIN, y_pos + 0.125 * inch, width - MARGIN, y_pos + 0.125 * inch)
+    
+    for i, loc_type in enumerate(['Origin', 'Destination']):
+        x_start = MARGIN + (i * (width / 2 - MARGIN))
+        
+        location = cable.origin if loc_type == 'Origin' else cable.destination
+        color = cable.origin_color if loc_type == 'Origin' else cable.destination_color
+        
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(x_start, y_pos - 0.25 * inch, loc_type)
+        
+        loc_color = parse_color(color)
+        if loc_color:
+            c.setFillColor(loc_color)
+            c.rect(x_start + 2.5 * inch, y_pos - 0.25 * inch - 2, 1 * inch, 0.25 * inch, fill=1, stroke=0)
+        
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica", 12)
+        c.drawString(x_start, y_pos - 0.6 * inch, f"Location: {location.value} ({location.type})")
+        c.drawString(x_start, y_pos - 0.85 * inch, f"End: {location.end}")
+        
+    y_pos -= 1.25 * inch
+    c.line(MARGIN, y_pos, width - MARGIN, y_pos)
+    
+    # --- Checkboxes ---
+    y_pos -= 0.5 * inch
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(MARGIN, y_pos, "RCVD:")
+    c.rect(MARGIN + 1 * inch, y_pos - 2, 0.25 * inch, 0.25 * inch, fill=0, stroke=1)
+    
+    c.drawString(MARGIN + 3 * inch, y_pos, "COMPLETE:")
+    c.rect(MARGIN + 4.5 * inch, y_pos - 2, 0.25 * inch, 0.25 * inch, fill=0, stroke=1)
+
+def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload") -> io.BytesIO:
+    """Generates a PDF document for a list of looms and their cables."""
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    
+    if not payload.looms:
+        # Draw a blank page if there are no looms
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+        return buffer
+
+    for loom in payload.looms:
+        if loom.cables:
+            for cable in loom.cables:
+                draw_single_cable_pdf_page(c, cable, loom.name, payload.show_name)
+                c.showPage()
+
     c.save()
     buffer.seek(0)
     return buffer

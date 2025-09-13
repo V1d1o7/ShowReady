@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 import uuid
+from datetime import datetime
 
 # --- Sender Identity Model ---
 class SenderIdentity(BaseModel):
@@ -79,6 +80,59 @@ class ShowFile(BaseModel):
     info: ShowInfo = Field(default_factory=ShowInfo)
     loom_sheets: Dict[str, List[LoomLabel]] = Field(default_factory=dict)
     case_sheets: Dict[str, List[CaseLabel]] = Field(default_factory=dict)
+
+# --- Loom Builder Models ---
+# A Cable is an individual cable within a Loom.
+class CableLocation(BaseModel):
+    type: str
+    value: str
+    end: str
+
+class CableBase(BaseModel):
+    label_content: str
+    cable_type: str
+    length_ft: Optional[float] = None
+    origin: CableLocation
+    destination: CableLocation
+    origin_color: str
+    destination_color: str
+    is_rcvd: bool = False
+    is_complete: bool = False
+
+class CableCreate(CableBase):
+    loom_id: uuid.UUID
+
+class CableUpdate(BaseModel):
+    label_content: Optional[str] = None
+    cable_type: Optional[str] = None
+    length_ft: Optional[float] = None
+    origin: Optional[CableLocation] = None
+    destination: Optional[CableLocation] = None
+    origin_color: Optional[str] = None
+    destination_color: Optional[str] = None
+    is_rcvd: Optional[bool] = None
+    is_complete: Optional[bool] = None
+
+class Cable(CableBase):
+    id: uuid.UUID
+    loom_id: uuid.UUID
+    created_at: datetime
+
+# A Loom is a container for multiple cables.
+class LoomBase(BaseModel):
+    name: str
+    show_name: str
+
+class LoomCreate(LoomBase):
+    pass
+
+class LoomUpdate(BaseModel):
+    name: Optional[str] = None
+
+class Loom(LoomBase):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    created_at: datetime
 
 # --- AV Rack Builder Models ---
 
@@ -308,3 +362,10 @@ class RackPDFPayload(BaseModel):
     racks: List[Rack]
     show_name: str
     page_size: str = "letter"
+
+class LoomWithCables(Loom):
+    cables: List[Cable] = []
+
+class LoomBuilderPDFPayload(BaseModel):
+    looms: List[LoomWithCables]
+    show_name: str

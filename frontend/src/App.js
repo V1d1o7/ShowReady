@@ -9,6 +9,7 @@ import ShowView from './views/ShowView';
 import AccountView from './views/AccountView';
 import AdvancedSSOView from './views/AdvancedSSOView';
 import AdminLayout from './layouts/AdminLayout';
+import ShowLayout from './layouts/ShowLayout';
 import EmailView from './views/admin/EmailView';
 import AdminEquipmentLibraryView from './views/admin/EquipmentLibraryView';
 import UserManagementView from './views/admin/UserManagementView';
@@ -21,6 +22,7 @@ import LoomLabelView from './views/LoomLabelView';
 import CaseLabelView from './views/CaseLabelView';
 import RackBuilderView from './views/RackBuilderView';
 import WireDiagramView from './views/WireDiagramView';
+import LoomBuilderView from './views/LoomBuilderView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -29,6 +31,9 @@ import Navbar from './components/Navbar';
 
 // Contexts
 import { ShowProvider } from './contexts/ShowContext';
+import { ShowsContext } from './contexts/ShowsContext';
+
+// Main layout for the application, including routing.
 
 
 const MainLayout = ({ session, profile }) => {
@@ -83,62 +88,67 @@ const MainLayout = ({ session, profile }) => {
 
 
     return (
-        <div className="flex flex-col h-full">
-            <Navbar profile={profile} />
-            <main className="flex-grow min-h-0">
-                 <Routes>
-                    <Route
-                        path="/"
-                        element={
-                            <DashboardView
-                                shows={shows}
-                                onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
-                                onNewShow={() => setIsNewShowModalOpen(true)}
-                                onDeleteShow={handleDeleteShow}
-                                isLoading={isLoadingShows}
-                                user={session.user}
-                            />
-                        }
-                    />
-                    <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
-                        <Route path="" element={<ShowView />}>
-                            <Route path="info" element={<ShowInfoView />} />
-                            <Route path="loomlabels" element={<LoomLabelView />} />
-                            <Route path="caselabels" element={<CaseLabelView />} />
-                            <Route path="rackbuilder" element={<RackBuilderView />} />
-                            <Route path="wirediagram" element={<WireDiagramView />} />
+        <ShowsContext.Provider value={{ shows, isLoadingShows }}>
+            <div className="flex flex-col h-full">
+                <Navbar profile={profile} />
+                <main className="flex-grow min-h-0">
+                    <Routes>
+                        <Route
+                            path="/"
+                            element={
+                                <DashboardView
+                                    shows={shows}
+                                    onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
+                                    onNewShow={() => setIsNewShowModalOpen(true)}
+                                    onDeleteShow={handleDeleteShow}
+                                    isLoading={isLoadingShows}
+                                    user={session.user}
+                                />
+                            }
+                        />
+                        <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
+                            <Route element={<ShowLayout />}>
+                                <Route element={<ShowView />}>
+                                    <Route index element={<Navigate to="info" replace />} />
+                                    <Route path="info" element={<ShowInfoView />} />
+                                    <Route path="loomlabels" element={<LoomLabelView />} />
+                                    <Route path="caselabels" element={<CaseLabelView />} />
+                                    <Route path="rackbuilder" element={<RackBuilderView />} />
+                                    <Route path="wirediagram" element={<WireDiagramView />} />
+                                    <Route path="loombuilder" element={<LoomBuilderView />} />
+                                </Route>
+                            </Route>
                         </Route>
-                    </Route>
-                    <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
-                    <Route path="/sso-setup" element={<AdvancedSSOView />} />
-                    <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
-                        <Route index element={<Navigate to="equipment" replace />} />
-                        <Route path="equipment" element={<EquipmentLibraryView />} />
-                        <Route path="racks" element={<UserRackBuilderView />} />
-                    </Route>
-                    <Route
-                        path="/mgmt"
-                        element={
-                            <ProtectedRoute profile={profile} adminOnly={true}>
-                                <AdminLayout />
-                            </ProtectedRoute>
-                        }
-                    >
-                        <Route index element={<Navigate to="email" replace />} />
-                        <Route path="email" element={<EmailView />} />
-                        <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
-                        <Route path="user-management" element={<UserManagementView />} />
-                        <Route path="metrics" element={<MetricsView />} />
-                    </Route>
-                </Routes>
-            </main>
-            <NewShowModal
-                isOpen={isNewShowModalOpen}
-                onClose={() => setIsNewShowModalOpen(false)}
-                onSubmit={handleCreateShow}
-            
-            />
-        </div>
+                        <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
+                        <Route path="/sso-setup" element={<AdvancedSSOView />} />
+                        <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
+                            <Route index element={<Navigate to="equipment" replace />} />
+                            <Route path="equipment" element={<EquipmentLibraryView />} />
+                            <Route path="racks" element={<UserRackBuilderView />} />
+                        </Route>
+                        <Route
+                            path="/mgmt"
+                            element={
+                                <ProtectedRoute profile={profile} adminOnly={true}>
+                                    <AdminLayout />
+                                </ProtectedRoute>
+                            }
+                        >
+                            <Route index element={<Navigate to="email" replace />} />
+                            <Route path="email" element={<EmailView />} />
+                            <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
+                            <Route path="user-management" element={<UserManagementView />} />
+                            <Route path="metrics" element={<MetricsView />} />
+                        </Route>
+                    </Routes>
+                </main>
+                <NewShowModal
+                    isOpen={isNewShowModalOpen}
+                    onClose={() => setIsNewShowModalOpen(false)}
+                    onSubmit={handleCreateShow}
+                />
+            </div>
+        </ShowsContext.Provider>
     );
 };
 
@@ -189,24 +199,30 @@ export default function App() {
 const ShowWrapper = ({ onShowUpdate }) => {
     const { showName } = useParams();
     const [showData, setShowData] = useState(null);
+    const [racks, setRacks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const navigate = useNavigate();
 
     useEffect(() => {
-        const fetchShow = async () => {
+        const fetchShowData = async () => {
             setIsLoading(true);
             try {
-                const data = await api.getShow(showName);
+                // Fetch show data and racks in parallel
+                const [data, racksData] = await Promise.all([
+                    api.getShow(showName),
+                    api.getRacksForShow(showName)
+                ]);
                 setShowData(data);
+                setRacks(racksData);
             } catch (error) {
-                console.error("Failed to fetch show data:", error);
+                console.error("Failed to fetch show data or racks:", error);
                 navigate('/');
             } finally {
                 setIsLoading(false);
             }
         };
         if (showName) {
-            fetchShow();
+            fetchShowData();
         }
     }, [showName, navigate]);
 
@@ -232,7 +248,7 @@ const ShowWrapper = ({ onShowUpdate }) => {
     };
 
     return (
-        <ShowProvider value={{ showData, onSave: handleSaveShowData, isLoading, showName }}>
+        <ShowProvider value={{ showData, racks, onSave: handleSaveShowData, isLoading, showName }}>
             <Outlet />
         </ShowProvider>
     );

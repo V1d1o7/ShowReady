@@ -191,6 +191,42 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(payload),
     }).then(handleResponse),
+
+    // --- Loom Builder Endpoints ---
+    // Loom (Container) Endpoints
+    getLoomsForShow: async (showName) => fetch(`/api/shows/${showName}/looms`, { headers: await getAuthHeader() }).then(handleResponse),
+    createLoom: async (loomData) => fetch('/api/looms', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(loomData),
+    }).then(handleResponse),
+    updateLoom: async (loomId, loomData) => fetch(`/api/looms/${loomId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(loomData),
+    }).then(handleResponse),
+    deleteLoom: async (loomId) => fetch(`/api/looms/${loomId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }),
+
+    // Cable (Item) Endpoints
+    getCablesForLoom: async (loomId) => fetch(`/api/looms/${loomId}/cables`, { headers: await getAuthHeader() }).then(handleResponse),
+    createCable: async (cableData) => fetch('/api/cables', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(cableData),
+    }).then(handleResponse),
+    updateCable: async (cableId, cableData) => fetch(`/api/cables/${cableId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(cableData),
+    }).then(handleResponse),
+    deleteCable: async (cableId) => fetch(`/api/cables/${cableId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }),
+
     sendNewUserListEmail: async (payload) => fetch('/api/admin/send-new-user-list-email', {
         method: 'POST',
         headers: await getAuthHeader(),
