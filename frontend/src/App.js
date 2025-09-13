@@ -14,6 +14,7 @@ import EmailView from './views/admin/EmailView';
 import AdminEquipmentLibraryView from './views/admin/EquipmentLibraryView';
 import UserManagementView from './views/admin/UserManagementView';
 import MetricsView from './views/admin/MetricsView';
+import RbacView from './views/admin/RbacView';
 import UserLibraryView from './views/UserLibraryView';
 import EquipmentLibraryView from './views/EquipmentLibraryView';
 import UserRackBuilderView from './views/UserRackBuilderView';
@@ -139,6 +140,7 @@ const MainLayout = ({ session, profile }) => {
                             <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
                             <Route path="user-management" element={<UserManagementView />} />
                             <Route path="metrics" element={<MetricsView />} />
+                            <Route path="rbac" element={<RbacView />} />
                         </Route>
                     </Routes>
                 </main>
@@ -253,4 +255,3 @@ const ShowWrapper = ({ onShowUpdate }) => {
         </ShowProvider>
     );
 };
-

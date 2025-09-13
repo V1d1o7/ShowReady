@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Mail, Users, BarChart2, HardDrive } from 'lucide-react';
+import { Mail, Users, BarChart2, HardDrive, Shield } from 'lucide-react';
 
 const AdminSidebar = () => {
     const navLinkClasses = ({ isActive }) =>
@@ -31,6 +31,10 @@ const AdminSidebar = () => {
                 <NavLink to="/mgmt/metrics" className={navLinkClasses}>
                     <BarChart2 className="mr-3 h-5 w-5" />
                     Metrics
+                </NavLink>
+                <NavLink to="/mgmt/rbac" className={navLinkClasses}>
+                    <Shield className="mr-3 h-5 w-5" />
+                    RBAC
                 </NavLink>
             </nav>
         </div>

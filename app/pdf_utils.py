@@ -6,7 +6,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape, portrait
 from reportlab.lib import colors
-from reportlab.platypus import Paragraph
+from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER
@@ -175,94 +175,82 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
     buffer.seek(0)
     return buffer
 
-def draw_single_cable_pdf_page(c: canvas.Canvas, cable: "Cable", loom_name: str, show_name: str):
-    width, height = letter
-    MARGIN = 0.5 * inch
-    
-    # --- Header ---
-    c.setFont("Helvetica-Bold", 18)
-    c.drawCentredString(width / 2, height - MARGIN, "Loom Build Sheet")
-    c.setFont("Helvetica", 12)
-    c.drawString(MARGIN, height - MARGIN, show_name)
-    c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
-    
-    # --- Main Info ---
-    y_pos = height - MARGIN - (0.75 * inch)
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(MARGIN, y_pos, "Loom:")
-    c.setFont("Helvetica", 14)
-    c.drawString(MARGIN + 1 * inch, y_pos, loom_name)
-
-    y_pos -= 0.3 * inch
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(MARGIN, y_pos, "Label:")
-    c.setFont("Helvetica", 14)
-    c.drawString(MARGIN + 1 * inch, y_pos, cable.label_content)
-
-    y_pos -= 0.5 * inch
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(MARGIN, y_pos, "Cable Type:")
-    c.setFont("Helvetica", 12)
-    c.drawString(MARGIN + 1.5 * inch, y_pos, cable.cable_type)
-    
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(MARGIN + 4 * inch, y_pos, "Length:")
-    c.setFont("Helvetica", 12)
-    c.drawString(MARGIN + 5 * inch, y_pos, f"{cable.length_ft} ft" if cable.length_ft else "N/A")
-    
-    # --- Origin / Destination ---
-    y_pos -= 0.75 * inch
-    c.setStrokeColor(colors.lightgrey)
-    c.line(MARGIN, y_pos + 0.125 * inch, width - MARGIN, y_pos + 0.125 * inch)
-    
-    for i, loc_type in enumerate(['Origin', 'Destination']):
-        x_start = MARGIN + (i * (width / 2 - MARGIN))
-        
-        location = cable.origin if loc_type == 'Origin' else cable.destination
-        color = cable.origin_color if loc_type == 'Origin' else cable.destination_color
-        
-        c.setFont("Helvetica-Bold", 14)
-        c.drawString(x_start, y_pos - 0.25 * inch, loc_type)
-        
-        loc_color = parse_color(color)
-        if loc_color:
-            c.setFillColor(loc_color)
-            c.rect(x_start + 2.5 * inch, y_pos - 0.25 * inch - 2, 1 * inch, 0.25 * inch, fill=1, stroke=0)
-        
-        c.setFillColor(colors.black)
-        c.setFont("Helvetica", 12)
-        c.drawString(x_start, y_pos - 0.6 * inch, f"Location: {location.value} ({location.type})")
-        c.drawString(x_start, y_pos - 0.85 * inch, f"End: {location.end}")
-        
-    y_pos -= 1.25 * inch
-    c.line(MARGIN, y_pos, width - MARGIN, y_pos)
-    
-    # --- Checkboxes ---
-    y_pos -= 0.5 * inch
-    c.setFont("Helvetica-Bold", 14)
-    c.drawString(MARGIN, y_pos, "RCVD:")
-    c.rect(MARGIN + 1 * inch, y_pos - 2, 0.25 * inch, 0.25 * inch, fill=0, stroke=1)
-    
-    c.drawString(MARGIN + 3 * inch, y_pos, "COMPLETE:")
-    c.rect(MARGIN + 4.5 * inch, y_pos - 2, 0.25 * inch, 0.25 * inch, fill=0, stroke=1)
-
-def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload") -> io.BytesIO:
-    """Generates a PDF document for a list of looms and their cables."""
+def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", logo_path: Optional[str] = None) -> io.BytesIO:
+    """Generates a PDF document for a list of looms, with each loom on a separate page and cables in a table."""
     buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
+    c = canvas.Canvas(buffer, pagesize=portrait(letter))
+    width, height = portrait(letter)
     
     if not payload.looms:
-        # Draw a blank page if there are no looms
         c.showPage()
         c.save()
         buffer.seek(0)
         return buffer
 
     for loom in payload.looms:
+        # --- Header ---
+        y_pos = height - 0.5 * inch
+        
+        if logo_path:
+            try:
+                img = ImageReader(logo_path)
+                img_width, img_height = img.getSize()
+                aspect = img_height / float(img_width)
+                logo_width = 1.5 * inch
+                logo_height = logo_width * aspect
+                c.drawImage(img, 0.5 * inch, y_pos - logo_height, width=logo_width, height=logo_height, mask='auto')
+            except Exception as e:
+                print(f"Could not draw logo: {e}")
+
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(width / 2, y_pos, "Loom Build Sheet")
+        y_pos -= 0.25 * inch
+        
+        if logo_path:
+             c.setFont("Helvetica", 10)
+             c.drawRightString(width - 0.5 * inch, height - 0.5 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+        else:
+             c.setFont("Helvetica", 10)
+             c.drawRightString(width - 0.5 * inch, height - 0.65 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+
+
+        y_pos -= 0.5 * inch
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(0.5 * inch, y_pos, f"Show: {payload.show_name}")
+        c.drawRightString(width - 0.5 * inch, y_pos, f"Loom: {loom.name}")
+        y_pos -= 0.25 * inch
+        
+        # --- Table of Cables ---
         if loom.cables:
+            data = [["Label", "Type", "Length", "Origin", "Destination"]]
             for cable in loom.cables:
-                draw_single_cable_pdf_page(c, cable, loom.name, payload.show_name)
-                c.showPage()
+                origin = f"{cable.origin.value} ({cable.origin.end})"
+                destination = f"{cable.destination.value} ({cable.destination.end})"
+                data.append([
+                    cable.label_content,
+                    cable.cable_type,
+                    f"{cable.length_ft} ft" if cable.length_ft is not None else "N/A",
+                    origin,
+                    destination
+                ])
+
+            table = Table(data, colWidths=[1.5*inch, 1.5*inch, 0.75*inch, 2*inch, 2*inch])
+            style = TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ])
+            table.setStyle(style)
+            
+            # Wrap the table in a frame and draw it
+            table_width, table_height = table.wrapOn(c, width - 1 * inch, height)
+            table.drawOn(c, 0.5 * inch, y_pos - table_height)
+
+        c.showPage()
 
     c.save()
     buffer.seek(0)

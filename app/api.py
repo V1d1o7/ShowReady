@@ -105,6 +105,14 @@ class NewUserListPayload(BaseModel):
     subject: str
     body: str
 
+# --- Feature Restriction Models ---
+class FeatureRestriction(BaseModel):
+    feature_name: str
+    excluded_roles: List[str]
+
+class FeatureRestrictionUpdate(BaseModel):
+    excluded_roles: List[str]
+
 # --- Admin Endpoints ---
 @router.post("/admin/send-new-user-list-email", tags=["Admin"])
 async def admin_send_new_user_list_email(payload: NewUserListPayload, admin_user = Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
@@ -354,6 +362,45 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to update user roles: {str(e)}")
 
+# --- Admin Feature Restriction Endpoints ---
+@router.get("/admin/feature_restrictions/{feature_name}", response_model=FeatureRestriction, tags=["Admin", "RBAC"])
+async def get_feature_restriction(feature_name: str, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Gets the feature restriction settings for a given feature."""
+    try:
+        response = supabase.table('feature_restrictions').select('*').eq('feature_name', feature_name).execute()
+        # If no restriction is found, return a default (empty exclusion list)
+        if not response.data:
+            return FeatureRestriction(feature_name=feature_name, excluded_roles=[])
+        
+        # If multiple rows are found (which shouldn't happen due to UNIQUE constraint), take the first one.
+        return response.data[0]
+    except Exception as e:
+        print(f"Error fetching feature restriction for '{feature_name}': {e}")
+        # If an error occurs (e.g., DB connection), return a safe default
+        return FeatureRestriction(feature_name=feature_name, excluded_roles=[])
+
+@router.put("/admin/feature_restrictions/{feature_name}", response_model=FeatureRestriction, tags=["Admin", "RBAC"])
+async def update_feature_restriction(
+    feature_name: str,
+    restriction_data: FeatureRestrictionUpdate,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Creates or updates the feature restriction settings for a given feature."""
+    try:
+        # Upsert operation: update if feature_name exists, otherwise insert.
+        response = supabase.table('feature_restrictions').upsert({
+            'feature_name': feature_name,
+            'excluded_roles': restriction_data.excluded_roles
+        }).execute()
+        
+        if not response.data:
+            raise HTTPException(status_code=500, detail="Failed to update feature restriction.")
+        return response.data[0]
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An error occurred while updating feature restriction: {str(e)}")
+
 # --- Admin Metrics ---
 @router.get("/admin/metrics", tags=["Admin"])
 async def get_metrics(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
@@ -585,7 +632,7 @@ async def create_cable(cable_data: CableCreate, user = Depends(get_user), supaba
     if not loom_res.data:
         raise HTTPException(status_code=403, detail="Access denied: you do not own the parent loom.")
     
-    insert_data = cable_data.model_dump()
+    insert_data = cable_data.model_dump(mode='json')
     response = supabase.table('cables').insert(insert_data).execute()
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create cable.")
@@ -1295,6 +1342,27 @@ class CaseLabelPayload(BaseModel):
 
 @router.post("/pdf/loom_builder-labels", tags=["PDF Generation"])
 async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # --- Role-based logo restriction ---
+    show_logo = True # Default to showing the logo
+    logo_path_to_use = None
+    try:
+        # Get user roles
+        user_roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
+        user_roles = {role['roles']['name'] for role in user_roles_res.data if 'roles' in role and role['roles']} if user_roles_res.data else set()
+
+        # Get excluded roles for pdf_logo feature
+        restriction_res = supabase.table('feature_restrictions').select('excluded_roles').eq('feature_name', 'pdf_logo').single().execute()
+        if restriction_res.data:
+            excluded_roles = set(restriction_res.data.get('excluded_roles', []))
+            if not user_roles.isdisjoint(excluded_roles):
+                show_logo = False
+    except Exception as e:
+        print(f"Error checking feature restriction for pdf_logo: {e}")
+        show_logo = False
+
+    if show_logo:
+        logo_path_to_use = "/ShowReady/frontend/logo.png"
+
     # To generate the PDF, we need the full loom objects with their cables.
     # The payload only gives us loom IDs, so we need to fetch the data.
     loom_ids = [loom.id for loom in payload.looms]
@@ -1320,14 +1388,14 @@ async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends
     final_looms = []
     for loom_data in payload.looms:
         loom_with_cables = LoomWithCables(
-            **loom_data.model_dump(),
+            **loom_data.model_dump(exclude={'cables'}),
             cables=[Cable(**c) for c in cables_by_loom.get(str(loom_data.id), [])]
         )
         final_looms.append(loom_with_cables)
     
     pdf_payload = LoomBuilderPDFPayload(looms=final_looms, show_name=payload.show_name)
     
-    pdf_buffer = generate_loom_builder_pdf(pdf_payload)
+    pdf_buffer = generate_loom_builder_pdf(pdf_payload, logo_path=logo_path_to_use)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
 @router.post("/pdf/loom-labels", tags=["PDF Generation"])

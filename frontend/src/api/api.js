@@ -276,4 +276,12 @@ export const api = {
         method: 'DELETE',
         headers: await getAuthHeader()
     }).then(handleResponse),
+
+    // --- Admin RBAC Endpoints ---
+    getFeatureRestriction: async (featureName) => fetch(`/api/admin/feature_restrictions/${featureName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    updateFeatureRestriction: async (featureName, restrictionData) => fetch(`/api/admin/feature_restrictions/${featureName}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(restrictionData),
+    }).then(handleResponse),
 };

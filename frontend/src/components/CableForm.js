@@ -4,14 +4,14 @@ import LocationSelector from './LocationSelector';
 import ColorPicker from './ColorPicker';
 import { Save, X } from 'lucide-react';
 
-const LoomForm = ({ loom, onSave, onCancel }) => {
-    const [formData, setFormData] = useState(loom);
-    const [isOriginColorSame, setIsOriginColorSame] = useState(loom.originColor === loom.destinationColor);
+const CableForm = ({ cable, onSave, onCancel }) => {
+    const [formData, setFormData] = useState(cable);
+    const [isOriginColorSame, setIsOriginColorSame] = useState(cable.origin_color === cable.destination_color);
 
     useEffect(() => {
-        setFormData(loom);
-        setIsOriginColorSame(loom.originColor === loom.destinationColor);
-    }, [loom]);
+        setFormData(cable);
+        setIsOriginColorSame(cable.origin_color === cable.destination_color);
+    }, [cable]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -23,22 +23,22 @@ const LoomForm = ({ loom, onSave, onCancel }) => {
     };
 
     const handleOriginColorChange = (color) => {
-        const newFormData = { ...formData, originColor: color };
+        const newFormData = { ...formData, origin_color: color };
         if (isOriginColorSame) {
-            newFormData.destinationColor = color;
+            newFormData.destination_color = color;
         }
         setFormData(newFormData);
     };
     
     const handleDestinationColorChange = (color) => {
-        setFormData({ ...formData, destinationColor: color });
+        setFormData({ ...formData, destination_color: color });
     };
 
     const handleSameColorToggle = (e) => {
         const isChecked = e.target.checked;
         setIsOriginColorSame(isChecked);
         if (isChecked) {
-            setFormData(prev => ({ ...prev, destinationColor: prev.originColor }));
+            setFormData(prev => ({ ...prev, destination_color: prev.origin_color }));
         }
     };
 
@@ -50,7 +50,7 @@ const LoomForm = ({ loom, onSave, onCancel }) => {
         <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 overflow-y-auto p-4">
             <div className="bg-gray-800 rounded-lg shadow-xl p-8 w-full max-w-2xl space-y-6 border border-gray-700 my-auto">
                 <div className="flex justify-between items-center">
-                    <h2 className="text-2xl font-bold text-white">Edit Loom</h2>
+                    <h2 className="text-2xl font-bold text-white">Edit Cable</h2>
                     <button onClick={onCancel} className="text-gray-400 hover:text-white">
                         <X size={24} />
                     </button>
@@ -59,22 +59,22 @@ const LoomForm = ({ loom, onSave, onCancel }) => {
                 <div className="space-y-4">
                     <InputField 
                         label="Label Content"
-                        name="labelContent"
-                        value={formData.labelContent}
+                        name="label_content"
+                        value={formData.label_content}
                         onChange={handleChange}
                     />
                     <div className="grid grid-cols-2 gap-4">
                         <InputField 
                             label="Cable Type"
-                            name="cableType"
-                            value={formData.cableType}
+                            name="cable_type"
+                            value={formData.cable_type}
                             onChange={handleChange}
                         />
                         <InputField 
                             label="Length (ft)"
-                            name="length"
+                            name="length_ft"
                             type="number"
-                            value={formData.length}
+                            value={formData.length_ft}
                             onChange={handleChange}
                         />
                     </div>
@@ -93,7 +93,7 @@ const LoomForm = ({ loom, onSave, onCancel }) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <ColorPicker 
                             label="Origin Color"
-                            selectedColor={formData.originColor}
+                            selectedColor={formData.origin_color}
                             onChange={handleOriginColorChange}
                         />
                         <div>
@@ -112,7 +112,7 @@ const LoomForm = ({ loom, onSave, onCancel }) => {
                             </div>
                             {!isOriginColorSame && (
                                 <ColorPicker 
-                                    selectedColor={formData.destinationColor}
+                                    selectedColor={formData.destination_color}
                                     onChange={handleDestinationColorChange}
                                     label=""
                                 />
@@ -134,4 +134,4 @@ const LoomForm = ({ loom, onSave, onCancel }) => {
     );
 };
 
-export default LoomForm;
+export default CableForm;
