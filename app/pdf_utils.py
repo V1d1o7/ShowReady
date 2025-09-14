@@ -1,4 +1,5 @@
 import io
+import os
 from typing import List, Dict, Optional, Union
 from datetime import datetime
 
@@ -6,12 +7,41 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape, portrait
 from reportlab.lib import colors
-from reportlab.platypus import Paragraph, Table, TableStyle
+from reportlab.platypus import Paragraph, Table, TableStyle, Image
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables
+
+# Register Space Mono font
+try:
+    pdfmetrics.registerFont(TTFont('SpaceMono', 'fonts/SpaceMono-Regular.ttf'))
+    pdfmetrics.registerFont(TTFont('SpaceMono-Bold', 'fonts/SpaceMono-Bold.ttf'))
+except Exception as e:
+    print(f"Could not register Space Mono font: {e}")
+
+# --- Image Checkbox Setup ---
+# NOTE: This requires 'checked.png' and 'unchecked.png' files (e.g., 16x16 pixels)
+# to be in the same directory as this python file.
+try:
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(__file__)
+    checked_img_path = os.path.join(script_dir, 'checked.png')
+    unchecked_img_path = os.path.join(script_dir, 'unchecked.png')
+
+    # Create reusable Image objects. The table will center these perfectly.
+    CHECKED_IMG = Image(checked_img_path, width=10, height=10)
+    UNCHECKED_IMG = Image(unchecked_img_path, width=10, height=10)
+    
+    # Flag to confirm images loaded successfully
+    IMAGES_AVAILABLE = True
+except Exception as e:
+    print(f"Could not load checkbox images: {e}")
+    IMAGES_AVAILABLE = False
+
 
 tabloid = (11 * inch, 17 * inch)
 PAGE_SIZES = {
@@ -80,7 +110,7 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[st
         
         center_x, center_y = x + LABEL_WIDTH / 2, y + LABEL_HEIGHT / 2
         font_size = 14
-        c.setFont("Helvetica-Bold", font_size)
+        c.setFont("SpaceMono-Bold", font_size)
         c.setFillColor(colors.black)
         c.drawCentredString(center_x, center_y - (font_size * 0.25), label.loom_name or 'N/A')
         
@@ -90,7 +120,7 @@ def generate_loom_label_pdf(labels: List[LoomLabel], placement: Optional[Dict[st
         c.roundRect(x, center_y + bar_y_offset, LABEL_WIDTH, bar_height, CORNER_RADIUS, fill=1, stroke=0)
         c.roundRect(x, center_y - bar_y_offset - bar_height, LABEL_WIDTH, bar_height, CORNER_RADIUS, fill=1, stroke=0)
         
-        c.setFont("Helvetica", 7)
+        c.setFont("SpaceMono", 7)
         c.setFillColor(colors.black)
         padding, bottom_y = 0.08 * inch, y + 0.1 * inch
         c.drawString(x + padding, bottom_y, f"SRC: {label.source or 'N/A'}")
@@ -131,24 +161,24 @@ def draw_single_case_label(c, label_index: int, image_data: Optional[bytes], sen
             img_x, img_y = img_box_center_x - (new_width / 2), img_box_center_y - (new_height / 2)
             c.drawImage(image_reader, img_x, img_y, width=new_width, height=new_height, mask='auto')
         except Exception as e:
-            c.setFont("Helvetica", 10)
+            c.setFont("SpaceMono", 10)
             c.drawCentredString(box_x + (v_line_x - box_x)/2, h_line_y + 0.5*inch, f"Image failed to load: {e}")
 
     c.setFillColor(colors.black)
-    c.setFont("Helvetica", 20)
+    c.setFont("SpaceMono", 20)
     c.drawString(v_line_x + (0.1 * inch), (box_y + box_height) - (0.3 * inch), "SEND TO:")
     font_size = 48
     text_to_draw = send_to_text.upper()
     max_text_width = (box_x + box_width) - v_line_x - (0.2 * inch)
-    while c.stringWidth(text_to_draw, "Helvetica-Bold", font_size) > max_text_width and font_size > 8: font_size -= 1
-    c.setFont("Helvetica-Bold", font_size)
+    while c.stringWidth(text_to_draw, "SpaceMono-Bold", font_size) > max_text_width and font_size > 8: font_size -= 1
+    c.setFont("SpaceMono-Bold", font_size)
     send_to_box_center_x = v_line_x + ((box_x + box_width - v_line_x) / 2)
     c.drawCentredString(send_to_box_center_x, y_start + LABEL_HEIGHT - (1.35 * inch), text_to_draw)
-    c.setFont("Helvetica", 20)
+    c.setFont("SpaceMono", 20)
     c.drawString(padding + (0.1 * inch), h_line_y - (0.3 * inch), "CONTENTS:")
     
     style_body = ParagraphStyle(
-        name='BodyText', fontName='Helvetica-Bold', fontSize=28, leading=34, alignment=TA_CENTER)
+        name='BodyText', fontName='SpaceMono-Bold', fontSize=28, leading=34, alignment=TA_CENTER)
     p = Paragraph((contents_text or "").replace('\n', '<br/>').upper(), style=style_body)
     p_width, p_height = p.wrapOn(c, LABEL_WIDTH - (2 * padding) - 0.2 * inch, h_line_y - box_y - 0.5 * inch)
     p.drawOn(c, center_x - p_width / 2, h_line_y - 0.5 * inch - p_height)
@@ -189,64 +219,139 @@ def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", logo_path: Optio
 
     for loom in payload.looms:
         # --- Header ---
-        y_pos = height - 0.5 * inch
-        
-        if logo_path:
-            try:
-                img = ImageReader(logo_path)
-                img_width, img_height = img.getSize()
-                aspect = img_height / float(img_width)
-                logo_width = 1.5 * inch
-                logo_height = logo_width * aspect
-                c.drawImage(img, 0.5 * inch, y_pos - logo_height, width=logo_width, height=logo_height, mask='auto')
-            except Exception as e:
-                print(f"Could not draw logo: {e}")
-
-        c.setFont("Helvetica-Bold", 18)
-        c.drawCentredString(width / 2, y_pos, "Loom Build Sheet")
-        y_pos -= 0.25 * inch
-        
-        if logo_path:
-             c.setFont("Helvetica", 10)
-             c.drawRightString(width - 0.5 * inch, height - 0.5 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
-        else:
-             c.setFont("Helvetica", 10)
-             c.drawRightString(width - 0.5 * inch, height - 0.65 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
-
-
-        y_pos -= 0.5 * inch
-        c.setFont("Helvetica-Bold", 14)
+        y_top = height - 0.5 * inch
+        c.setFont("SpaceMono", 8)
+        c.drawString(0.5 * inch, y_top - 10, "Created Using ShowReady")
+        c.setFont("SpaceMono-Bold", 18)
+        c.drawCentredString(width / 2, y_top - 12, "Loom Build Sheet")
+        c.setFont("SpaceMono", 8)
+        c.drawRightString(width - 0.5 * inch, y_top - 10, f"Generated: {datetime.now().strftime('%Y-%m-%d')}")
+        y_pos = y_top - (0.6 * inch)
+        c.setFont("SpaceMono-Bold", 14)
         c.drawString(0.5 * inch, y_pos, f"Show: {payload.show_name}")
         c.drawRightString(width - 0.5 * inch, y_pos, f"Loom: {loom.name}")
         y_pos -= 0.25 * inch
         
         # --- Table of Cables ---
         if loom.cables:
-            data = [["Label", "Type", "Length", "Origin", "Destination"]]
+            # --- Setup for multi-line header ---
+            styles = getSampleStyleSheet()
+            header_style = ParagraphStyle(
+                name='HeaderStyle',
+                parent=styles['Normal'],
+                alignment=TA_CENTER,
+                fontName='SpaceMono-Bold',
+                fontSize=9,
+                textColor=colors.whitesmoke,
+                leading=11 # Line spacing for multi-line
+            )
+            
+            # Get common location info from the first cable in the loom
+            first_cable = loom.cables[0]
+            common_origin_location = first_cable.origin.value
+            common_dest_location = first_cable.destination.value
+
+            origin_header_text = f"Origin<br/>{common_origin_location or 'N/A'}"
+            dest_header_text = f"Destination<br/>{common_dest_location or 'N/A'}"
+            origin_header_para = Paragraph(origin_header_text, header_style)
+            dest_header_para = Paragraph(dest_header_text, header_style)
+
+            # Create the header row
+            header_row = ["Label", "Type", "Length", origin_header_para, dest_header_para, "RCVD", "Done"]
+            data = [header_row]
+
+            # --- Define base style for data cells ---
+            base_data_style = ParagraphStyle(
+                name='BaseDataStyle',
+                parent=styles['Normal'],
+                fontName='SpaceMono',
+                fontSize=8,
+                alignment=TA_CENTER
+            )
+            
             for cable in loom.cables:
-                origin = f"{cable.origin.value} ({cable.origin.end})"
-                destination = f"{cable.destination.value} ({cable.destination.end})"
+                # Create Origin Cell with colored background and cable end text
+                origin_color = parse_color(cable.origin_color)
+                origin_style = ParagraphStyle(
+                    name='OriginStyle', 
+                    backColor=origin_color,
+                    textColor=colors.white if (origin_color.red + origin_color.green + origin_color.blue) < 1.5 else colors.black,
+                    alignment=TA_CENTER,
+                    fontName='SpaceMono',
+                    fontSize=8,
+                    borderPadding=(2, 4)
+                )
+                origin_cell = Paragraph(cable.origin.end, origin_style)
+
+                # Create Destination Cell with colored background and cable end text
+                destination_color = parse_color(cable.destination_color)
+                destination_style = ParagraphStyle(
+                    name='DestinationStyle', 
+                    backColor=destination_color,
+                    textColor=colors.white if (destination_color.red + destination_color.green + destination_color.blue) < 1.5 else colors.black,
+                    alignment=TA_CENTER,
+                    fontName='SpaceMono',
+                    fontSize=8,
+                    borderPadding=(2, 4)
+                )
+                destination_cell = Paragraph(cable.destination.end, destination_style)
+
+                # Use Image objects for checkboxes
+                rcvd_checkbox = (CHECKED_IMG if cable.is_rcvd else UNCHECKED_IMG) if IMAGES_AVAILABLE else "Y" if cable.is_rcvd else "N"
+                complete_checkbox = (CHECKED_IMG if cable.is_complete else UNCHECKED_IMG) if IMAGES_AVAILABLE else "Y" if cable.is_complete else "N"
+
+                # --- Create Label cell with dynamic font size ---
+                label_text = cable.label_content
+                label_font_size = 8
+                if len(label_text or "") > 16: # Threshold to shrink font
+                    label_font_size = 7
+                
+                label_style = ParagraphStyle(
+                    name='LabelStyle',
+                    parent=base_data_style,
+                    fontSize=label_font_size
+                )
+                label_cell = Paragraph(label_text, label_style)
+
+                # Create other cells as Paragraphs for consistency
+                type_cell = Paragraph(cable.cable_type, base_data_style)
+                length_text = f"{int(cable.length_ft)}" if cable.length_ft is not None else "N/A"
+                length_cell = Paragraph(length_text, base_data_style)
+
                 data.append([
-                    cable.label_content,
-                    cable.cable_type,
-                    f"{cable.length_ft} ft" if cable.length_ft is not None else "N/A",
-                    origin,
-                    destination
+                    label_cell,
+                    type_cell,
+                    length_cell,
+                    origin_cell,
+                    destination_cell,
+                    rcvd_checkbox,
+                    complete_checkbox,
                 ])
 
-            table = Table(data, colWidths=[1.5*inch, 1.5*inch, 0.75*inch, 2*inch, 2*inch])
+            table = Table(data, colWidths=[1.4*inch, 1.4*inch, 0.7*inch, 1.6*inch, 1.6*inch, 0.4*inch, 0.4*inch])
+            
             style = TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                
+                # Header styles
+                ('FONTNAME', (0, 0), (2, 0), 'SpaceMono-Bold'), # Style for first 3 header cells
+                ('FONTNAME', (5, 0), (6, 0), 'SpaceMono-Bold'), # Style for last 2 header cells
+                ('TEXTCOLOR', (0, 0), (2, 0), colors.whitesmoke),
+                ('TEXTCOLOR', (5, 0), (6, 0), colors.whitesmoke),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 0),
+                ('TOPPADDING', (0, 0), (-1, 0), 0),
+
+                # Data row font
+                ('FONTNAME', (0, 1), (-1, -1), 'SpaceMono'),
+                
+                # Grid lines
+                ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.black),
+                ('LINEBELOW', (0, 1), (-1, -1), 0.5, colors.lightgrey),
             ])
             table.setStyle(style)
             
-            # Wrap the table in a frame and draw it
             table_width, table_height = table.wrapOn(c, width - 1 * inch, height)
             table.drawOn(c, 0.5 * inch, y_pos - table_height)
 
@@ -265,33 +370,26 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
 
     rack_content_height = rack_data.ru_height * RU_HEIGHT
     
-    # We draw two racks (front and rear) side-by-side
     for i, view in enumerate(['front', 'rear']):
         view_x_start = x_start + (i * (RACK_FRAME_WIDTH + SIDE_PADDING))
-        
         y_bottom = y_top - rack_content_height
 
-        # --- Draw Frame and Title ---
         c.setStrokeColor(colors.black)
         c.setLineWidth(1)
         c.rect(view_x_start, y_bottom, RACK_FRAME_WIDTH, rack_content_height)
-        c.setFont("Helvetica-Bold", 12)
+        c.setFont("SpaceMono-Bold", 12)
         c.drawCentredString(view_x_start + RACK_FRAME_WIDTH / 2, y_top + 0.15 * inch, f"{rack_data.rack_name} - {view.upper()}")
 
-        # --- Draw RU Labels and Rail lines ---
-        c.setFont("Helvetica", 5)
+        c.setFont("SpaceMono", 5)
         c.setStrokeColor(colors.lightgrey)
         for ru in range(1, rack_data.ru_height + 1):
             ru_y_top = y_bottom + ru * RU_HEIGHT
             c.line(view_x_start, ru_y_top, view_x_start + RACK_FRAME_WIDTH, ru_y_top)
-
-            # Draw number labels on the left and right rails
             c.setFillColor(colors.black)
-            text_y = ru_y_top - (RU_HEIGHT / 2) - 2 # Center text in the RU
+            text_y = ru_y_top - (RU_HEIGHT / 2) - 2
             c.drawCentredString(view_x_start - (RACK_LABEL_WIDTH / 2), text_y, str(ru))
             c.drawCentredString(view_x_start + RACK_FRAME_WIDTH + (RACK_LABEL_WIDTH / 2), text_y, str(ru))
         
-        # --- Draw Equipment ---
         equip_list = [e for e in rack_data.equipment if e.rack_side and e.rack_side.startswith(view)]
         
         for equip in equip_list:
@@ -301,31 +399,23 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
             equip_ru_height = equip_template.ru_height
             equip_bottom_y = y_bottom + (equip.ru_position - 1) * RU_HEIGHT
             equip_height = equip_ru_height * RU_HEIGHT
-            
             is_half_width = equip_template.width == 'half'
             equip_width = (RACK_FRAME_WIDTH / 2) if is_half_width else RACK_FRAME_WIDTH
-            
             equip_x_start = view_x_start
-            if is_half_width:
-                if equip.rack_side.endswith('-right'):
-                    equip_x_start += RACK_FRAME_WIDTH / 2
+            if is_half_width and equip.rack_side.endswith('-right'):
+                equip_x_start += RACK_FRAME_WIDTH / 2
             
             c.setFillColorRGB(0.88, 0.88, 0.88)
             c.setStrokeColor(colors.black)
             c.rect(equip_x_start, equip_bottom_y, equip_width, equip_height, fill=1, stroke=1)
             
-            # --- Draw Equipment Labels ---
-            # Center instance name
             c.setFillColor(colors.black)
-            c.setFont("Helvetica-Bold", 8)
+            c.setFont("SpaceMono-Bold", 8)
             text_x = equip_x_start + (equip_width / 2)
             text_y = equip_bottom_y + (equip_height / 2) - 4
             c.drawCentredString(text_x, text_y, equip.instance_name or equip_template.model_number)
-
-            # Model number in upper right
-            c.setFont("Helvetica", 6)
+            c.setFont("SpaceMono", 6)
             c.drawRightString(equip_x_start + equip_width - 0.05 * inch, equip_bottom_y + equip_height - 0.1 * inch, equip_template.model_number)
-
 
 def generate_racks_pdf(payload: RackPDFPayload) -> io.BytesIO:
     """Generates a PDF document from a list of racks."""
@@ -337,9 +427,9 @@ def generate_racks_pdf(payload: RackPDFPayload) -> io.BytesIO:
     MARGIN = 0.5 * inch
     
     for rack in payload.racks:
-        c.setFont("Helvetica-Bold", 16)
+        c.setFont("SpaceMono-Bold", 16)
         c.drawString(MARGIN, height - MARGIN, payload.show_name)
-        c.setFont("Helvetica", 10)
+        c.setFont("SpaceMono", 10)
         c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         
         y_top = height - MARGIN - (0.5 * inch)
@@ -381,8 +471,6 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
     DRAW_AREA_WIDTH = width - (2 * MARGIN)
     DRAW_AREA_HEIGHT = height - (2 * MARGIN) - TITLE_BLOCK_HEIGHT
     
-    # Simple scaling: fit the content to the draw area.
-    # This assumes the user has laid out the tab content reasonably.
     min_x = min((n.position.x for n in page_data.nodes), default=0)
     max_x = max((n.position.x + n.width for n in page_data.nodes), default=DRAW_AREA_WIDTH)
     min_y = min((n.position.y for n in page_data.nodes), default=0)
@@ -393,55 +481,48 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
 
     scale_x = DRAW_AREA_WIDTH / content_width if content_width > 0 else 1
     scale_y = DRAW_AREA_HEIGHT / content_height if content_height > 0 else 1
-    scale = min(scale_x, scale_y, 1.0) # Don't scale up, only down
+    scale = min(scale_x, scale_y, 1.0)
 
-    # Calculate centering offsets
     scaled_content_width = content_width * scale
     scaled_content_height = content_height * scale
     offset_x = (DRAW_AREA_WIDTH - scaled_content_width) / 2
     offset_y = (DRAW_AREA_HEIGHT - scaled_content_height) / 2
 
     c.saveState()
-    # Set origin to top-left of drawing area, including centering offsets
     c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
-    # Adjust for content origin
     c.translate(-min_x * scale, min_y * scale)
 
-    # --- Draw Title Block ---
-    c.restoreState() # Go back to default canvas coordinates
+    c.restoreState()
     c.saveState()
     c.setStrokeColor(colors.black)
     c.setLineWidth(1)
-    c.rect(MARGIN, MARGIN, DRAW_AREA_WIDTH, DRAW_AREA_HEIGHT + TITLE_BLOCK_HEIGHT) # Full border
-    c.line(MARGIN, MARGIN + DRAW_AREA_HEIGHT, width - MARGIN, MARGIN + DRAW_AREA_HEIGHT) # Title block separator
+    c.rect(MARGIN, MARGIN, DRAW_AREA_WIDTH, DRAW_AREA_HEIGHT + TITLE_BLOCK_HEIGHT)
+    c.line(MARGIN, MARGIN + DRAW_AREA_HEIGHT, width - MARGIN, MARGIN + DRAW_AREA_HEIGHT)
     
-    c.setFont("Helvetica-Bold", 14)
+    c.setFont("SpaceMono-Bold", 14)
     c.drawString(MARGIN + 0.1 * inch, MARGIN + DRAW_AREA_HEIGHT + 0.25 * inch, f"{show_name} - Wire Diagram")
-    c.setFont("Helvetica", 12)
+    c.setFont("SpaceMono", 12)
     c.drawCentredString(width / 2, MARGIN + DRAW_AREA_HEIGHT + 0.25 * inch, f"Page {current_page_num} of {total_pages}")
-    c.setFont("Helvetica", 10)
+    c.setFont("SpaceMono", 10)
     c.drawRightString(width - MARGIN - 0.1 * inch, MARGIN + DRAW_AREA_HEIGHT + 0.25 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    c.restoreState() # Back to default
+    c.restoreState()
     
-    # --- Start drawing content ---
     c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
     c.translate(-min_x * scale, min_y * scale)
 
     port_locations = {}
     current_page_node_ids = {node.id for node in page_data.nodes}
 
-    # --- Draw Nodes ---
     for node in page_data.nodes:
         node_w = node.width * scale
         input_ports = [p for p in node.data.equipment_templates.ports if p.type == 'input']
         output_ports = [p for p in node.data.equipment_templates.ports if p.type == 'output']
         port_rows = max(len(input_ports), len(output_ports))
-        node_h = (25 + (port_rows * 15) + 10) * scale # Base height + ports + padding
+        node_h = (25 + (port_rows * 15) + 10) * scale
         
         node_x = node.position.x * scale
         node_y = -node.position.y * scale - node_h
 
-        # Node box and header
         c.saveState()
         path = c.beginPath()
         path.roundRect(node_x, node_y, node_w, node_h, 4 * scale)
@@ -449,21 +530,19 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
         c.setFillColor(colors.white)
         c.rect(node_x, node_y, node_w, node_h, fill=1, stroke=0)
         header_h = 25 * scale
-        c.setFillColorRGB(0.2, 0.2, 0.2) # Dark gray header
+        c.setFillColorRGB(0.2, 0.2, 0.2)
         c.rect(node_x, node_y + node_h - header_h, node_w, header_h, fill=1, stroke=0)
         c.restoreState()
         
-        # Header text
-        c.setFont("Helvetica-Bold", 8 * scale)
+        c.setFont("SpaceMono-Bold", 8 * scale)
         text_y = node_y + node_h - (15 * scale)
         header_padding = 5 * scale
         c.setFillColor(colors.white)
-        c.drawString(node_x + header_padding, text_y, node.data.label) # Instance name
-        c.setFont("Helvetica", 7 * scale)
-        c.drawRightString(node_x + node_w - header_padding, text_y, f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
+        c.drawString(node_x + header_padding, text_y, node.data.label)
+        c.setFont("SpaceMono", 7 * scale)
+        c.drawRightString(node_x + node_w - header_padding, text_y, f"{node_data.rack_name or ''} RU{node_data.ru_position or ''}")
 
-        # Ports
-        c.setFont("Helvetica", 8 * scale)
+        c.setFont("SpaceMono", 8 * scale)
         port_start_y = node_y + node_h - header_h - (15 * scale)
         port_spacing = 15 * scale
         port_locations[node.id] = {}
@@ -480,14 +559,13 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
             draw_port_symbol(c, node_x + node_w - (8*scale), y, 'output', scale)
             port_locations[node.id][f"port-out-{port.id}"] = (node_x + node_w, y)
 
-    # --- Draw Edges and Cross-Page Connection Labels ---
     c.setStrokeColor(colors.black)
     c.setLineWidth(1 * scale)
     for edge in page_data.edges:
         is_source_on_page = edge.source in port_locations
         is_target_on_page = edge.target in current_page_node_ids
 
-        if is_source_on_page and is_target_on_page: # Intra-page edge
+        if is_source_on_page and is_target_on_page:
             if edge.sourceHandle in port_locations[edge.source] and edge.targetHandle in port_locations[edge.target]:
                 start_x, start_y = port_locations[edge.source][edge.sourceHandle]
                 end_x, end_y = port_locations[edge.target][edge.targetHandle]
@@ -499,11 +577,11 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
                 path.lineTo(end_x, end_y)
                 c.drawPath(path)
         
-        elif is_source_on_page and not is_target_on_page: # Cross-page edge (outgoing)
+        elif is_source_on_page and not is_target_on_page:
             target_node_info = all_nodes_map.get(edge.target)
             if target_node_info and edge.sourceHandle in port_locations[edge.source]:
                 start_x, start_y = port_locations[edge.source][edge.sourceHandle]
-                c.setFont("Helvetica-Oblique", 7 * scale)
+                c.setFont("SpaceMono-Italic", 7 * scale)
                 c.setFillColor(colors.blue)
                 label_text = f"-> To: {target_node_info['label']} on Page {target_node_info['page']}"
                 c.drawString(start_x + (5 * scale), start_y - (3 * scale), label_text)
@@ -519,7 +597,6 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
         buffer.seek(0)
         return buffer
 
-    # Create a lookup map for all nodes across all pages for cross-reference
     all_nodes_map = {}
     for page_data in payload.pages:
         for node in page_data.nodes:
@@ -533,3 +610,4 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
     c.save()
     buffer.seek(0)
     return buffer
+

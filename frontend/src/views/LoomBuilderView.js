@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShow } from '../contexts/ShowContext';
+import { useModal } from '../contexts/ModalContext';
 import { Plus, Edit, Trash2, FileText } from 'lucide-react';
 import Card from '../components/Card';
 import NamePromptModal from '../components/NamePromptModal';
@@ -9,6 +10,7 @@ import { api } from '../api/api';
 
 const LoomBuilderView = () => {
     const { showName } = useShow();
+    const { showConfirmationModal } = useModal();
     const [looms, setLooms] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isNameModalOpen, setIsNameModalOpen] = useState(false);
@@ -42,14 +44,18 @@ const LoomBuilderView = () => {
         setIsNameModalOpen(false);
     };
 
-    const handleDeleteLoom = async (loomId) => {
-        if (!window.confirm("Are you sure you want to delete this entire loom and all its cables?")) return;
-        try {
-            await api.deleteLoom(loomId);
-            fetchLooms();
-        } catch (error) {
-            console.error("Failed to delete loom:", error);
-        }
+    const handleDeleteLoom = (loomId) => {
+        showConfirmationModal(
+            "Are you sure you want to delete this entire loom and all its cables?",
+            async () => {
+                try {
+                    await api.deleteLoom(loomId);
+                    fetchLooms();
+                } catch (error) {
+                    console.error("Failed to delete loom:", error);
+                }
+            }
+        );
     };
 
     const handleGeneratePdf = async (selectedLooms = null) => {

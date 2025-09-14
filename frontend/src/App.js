@@ -33,6 +33,7 @@ import Navbar from './components/Navbar';
 // Contexts
 import { ShowProvider } from './contexts/ShowContext';
 import { ShowsContext } from './contexts/ShowsContext';
+import { ModalProvider } from './contexts/ModalContext';
 
 // Main layout for the application, including routing.
 
@@ -90,66 +91,68 @@ const MainLayout = ({ session, profile }) => {
 
     return (
         <ShowsContext.Provider value={{ shows, isLoadingShows }}>
-            <div className="flex flex-col h-full">
-                <Navbar profile={profile} />
-                <main className="flex-grow min-h-0">
-                    <Routes>
-                        <Route
-                            path="/"
-                            element={
-                                <DashboardView
-                                    shows={shows}
-                                    onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
-                                    onNewShow={() => setIsNewShowModalOpen(true)}
-                                    onDeleteShow={handleDeleteShow}
-                                    isLoading={isLoadingShows}
-                                    user={session.user}
-                                />
-                            }
-                        />
-                        <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
-                            <Route element={<ShowLayout />}>
-                                <Route element={<ShowView />}>
-                                    <Route index element={<Navigate to="info" replace />} />
-                                    <Route path="info" element={<ShowInfoView />} />
-                                    <Route path="loomlabels" element={<LoomLabelView />} />
-                                    <Route path="caselabels" element={<CaseLabelView />} />
-                                    <Route path="rackbuilder" element={<RackBuilderView />} />
-                                    <Route path="wirediagram" element={<WireDiagramView />} />
-                                    <Route path="loombuilder" element={<LoomBuilderView />} />
+            <ModalProvider>
+                <div className="flex flex-col h-full">
+                    <Navbar profile={profile} />
+                    <main className="flex-grow min-h-0">
+                        <Routes>
+                            <Route
+                                path="/"
+                                element={
+                                    <DashboardView
+                                        shows={shows}
+                                        onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
+                                        onNewShow={() => setIsNewShowModalOpen(true)}
+                                        onDeleteShow={handleDeleteShow}
+                                        isLoading={isLoadingShows}
+                                        user={session.user}
+                                    />
+                                }
+                            />
+                            <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
+                                <Route element={<ShowLayout />}>
+                                    <Route element={<ShowView />}>
+                                        <Route index element={<Navigate to="info" replace />} />
+                                        <Route path="info" element={<ShowInfoView />} />
+                                        <Route path="loomlabels" element={<LoomLabelView />} />
+                                        <Route path="caselabels" element={<CaseLabelView />} />
+                                        <Route path="rackbuilder" element={<RackBuilderView />} />
+                                        <Route path="wirediagram" element={<WireDiagramView />} />
+                                        <Route path="loombuilder" element={<LoomBuilderView />} />
+                                    </Route>
                                 </Route>
                             </Route>
-                        </Route>
-                        <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
-                        <Route path="/sso-setup" element={<AdvancedSSOView />} />
-                        <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
-                            <Route index element={<Navigate to="equipment" replace />} />
-                            <Route path="equipment" element={<EquipmentLibraryView />} />
-                            <Route path="racks" element={<UserRackBuilderView />} />
-                        </Route>
-                        <Route
-                            path="/mgmt"
-                            element={
-                                <ProtectedRoute profile={profile} adminOnly={true}>
-                                    <AdminLayout />
-                                </ProtectedRoute>
-                            }
-                        >
-                            <Route index element={<Navigate to="email" replace />} />
-                            <Route path="email" element={<EmailView />} />
-                            <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
-                            <Route path="user-management" element={<UserManagementView />} />
-                            <Route path="metrics" element={<MetricsView />} />
-                            <Route path="rbac" element={<RbacView />} />
-                        </Route>
-                    </Routes>
-                </main>
-                <NewShowModal
-                    isOpen={isNewShowModalOpen}
-                    onClose={() => setIsNewShowModalOpen(false)}
-                    onSubmit={handleCreateShow}
-                />
-            </div>
+                            <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
+                            <Route path="/sso-setup" element={<AdvancedSSOView />} />
+                            <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
+                                <Route index element={<Navigate to="equipment" replace />} />
+                                <Route path="equipment" element={<EquipmentLibraryView />} />
+                                <Route path="racks" element={<UserRackBuilderView />} />
+                            </Route>
+                            <Route
+                                path="/mgmt"
+                                element={
+                                    <ProtectedRoute profile={profile} adminOnly={true}>
+                                        <AdminLayout />
+                                    </ProtectedRoute>
+                                }
+                            >
+                                <Route index element={<Navigate to="email" replace />} />
+                                <Route path="email" element={<EmailView />} />
+                                <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
+                                <Route path="user-management" element={<UserManagementView />} />
+                                <Route path="metrics" element={<MetricsView />} />
+                                <Route path="rbac" element={<RbacView />} />
+                            </Route>
+                        </Routes>
+                    </main>
+                    <NewShowModal
+                        isOpen={isNewShowModalOpen}
+                        onClose={() => setIsNewShowModalOpen(false)}
+                        onSubmit={handleCreateShow}
+                    />
+                </div>
+            </ModalProvider>
         </ShowsContext.Provider>
     );
 };

@@ -389,10 +389,15 @@ async def update_feature_restriction(
     """Admin: Creates or updates the feature restriction settings for a given feature."""
     try:
         # Upsert operation: update if feature_name exists, otherwise insert.
-        response = supabase.table('feature_restrictions').upsert({
-            'feature_name': feature_name,
-            'excluded_roles': restriction_data.excluded_roles
-        }).execute()
+        # The `on_conflict` parameter is crucial here to specify the column
+        # that has the unique constraint.
+        response = supabase.table('feature_restrictions').upsert(
+            {
+                'feature_name': feature_name,
+                'excluded_roles': restriction_data.excluded_roles,
+            },
+            on_conflict='feature_name',
+        ).execute()
         
         if not response.data:
             raise HTTPException(status_code=500, detail="Failed to update feature restriction.")
@@ -1361,7 +1366,10 @@ async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends
         show_logo = False
 
     if show_logo:
-        logo_path_to_use = "/ShowReady/frontend/logo.png"
+        logo_path_to_use = "frontend/public/logo.png"
+        if not os.path.exists(logo_path_to_use):
+            print(f"Logo path not found: {logo_path_to_use}")
+            logo_path_to_use = None
 
     # To generate the PDF, we need the full loom objects with their cables.
     # The payload only gives us loom IDs, so we need to fetch the data.

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
+import { useModal } from '../contexts/ModalContext';
 import { X, Plus, Edit, Trash2, FileText } from 'lucide-react';
 import CableForm from './CableForm';
 
 const CableManagerModal = ({ loom, onClose, onExport }) => {
+    const { showConfirmationModal } = useModal();
     const [cables, setCables] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [editingCable, setEditingCable] = useState(null);
@@ -55,14 +57,18 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
         }
     };
 
-    const handleDeleteCable = async (cableId) => {
-        if (!window.confirm("Are you sure you want to delete this cable?")) return;
-        try {
-            await api.deleteCable(cableId);
-            fetchCables();
-        } catch (error) {
-            console.error("Failed to delete cable:", error);
-        }
+    const handleDeleteCable = (cableId) => {
+        showConfirmationModal(
+            "Are you sure you want to delete this cable?",
+            async () => {
+                try {
+                    await api.deleteCable(cableId);
+                    fetchCables();
+                } catch (error) {
+                    console.error("Failed to delete cable:", error);
+                }
+            }
+        );
     };
     
     const renderLocation = (location) => {
