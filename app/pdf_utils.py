@@ -205,7 +205,7 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
     buffer.seek(0)
     return buffer
 
-def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", logo_path: Optional[str] = None) -> io.BytesIO:
+def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", show_branding: bool = True) -> io.BytesIO:
     """Generates a PDF document for a list of looms, with each loom on a separate page and cables in a table."""
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=portrait(letter))
@@ -220,8 +220,20 @@ def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", logo_path: Optio
     for loom in payload.looms:
         # --- Header ---
         y_top = height - 0.5 * inch
-        c.setFont("SpaceMono", 8)
-        c.drawString(0.5 * inch, y_top - 10, "Created Using ShowReady")
+        if show_branding:
+            # To implement a logo in the future:
+            # 1. Add 'logo_path' as an argument to this function.
+            # 2. Uncomment the following lines and remove the text rendering.
+            # 3. Ensure the logo_path is passed from the API layer.
+            # try:
+            #     c.drawImage(logo_path, 0.5 * inch, y_top - 10, height=0.25*inch, preserveAspectRatio=True, anchor='sw')
+            # except Exception as e:
+            #     print(f"Could not draw logo: {e}")
+            
+            # Current implementation: render text
+            c.setFont("SpaceMono", 8)
+            c.drawString(0.5 * inch, y_top - 10, "Created Using ShowReady")
+
         c.setFont("SpaceMono-Bold", 18)
         c.drawCentredString(width / 2, y_top - 12, "Loom Build Sheet")
         c.setFont("SpaceMono", 8)
@@ -417,7 +429,7 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
             c.setFont("SpaceMono", 6)
             c.drawRightString(equip_x_start + equip_width - 0.05 * inch, equip_bottom_y + equip_height - 0.1 * inch, equip_template.model_number)
 
-def generate_racks_pdf(payload: RackPDFPayload) -> io.BytesIO:
+def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
     """Generates a PDF document from a list of racks."""
     buffer = io.BytesIO()
     page_size = PAGE_SIZES.get(payload.page_size.lower(), portrait(letter))
@@ -427,8 +439,28 @@ def generate_racks_pdf(payload: RackPDFPayload) -> io.BytesIO:
     MARGIN = 0.5 * inch
     
     for rack in payload.racks:
+        title_x = MARGIN
+        if show_branding:
+            # To implement a logo in the future:
+            # 1. Add 'logo_path' as an argument to this function.
+            # 2. Uncomment the following lines and remove the text rendering.
+            # 3. Ensure the logo_path is passed from the API layer.
+            # try:
+            #     c.drawImage(logo_path, MARGIN, height - MARGIN, height=0.5*inch, preserveAspectRatio=True, anchor='nw')
+            #     title_x = MARGIN + 1.3 * inch 
+            # except Exception as e:
+            #     print(f"Could not draw logo: {e}")
+
+            # Current implementation: render text at top left
+            c.setFont("SpaceMono", 8)
+            c.drawString(MARGIN, height - MARGIN, "Created using ShowReady")
+            # We will render the main title below this branding text
+            title_y_offset = 0.2 * inch
+        else:
+            title_y_offset = 0
+
         c.setFont("SpaceMono-Bold", 16)
-        c.drawString(MARGIN, height - MARGIN, payload.show_name)
+        c.drawString(title_x, height - MARGIN - title_y_offset, payload.show_name)
         c.setFont("SpaceMono", 10)
         c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         
@@ -464,7 +496,7 @@ def draw_port_symbol(c, x, y, port_type, scale):
         p.close()
         c.drawPath(p, fill=1, stroke=0)
 
-def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, current_page_num, total_pages):
+def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, current_page_num, total_pages, show_branding: bool = True):
     width, height = c._pagesize
     MARGIN = 0.5 * inch
     TITLE_BLOCK_HEIGHT = 0.75 * inch
@@ -499,12 +531,34 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
     c.rect(MARGIN, MARGIN, DRAW_AREA_WIDTH, DRAW_AREA_HEIGHT + TITLE_BLOCK_HEIGHT)
     c.line(MARGIN, MARGIN + DRAW_AREA_HEIGHT, width - MARGIN, MARGIN + DRAW_AREA_HEIGHT)
     
+    # --- Title Block Content ---
+    title_y = MARGIN + DRAW_AREA_HEIGHT + (TITLE_BLOCK_HEIGHT / 2)
+    title_x_start = MARGIN + 0.1 * inch
+
+    if show_branding:
+        # To implement a logo in the future:
+        # 1. Add 'logo_path' as an argument to this function.
+        # 2. Uncomment the following lines and remove the text rendering.
+        # 3. Ensure the logo_path is passed from the API layer.
+        # try:
+        #     c.drawImage(logo_path, title_x_start, MARGIN + 0.1 * inch, height=TITLE_BLOCK_HEIGHT - 0.2*inch, preserveAspectRatio=True, anchor='sw')
+        #     title_x_start += 1.3 * inch 
+        # except Exception as e:
+        #     print(f"Could not draw logo on wire diagram: {e}")
+
+        # Current implementation: render text
+        c.setFont("SpaceMono", 8)
+        c.drawString(title_x_start, MARGIN + DRAW_AREA_HEIGHT + 0.1*inch, "Created using ShowReady")
+        # Add space so title doesn't overlap
+        title_x_start += 1.5 * inch
+
+
     c.setFont("SpaceMono-Bold", 14)
-    c.drawString(MARGIN + 0.1 * inch, MARGIN + DRAW_AREA_HEIGHT + 0.25 * inch, f"{show_name} - Wire Diagram")
+    c.drawString(title_x_start, title_y - 10, f"{show_name} - Wire Diagram")
     c.setFont("SpaceMono", 12)
-    c.drawCentredString(width / 2, MARGIN + DRAW_AREA_HEIGHT + 0.25 * inch, f"Page {current_page_num} of {total_pages}")
+    c.drawCentredString(width / 2, title_y - 10, f"Page {current_page_num} of {total_pages}")
     c.setFont("SpaceMono", 10)
-    c.drawRightString(width - MARGIN - 0.1 * inch, MARGIN + DRAW_AREA_HEIGHT + 0.25 * inch, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    c.drawRightString(width - MARGIN - 0.1 * inch, title_y - 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     c.restoreState()
     
     c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
@@ -586,7 +640,7 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
                 label_text = f"-> To: {target_node_info['label']} on Page {target_node_info['page']}"
                 c.drawString(start_x + (5 * scale), start_y - (3 * scale), label_text)
 
-def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
+def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
     page_size = PAGE_SIZES.get(payload.page_size.lower(), landscape(letter))
     c = canvas.Canvas(buffer, pagesize=page_size)
@@ -604,7 +658,7 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload) -> io.BytesIO:
     
     total_pages = len(payload.pages)
     for i, page_data in enumerate(payload.pages):
-        draw_diagram_page(c, page_data, all_nodes_map, payload.show_name, i + 1, total_pages)
+        draw_diagram_page(c, page_data, all_nodes_map, payload.show_name, i + 1, total_pages, show_branding=show_branding)
         c.showPage()
 
     c.save()

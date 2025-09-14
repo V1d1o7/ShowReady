@@ -4,40 +4,30 @@ import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
-const AccountView = ({ user, profile: initialProfile }) => {
+const AccountView = () => {
     const navigate = useNavigate();
-    const [profile, setProfile] = useState(initialProfile);
-    const [isLoading, setIsLoading] = useState(!initialProfile);
-    const [newEmail, setNewEmail] = useState('');
+    const { profile, isLoading, refetchProfile, session } = useAuth();
+    const user = session?.user;
+
+    const [editableProfile, setEditableProfile] = useState(profile || {});
+    const [newEmail, setNewEmail] = useState(user?.email || '');
 
     useEffect(() => {
-        const fetchProfile = async () => {
-            if (profile) {
-                setNewEmail(user.email);
-                return;
-            };
-            setIsLoading(true);
-            try {
-                const data = await api.getProfile();
-                setProfile(data);
-                setNewEmail(user.email);
-            } catch (error) {
-                console.error("Failed to fetch profile:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchProfile();
-    }, [user.email, profile]);
+        // When the profile from the context changes, update the local editable state
+        setEditableProfile(profile || {});
+        setNewEmail(user?.email || '');
+    }, [profile, user?.email]);
 
     const handleProfileChange = (e) => {
-        setProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));
+        setEditableProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));
     };
 
     const handleUpdateProfile = async () => {
         try {
-            await api.updateProfile(profile);
+            await api.updateProfile(editableProfile);
+            await refetchProfile(); // Refetch to get the latest profile data into context
             alert("Profile updated successfully!");
         } catch (error) {
             alert(`Failed to update profile: ${error.message}`);
@@ -92,12 +82,12 @@ const AccountView = ({ user, profile: initialProfile }) => {
                 <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">Profile Details</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <InputField label="First Name" name="first_name" value={profile?.first_name || ''} onChange={handleProfileChange} />
-                        <InputField label="Last Name" name="last_name" value={profile?.last_name || ''} onChange={handleProfileChange} />
-                        <InputField label="Company Name (Optional)" name="company_name" value={profile?.company_name || ''} onChange={handleProfileChange} />
+                        <InputField label="First Name" name="first_name" value={editableProfile?.first_name || ''} onChange={handleProfileChange} />
+                        <InputField label="Last Name" name="last_name" value={editableProfile?.last_name || ''} onChange={handleProfileChange} />
+                        <InputField label="Company Name (Optional)" name="company_name" value={editableProfile?.company_name || ''} onChange={handleProfileChange} />
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-1.5">Production Role</label>
-                            <select name="production_role" value={profile?.production_role || ''} onChange={handleProfileChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
+                            <select name="production_role" value={editableProfile?.production_role || ''} onChange={handleProfileChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
                                 <option value="">Select a role...</option>
                                 <option>Production Video</option>
                                 <option>Production Audio</option>
@@ -105,8 +95,8 @@ const AccountView = ({ user, profile: initialProfile }) => {
                                 <option>Other</option>
                             </select>
                         </div>
-                        {profile?.production_role === 'Other' && (
-                            <InputField label="Please specify your role" name="production_role_other" value={profile?.production_role_other || ''} onChange={handleProfileChange} />
+                        {editableProfile?.production_role === 'Other' && (
+                            <InputField label="Please specify your role" name="production_role_other" value={editableProfile?.production_role_other || ''} onChange={handleProfileChange} />
                         )}
                     </div>
                     <div className="mt-6 flex justify-end">

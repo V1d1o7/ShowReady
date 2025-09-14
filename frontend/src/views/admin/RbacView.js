@@ -1,97 +1,120 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/api';
+import { useAuth } from '../../contexts/AuthContext';
 import Card from '../../components/Card';
-import { useModal } from '../../contexts/ModalContext';
+import MultiSelect from '../../components/MultiSelect';
 import toast, { Toaster } from 'react-hot-toast';
+import { ShieldCheck, HelpCircle } from 'lucide-react';
 
 const RbacView = () => {
-    const { showConfirmationModal } = useModal();
+    const { refetchProfile } = useAuth();
+    const [restrictions, setRestrictions] = useState([]);
+    const [originalRestrictions, setOriginalRestrictions] = useState([]);
     const [roles, setRoles] = useState([]);
-    const [excludedRoles, setExcludedRoles] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState(null);
+    const [isSaving, setIsSaving] = useState(false);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                setIsLoading(true);
-                const [rolesResponse, restrictionResponse] = await Promise.all([
-                    api.getAllRoles(),
-                    api.getFeatureRestriction('pdf_logo')
-                ]);
-                setRoles(rolesResponse.roles || []);
-                setExcludedRoles(restrictionResponse.excluded_roles || []);
-            } catch (err) {
-                setError(err.message);
-                toast.error("Failed to load data.");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        fetchData();
+    const fetchData = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const [restrictionsData, rolesData] = await Promise.all([
+                api.getAllFeatureRestrictions(),
+                api.getAdminUserRoles()
+            ]);
+            setRestrictions(restrictionsData);
+            setOriginalRestrictions(JSON.parse(JSON.stringify(restrictionsData)));
+            setRoles(rolesData.roles || []);
+        } catch (error) {
+            toast.error("Failed to load restriction settings.");
+            console.error(error);
+        } finally {
+            setIsLoading(false);
+        }
     }, []);
 
-    const handleRoleSelectionChange = (e) => {
-        const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-        setExcludedRoles(selectedOptions);
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    const handleRoleChange = (featureName, selectedRoles) => {
+        setRestrictions(prev => prev.map(r =>
+            r.feature_name === featureName ? { ...r, permitted_roles: selectedRoles } : r
+        ));
     };
 
-    const handleSaveChanges = () => {
-        showConfirmationModal(
-            "Are you sure you want to save these changes?",
-            async () => {
-                const toastId = toast.loading("Saving changes...");
-                try {
-                    await api.updateFeatureRestriction('pdf_logo', { excluded_roles: excludedRoles });
-                    toast.success('Changes saved successfully!', { id: toastId });
-                } catch (err) {
-                    toast.error(`Failed to save changes: ${err.message}`, { id: toastId });
-                }
-            }
+    const handleSaveChanges = async () => {
+        setIsSaving(true);
+        const toastId = toast.loading("Saving changes...");
+
+        const promises = restrictions.map(feature => 
+            api.updateFeatureRestriction(feature.feature_name, { permitted_roles: feature.permitted_roles })
         );
-    };
 
-    if (isLoading) return <div className="flex justify-center items-center h-full"><p>Loading...</p></div>;
-    if (error) return <div className="flex justify-center items-center h-full"><p className="text-red-500">Error: {error}</p></div>;
+        try {
+            await Promise.all(promises);
+            toast.success("All changes saved successfully! Permissions will update on next page load.", { id: toastId, duration: 4000 });
+            setOriginalRestrictions(JSON.parse(JSON.stringify(restrictions)));
+            // NOTE: The refetchProfile() call is removed for now to prevent a redirect bug.
+            // The user's permissions will be updated the next time they load the app or refresh the page.
+        } catch (error) {
+            toast.error(`Failed to save changes: ${error.message}`, { id: toastId });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+    
+    const isDirty = JSON.stringify(restrictions) !== JSON.stringify(originalRestrictions);
+
+    if (isLoading) {
+        return <Card><p className="text-center text-gray-400">Loading Feature Settings...</p></Card>;
+    }
 
     return (
         <>
-            <Toaster position="top-center" reverseOrder={false} />
+            <Toaster position="bottom-center" />
             <Card>
-                <h1 className="text-2xl font-bold text-white mb-4">Role-Based Access Control (RBAC)</h1>
-                <div className="space-y-6">
-                    <div>
-                        <h2 className="text-xl font-semibold text-white mb-2">PDF Logo Exclusion</h2>
-                        <p className="text-gray-400 mb-4">
-                            Select roles that should <span className="font-bold text-red-400">NOT</span> have the ShowReady logo on their generated PDF documents.
-                        </p>
-                        <div className="max-w-md">
-                            <select
-                                multiple
-                                value={excludedRoles}
-                                onChange={handleRoleSelectionChange}
-                                className="w-full p-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
-                                size={Math.min(roles.length, 8)}
-                            >
-                                {roles.map(role => (
-                                    <option key={role} value={role} className="p-2">
-                                        {role}
-                                    </option>
-                                ))}
-                            </select>
-                            <p className="text-xs text-gray-500 mt-2">
-                                Hold Ctrl (or Cmd on Mac) to select multiple roles.
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex justify-end">
-                        <button
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <ShieldCheck size={24} className="text-amber-400" />
+                        Feature Access Control
+                    </h2>
+                    {isDirty && (
+                         <button 
                             onClick={handleSaveChanges}
-                            className="px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors"
+                            disabled={isSaving}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Save Changes
+                            {isSaving ? 'Saving...' : 'Save Changes'}
                         </button>
-                    </div>
+                    )}
+                </div>
+                <p className="text-sm text-gray-400 mb-6">
+                    For each feature, select the roles that should have access. If no roles are selected for a feature, <span className="font-bold text-green-400">ALL</span> users will have access by default.
+                </p>
+                <div className="space-y-5">
+                    {restrictions.map(feature => (
+                        <div key={feature.feature_name} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                            <label htmlFor={`roles-for-${feature.feature_name}`} className="font-bold text-gray-200 flex items-center">
+                                {feature.display_name}
+                                {feature.feature_name === 'pdf_logo' && (
+                                    <span className="group relative ml-2">
+                                        <HelpCircle size={16} className="text-gray-500" />
+                                        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs p-2 bg-gray-900 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                            Controls the visibility of the ShowReady branding on generated PDFs.
+                                        </span>
+                                    </span>
+                                )}
+                            </label>
+                            <div className="md:col-span-2">
+                                <MultiSelect
+                                    options={roles}
+                                    selected={feature.permitted_roles}
+                                    onChange={(selectedRoles) => handleRoleChange(feature.feature_name, selectedRoles)}
+                                    placeholder="All roles have access"
+                                />
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </Card>
         </>

@@ -41,6 +41,7 @@ class UserProfile(BaseModel):
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
     roles: List[str] = []
+    permitted_features: List[str] = []
 
 class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None

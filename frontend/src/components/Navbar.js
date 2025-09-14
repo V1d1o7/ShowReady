@@ -1,8 +1,11 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import { Home, Book, User, ShieldCheck } from 'lucide-react';
 
-const Navbar = ({ profile }) => {
+const Navbar = () => {
+    const { profile } = useAuth();
+
     return (
         <nav className="bg-gray-800 text-white shadow-md">
             <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">

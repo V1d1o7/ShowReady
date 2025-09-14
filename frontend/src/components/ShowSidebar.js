@@ -2,9 +2,11 @@ import React from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
+import { useAuth } from '../contexts/AuthContext';
 import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown } from 'lucide-react';
 
 const ShowSidebar = () => {
+    const { profile } = useAuth();
     const { showName } = useShow();
     const { shows, isLoadingShows } = useShows();
     const { showName: showNameFromParams } = useParams();
@@ -24,14 +26,18 @@ const ShowSidebar = () => {
                 : 'text-gray-300 hover:bg-gray-700 hover:text-white'
         }`;
 
-    const tabs = [
-        { path: 'info', label: 'Show Info', icon: Info },
-        { path: 'loomlabels', label: 'Loom Labels', icon: FileText },
-        { path: 'caselabels', label: 'Case Labels', icon: Box },
-        { path: 'rackbuilder', label: 'Rack Builder', icon: Server },
-        { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge },
-        { path: 'loombuilder', label: 'Loom Builder', icon: Combine },
+    const allTabs = [
+        { path: 'info', label: 'Show Info', icon: Info, feature: null },
+        { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
+        { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
+        { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
+        { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },
+        { path: 'loombuilder', label: 'Loom Builder', icon: Combine, feature: 'loom_builder' },
     ];
+
+    const visibleTabs = profile?.permitted_features 
+        ? allTabs.filter(tab => !tab.feature || profile.permitted_features.includes(tab.feature))
+        : allTabs.filter(tab => !tab.feature); // Show only non-feature tabs if profile is loading
 
     return (
         <div className="w-64 bg-gray-800 text-white p-4 flex flex-col flex-shrink-0">
@@ -55,7 +61,7 @@ const ShowSidebar = () => {
                 </div>
             </div>
             <nav className="flex flex-col gap-2">
-                {tabs.map(tab => (
+                {visibleTabs.map(tab => (
                     <NavLink
                         key={tab.path}
                         to={tab.path}

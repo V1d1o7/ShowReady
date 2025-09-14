@@ -278,10 +278,13 @@ export const api = {
     }).then(handleResponse),
 
     // --- Admin RBAC Endpoints ---
-    getFeatureRestriction: async (featureName) => fetch(`/api/admin/feature_restrictions/${featureName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    getAllFeatureRestrictions: async () => fetch('/api/admin/feature_restrictions', { headers: await getAuthHeader() }).then(handleResponse),
     updateFeatureRestriction: async (featureName, restrictionData) => fetch(`/api/admin/feature_restrictions/${featureName}`, {
         method: 'PUT',
         headers: await getAuthHeader(),
         body: JSON.stringify(restrictionData),
     }).then(handleResponse),
+
+    // --- Permissions Versioning ---
+    getPermissionsVersion: async () => fetch('/api/permissions/version', { headers: await getAuthHeader() }).then(handleResponse),
 };

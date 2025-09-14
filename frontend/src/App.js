@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, useParams, Outlet, Navigate } from 'react-router-dom';
 import { supabase, api } from './api/api';
 
+// Contexts
+import { ShowProvider } from './contexts/ShowContext';
+import { ShowsContext } from './contexts/ShowsContext';
+import { ModalProvider } from './contexts/ModalContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+
 // Views
 import Auth from './views/Auth';
 import DashboardView from './views/DashboardView';
@@ -30,15 +36,9 @@ import NewShowModal from './components/NewShowModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
 
-// Contexts
-import { ShowProvider } from './contexts/ShowContext';
-import { ShowsContext } from './contexts/ShowsContext';
-import { ModalProvider } from './contexts/ModalContext';
 
-// Main layout for the application, including routing.
-
-
-const MainLayout = ({ session, profile }) => {
+const MainLayout = ({ session }) => {
+    const { profile } = useAuth();
     const [shows, setShows] = useState([]);
     const [isLoadingShows, setIsLoadingShows] = useState(true);
     const [isNewShowModalOpen, setIsNewShowModalOpen] = useState(false);
@@ -69,7 +69,6 @@ const MainLayout = ({ session, profile }) => {
         try {
             const newShowData = { info: { show_name: newShowName }, loom_sheets: {}, case_sheets: {} };
             await api.saveShow(newShowName, newShowData);
-            // After creating, immediately reload the list of shows
             await loadShows();
             navigate(`/show/${encodeURIComponent(newShowName)}/info`);
         } catch (error) {
@@ -88,12 +87,11 @@ const MainLayout = ({ session, profile }) => {
         }
     };
 
-
     return (
         <ShowsContext.Provider value={{ shows, isLoadingShows }}>
             <ModalProvider>
                 <div className="flex flex-col h-full">
-                    <Navbar profile={profile} />
+                    <Navbar />
                     <main className="flex-grow min-h-0">
                         <Routes>
                             <Route
@@ -114,17 +112,17 @@ const MainLayout = ({ session, profile }) => {
                                     <Route element={<ShowView />}>
                                         <Route index element={<Navigate to="info" replace />} />
                                         <Route path="info" element={<ShowInfoView />} />
-                                        <Route path="loomlabels" element={<LoomLabelView />} />
-                                        <Route path="caselabels" element={<CaseLabelView />} />
-                                        <Route path="rackbuilder" element={<RackBuilderView />} />
-                                        <Route path="wirediagram" element={<WireDiagramView />} />
-                                        <Route path="loombuilder" element={<LoomBuilderView />} />
+                                        <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
+                                        <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
+                                        <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
+                                        <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
+                                        <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
                                     </Route>
                                 </Route>
                             </Route>
-                            <Route path="/account" element={<AccountView user={session.user} profile={profile} />} />
+                            <Route path="/account" element={<AccountView />} />
                             <Route path="/sso-setup" element={<AdvancedSSOView />} />
-                            <Route path="/library" element={<ProtectedRoute profile={profile}><UserLibraryView /></ProtectedRoute>}>
+                            <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
                                 <Route index element={<Navigate to="equipment" replace />} />
                                 <Route path="equipment" element={<EquipmentLibraryView />} />
                                 <Route path="racks" element={<UserRackBuilderView />} />
@@ -132,7 +130,7 @@ const MainLayout = ({ session, profile }) => {
                             <Route
                                 path="/mgmt"
                                 element={
-                                    <ProtectedRoute profile={profile} adminOnly={true}>
+                                    <ProtectedRoute adminOnly={true}>
                                         <AdminLayout />
                                     </ProtectedRoute>
                                 }
@@ -157,54 +155,9 @@ const MainLayout = ({ session, profile }) => {
     );
 };
 
-
-export default function App() {
-    const [session, setSession] = useState(null);
-    const [profile, setProfile] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchSessionAndProfile = async () => {
-            setIsLoading(true);
-            const { data: { session } } = await supabase.auth.getSession();
-            setSession(session);
-            if (session) {
-                try {
-                    const profileData = await api.getProfile();
-                    setProfile(profileData);
-                } catch (error) {
-                    console.error("Failed to fetch profile:", error);
-                }
-            }
-            setIsLoading(false);
-        };
-        fetchSessionAndProfile();
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            setSession(session);
-            setProfile(null);
-            if (session) {
-                api.getProfile().then(setProfile);
-            }
-        });
-        return () => subscription.unsubscribe();
-    }, []);
-
-    if (isLoading) {
-        return <div className="flex items-center justify-center h-screen bg-gray-900"><div className="text-xl text-gray-400">Loading...</div></div>;
-    }
-
-    return (
-        <div className="bg-gray-900 text-gray-300 font-sans h-full">
-            {!session ? <Auth /> : <MainLayout session={session} profile={profile} />}
-        </div>
-    );
-}
-
 const ShowWrapper = ({ onShowUpdate }) => {
     const { showName } = useParams();
     const [showData, setShowData] = useState(null);
-    const [racks, setRacks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const navigate = useNavigate();
 
@@ -212,15 +165,10 @@ const ShowWrapper = ({ onShowUpdate }) => {
         const fetchShowData = async () => {
             setIsLoading(true);
             try {
-                // Fetch show data and racks in parallel
-                const [data, racksData] = await Promise.all([
-                    api.getShow(showName),
-                    api.getRacksForShow(showName)
-                ]);
+                const data = await api.getShow(showName);
                 setShowData(data);
-                setRacks(racksData);
             } catch (error) {
-                console.error("Failed to fetch show data or racks:", error);
+                console.error("Failed to fetch show data:", error);
                 navigate('/');
             } finally {
                 setIsLoading(false);
@@ -243,7 +191,6 @@ const ShowWrapper = ({ onShowUpdate }) => {
                 onShowUpdate();
             }
 
-            // If the name was changed, we must navigate to the new URL
             if (newName && newName !== originalName) {
                 navigate(`/show/${encodeURIComponent(newName)}/info`, { replace: true });
             }
@@ -253,8 +200,30 @@ const ShowWrapper = ({ onShowUpdate }) => {
     };
 
     return (
-        <ShowProvider value={{ showData, racks, onSave: handleSaveShowData, isLoading, showName }}>
+        <ShowProvider value={{ showData, onSave: handleSaveShowData, isLoading, showName }}>
             <Outlet />
         </ShowProvider>
     );
 };
+
+function AppContent() {
+    const { session, isLoading } = useAuth();
+
+    if (isLoading) {
+        return <div className="flex items-center justify-center h-screen bg-gray-900"><div className="text-xl text-gray-400">Loading...</div></div>;
+    }
+
+    return (
+        <div className="bg-gray-900 text-gray-300 font-sans h-full">
+            {!session ? <Auth /> : <MainLayout session={session} />}
+        </div>
+    );
+}
+
+export default function App() {
+    return (
+        <AuthProvider>
+            <AppContent />
+        </AuthProvider>
+    );
+}

@@ -362,45 +362,128 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to update user roles: {str(e)}")
 
-# --- Admin Feature Restriction Endpoints ---
-@router.get("/admin/feature_restrictions/{feature_name}", response_model=FeatureRestriction, tags=["Admin", "RBAC"])
-async def get_feature_restriction(feature_name: str, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
-    """Admin: Gets the feature restriction settings for a given feature."""
-    try:
-        response = supabase.table('feature_restrictions').select('*').eq('feature_name', feature_name).execute()
-        # If no restriction is found, return a default (empty exclusion list)
-        if not response.data:
-            return FeatureRestriction(feature_name=feature_name, excluded_roles=[])
-        
-        # If multiple rows are found (which shouldn't happen due to UNIQUE constraint), take the first one.
-        return response.data[0]
-    except Exception as e:
-        print(f"Error fetching feature restriction for '{feature_name}': {e}")
-        # If an error occurs (e.g., DB connection), return a safe default
-        return FeatureRestriction(feature_name=feature_name, excluded_roles=[])
+# --- Feature Restriction Dependencies ---
 
-@router.put("/admin/feature_restrictions/{feature_name}", response_model=FeatureRestriction, tags=["Admin", "RBAC"])
+# A list of all manageable features in the system.
+ALL_FEATURES = [
+    {"key": "pdf_logo", "name": "PDF Logo"},
+    {"key": "loom_labels", "name": "Loom Labels"},
+    {"key": "case_labels", "name": "Case Labels"},
+    {"key": "rack_builder", "name": "Rack Builder"},
+    {"key": "wire_diagram", "name": "Wire Diagram"},
+    {"key": "loom_builder", "name": "Loom Builder"},
+]
+
+def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
+    """Helper to fetch user roles."""
+    user_roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user_id).execute()
+    if user_roles_res.data:
+        return {role['roles']['name'] for role in user_roles_res.data if 'roles' in role and role['roles']}
+    return set()
+
+def feature_check(feature_name: str):
+    """
+    Dependency factory for checking feature access using an allow-list model.
+    Raises HTTPException 403 if a feature has a defined, non-empty list of permitted
+    roles and the user does not have any of those roles.
+    """
+    async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+        user_roles = get_user_roles_sync(user.id, supabase)
+        
+        restriction_res = supabase.table('feature_restrictions').select('permitted_roles').eq('feature_name', feature_name).maybe_single().execute()
+        
+        permitted_roles = restriction_res.data.get('permitted_roles') if restriction_res and restriction_res.data else None
+
+        # An empty list is falsy, so this block only runs for non-empty lists.
+        if permitted_roles:
+            permitted_roles_set = set(permitted_roles)
+            if user_roles.isdisjoint(permitted_roles_set):
+                raise HTTPException(status_code=403, detail=f"Your role does not have permission to access the '{feature_name}' feature.")
+        # If no restrictions are set, or the list is empty, access is allowed by default.
+    return checker
+
+async def get_branding_visibility(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)) -> bool:
+    """Dependency that returns True if the ShowReady branding should be visible for the user."""
+    user_roles = get_user_roles_sync(user.id, supabase)
+    
+    restriction_res = supabase.table('feature_restrictions').select('permitted_roles').eq('feature_name', 'pdf_logo').maybe_single().execute()
+    
+    permitted_roles = restriction_res.data.get('permitted_roles') if restriction_res and restriction_res.data else None
+
+    # An empty list is falsy.
+    if permitted_roles:
+        return not user_roles.isdisjoint(set(permitted_roles))
+            
+    return True
+
+
+# --- Admin Feature Restriction Endpoints ---
+@router.get("/admin/feature_restrictions", tags=["Admin", "RBAC"])
+async def get_all_feature_restrictions(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Gets all feature restrictions with their display names."""
+    try:
+        response = supabase.table('feature_restrictions').select('*').execute()
+        
+        restrictions_map = {item['feature_name']: item['permitted_roles'] for item in response.data}
+        
+        all_restrictions = [
+            {
+                "feature_name": feature["key"],
+                "display_name": feature["name"],
+                "permitted_roles": restrictions_map.get(feature["key"], [])
+            }
+            for feature in ALL_FEATURES
+        ]
+        
+        return all_restrictions
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class PermittedRolesUpdate(BaseModel):
+    permitted_roles: List[str]
+
+class PermissionsVersion(BaseModel):
+    version: int
+
+@router.get("/permissions/version", response_model=PermissionsVersion, tags=["Permissions"])
+async def get_permissions_version(supabase: Client = Depends(get_supabase_client)):
+    """Gets the current version of the permissions configuration."""
+    try:
+        response = supabase.table('permissions_meta').select('version').eq('id', 1).single().execute()
+        return response.data
+    except Exception as e:
+        # If the table/row doesn't exist, return a default version
+        print(f"Could not fetch permissions version, returning default. Error: {e}")
+        return {"version": 1}
+
+
+@router.put("/admin/feature_restrictions/{feature_name}", tags=["Admin", "RBAC"])
 async def update_feature_restriction(
     feature_name: str,
-    restriction_data: FeatureRestrictionUpdate,
+    restriction_data: PermittedRolesUpdate,
     admin_user=Depends(get_admin_user),
     supabase: Client = Depends(get_supabase_client)
 ):
     """Admin: Creates or updates the feature restriction settings for a given feature."""
     try:
-        # Upsert operation: update if feature_name exists, otherwise insert.
-        # The `on_conflict` parameter is crucial here to specify the column
-        # that has the unique constraint.
+        # First, update the feature restriction
+        upsert_data = {
+            'feature_name': feature_name,
+            'permitted_roles': restriction_data.permitted_roles,
+        }
         response = supabase.table('feature_restrictions').upsert(
-            {
-                'feature_name': feature_name,
-                'excluded_roles': restriction_data.excluded_roles,
-            },
+            upsert_data,
             on_conflict='feature_name',
         ).execute()
         
         if not response.data:
             raise HTTPException(status_code=500, detail="Failed to update feature restriction.")
+        
+        # Then, increment the permissions version
+        # Use an RPC call to safely increment the value on the database
+        supabase.rpc('increment_permissions_version', {}).execute()
+
         return response.data[0]
     except Exception as e:
         traceback.print_exc()
@@ -409,45 +492,46 @@ async def update_feature_restriction(
 # --- Admin Metrics ---
 @router.get("/admin/metrics", tags=["Admin"])
 async def get_metrics(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
-    # This is a placeholder. In a real application, you would query the database for these metrics.
-    user_count_res = supabase.table('profiles').select('id', count='exact').execute()
-    shows_count_res = supabase.table('shows').select('name', count='exact').execute()
-    racks_count_res = supabase.table('racks').select('id', count='exact').execute()
+    try:
+        user_count_res = supabase.table('profiles').select('id', count='exact').execute()
+        shows_count_res = supabase.table('shows').select('name', count='exact').execute()
+        racks_count_res = supabase.table('racks').select('id', count='exact').execute()
+        
+        # Call the existing DB function for most used equipment
+        most_used_equipment_res = supabase.rpc('get_most_used_equipment', {}).execute()
+        most_used_equipment = most_used_equipment_res.data
+        
+        # Directly query for the count of custom items
+        custom_items_res = supabase.table('equipment_templates').select('id', count='exact').eq('is_default', False).execute()
+        custom_items_created = custom_items_res.count
 
-    # This is a complex query, so for now we'll just return a placeholder
-    most_used_equipment = "Shure ULXD4Q"
-    custom_items_created = 150 # Placeholder
-
-    return {
-        "userCount": user_count_res.count,
-        "signUps": 0, # Placeholder, would need to query by created_at
-        "showsCount": shows_count_res.count,
-        "racksCount": racks_count_res.count,
-        "mostUsedEquipment": most_used_equipment,
-        "customItemsCreated": custom_items_created
-    }
+        return {
+            "userCount": user_count_res.count,
+            "signUps": 0, # This can be implemented later by querying profiles by created_at
+            "showsCount": shows_count_res.count,
+            "racksCount": racks_count_res.count,
+            "mostUsedEquipment": most_used_equipment,
+            "customItemsCreated": custom_items_created
+        }
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An error occurred while fetching metrics: {str(e)}")
 
 
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
 async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves the profile for the authenticated user, including their roles."""
+    """Retrieves the profile for the authenticated user, including their roles and permissions."""
     try:
-        # Fetch profile and roles sequentially
         profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
-        roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
-
         profile_data = profile_res.data
         
         if not profile_data:
-            # Create profile if it doesn't exist
             user_meta = user.user_metadata or {}
             profile_to_create = {
                 'id': str(user.id),
-                'first_name': user_meta.get('first_name'),
-                'last_name': user_meta.get('last_name'),
-                'company_name': user_meta.get('company_name'),
-                'production_role': user_meta.get('production_role'),
+                'first_name': user_meta.get('first_name'), 'last_name': user_meta.get('last_name'),
+                'company_name': user_meta.get('company_name'), 'production_role': user_meta.get('production_role'),
                 'production_role_other': user_meta.get('production_role_other'),
             }
             insert_response = supabase.table('profiles').insert(profile_to_create).execute()
@@ -455,14 +539,34 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
                  raise HTTPException(status_code=500, detail="Failed to create user profile.")
             profile_data = insert_response.data[0]
 
-        # Extract role names
-        roles = [role['roles']['name'] for role in roles_res.data if 'roles' in role and role['roles']]
-        profile_data['roles'] = roles
+        user_roles = get_user_roles_sync(user.id, supabase)
+        profile_data['roles'] = list(user_roles)
 
-        return profile_data
+        # --- Add permitted features ---
+        try:
+            all_restrictions_res = supabase.table('feature_restrictions').select('*').execute()
+            restrictions_map = {item['feature_name']: item['permitted_roles'] for item in all_restrictions_res.data}
+            
+            permitted_features = []
+            for feature in ALL_FEATURES:
+                permitted_roles = restrictions_map.get(feature["key"])
+                # An undefined restriction or an empty list (falsy) means the feature is accessible to all.
+                if not permitted_roles:
+                    permitted_features.append(feature["key"])
+                # If a non-empty list of roles exists, the user must have one of those roles.
+                elif not user_roles.isdisjoint(set(permitted_roles)):
+                    permitted_features.append(feature["key"])
+            
+            profile_data['permitted_features'] = permitted_features
+        except Exception as e:
+            print(f"Error fetching permitted features for user {user.id}: {e}")
+            profile_data['permitted_features'] = []
+
+        return UserProfile(**profile_data)
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
 async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -570,7 +674,7 @@ async def delete_show(show_name: str, user = Depends(get_user), supabase: Client
 # --- Loom Builder Endpoints ---
 
 # -- Looms (Containers) --
-@router.get("/shows/{show_name}/looms", response_model=List[Loom], tags=["Loom Builder"])
+@router.get("/shows/{show_name}/looms", response_model=List[Loom], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def get_looms_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all loom containers for a specific show."""
     show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
@@ -580,7 +684,7 @@ async def get_looms_for_show(show_name: str, user = Depends(get_user), supabase:
     response = supabase.table('looms').select('*').eq('show_name', show_name).eq('user_id', user.id).execute()
     return response.data
 
-@router.post("/looms", response_model=Loom, tags=["Loom Builder"])
+@router.post("/looms", response_model=Loom, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def create_loom(loom_data: LoomCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new loom container for a show."""
     show_res = supabase.table('shows').select('id').eq('name', loom_data.show_name).eq('user_id', user.id).single().execute()
@@ -595,7 +699,7 @@ async def create_loom(loom_data: LoomCreate, user = Depends(get_user), supabase:
         raise HTTPException(status_code=500, detail="Failed to create loom.")
     return response.data[0]
 
-@router.put("/looms/{loom_id}", response_model=Loom, tags=["Loom Builder"])
+@router.put("/looms/{loom_id}", response_model=Loom, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def update_loom(loom_id: uuid.UUID, loom_data: LoomUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates an existing loom container."""
     loom_res = supabase.table('looms').select('id').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
@@ -609,7 +713,7 @@ async def update_loom(loom_id: uuid.UUID, loom_data: LoomUpdate, user = Depends(
         raise HTTPException(status_code=500, detail="Failed to update loom.")
     return response.data[0]
 
-@router.delete("/looms/{loom_id}", status_code=204, tags=["Loom Builder"])
+@router.delete("/looms/{loom_id}", status_code=204, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def delete_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Deletes a loom container and all its associated cables."""
     loom_res = supabase.table('looms').select('id').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
@@ -620,7 +724,7 @@ async def delete_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Cl
     return
 
 # -- Cables (within a Loom) --
-@router.get("/looms/{loom_id}/cables", response_model=List[Cable], tags=["Loom Builder"])
+@router.get("/looms/{loom_id}/cables", response_model=List[Cable], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def get_cables_for_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all cables for a specific loom."""
     loom_res = supabase.table('looms').select('id').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
@@ -630,7 +734,7 @@ async def get_cables_for_loom(loom_id: uuid.UUID, user = Depends(get_user), supa
     response = supabase.table('cables').select('*').eq('loom_id', str(loom_id)).execute()
     return response.data
 
-@router.post("/cables", response_model=Cable, tags=["Loom Builder"])
+@router.post("/cables", response_model=Cable, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def create_cable(cable_data: CableCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new cable within a loom."""
     loom_res = supabase.table('looms').select('id').eq('id', str(cable_data.loom_id)).eq('user_id', user.id).single().execute()
@@ -643,7 +747,7 @@ async def create_cable(cable_data: CableCreate, user = Depends(get_user), supaba
         raise HTTPException(status_code=500, detail="Failed to create cable.")
     return response.data[0]
 
-@router.put("/cables/{cable_id}", response_model=Cable, tags=["Loom Builder"])
+@router.put("/cables/{cable_id}", response_model=Cable, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def update_cable(cable_id: uuid.UUID, cable_data: CableUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates an existing cable."""
     cable_res = supabase.table('cables').select('loom_id').eq('id', str(cable_id)).single().execute()
@@ -660,7 +764,7 @@ async def update_cable(cable_id: uuid.UUID, cable_data: CableUpdate, user = Depe
         raise HTTPException(status_code=500, detail="Failed to update cable.")
     return response.data[0]
 
-@router.delete("/cables/{cable_id}", status_code=204, tags=["Loom Builder"])
+@router.delete("/cables/{cable_id}", status_code=204, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def delete_cable(cable_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Deletes a cable."""
     cable_res = supabase.table('cables').select('loom_id').eq('id', str(cable_id)).single().execute()
@@ -721,7 +825,7 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/racks", response_model=List[Rack], tags=["Racks"])
+@router.get("/racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def list_racks(show_name: Optional[str] = None, from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     query = supabase.table('racks').select('*').eq('user_id', user.id)
     if show_name:
@@ -732,7 +836,7 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
     response = query.execute()
     return response.data
 
-@router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
+@router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get the rack data
     response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
@@ -766,7 +870,7 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     rack_data['equipment'] = equipment_instances
     return rack_data
 
-@router.get("/shows/{show_name}/detailed_racks", response_model=List[Rack], tags=["Racks"])
+@router.get("/shows/{show_name}/detailed_racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def get_detailed_racks_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get all racks for the show
     racks_res = supabase.table('racks').select('*').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
@@ -1267,7 +1371,7 @@ async def get_unassigned_equipment(show_name: str, user = Depends(get_user), sup
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch unassigned equipment: {str(e)}")
 
-@router.get("/connections/{show_name}", tags=["Wire Diagram"])
+@router.get("/connections/{show_name}", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
 async def get_connections_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all connections for a specific show."""
     try:
@@ -1345,46 +1449,15 @@ class CaseLabelPayload(BaseModel):
     logo_path: Optional[str] = None
     placement: Optional[Dict[str, int]] = None
 
-@router.post("/pdf/loom_builder-labels", tags=["PDF Generation"])
-async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    # --- Role-based logo restriction ---
-    show_logo = True # Default to showing the logo
-    logo_path_to_use = None
-    try:
-        # Get user roles
-        user_roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
-        user_roles = {role['roles']['name'] for role in user_roles_res.data if 'roles' in role and role['roles']} if user_roles_res.data else set()
-
-        # Get excluded roles for pdf_logo feature
-        restriction_res = supabase.table('feature_restrictions').select('excluded_roles').eq('feature_name', 'pdf_logo').single().execute()
-        if restriction_res.data:
-            excluded_roles = set(restriction_res.data.get('excluded_roles', []))
-            if not user_roles.isdisjoint(excluded_roles):
-                show_logo = False
-    except Exception as e:
-        print(f"Error checking feature restriction for pdf_logo: {e}")
-        show_logo = False
-
-    if show_logo:
-        logo_path_to_use = "frontend/public/logo.png"
-        if not os.path.exists(logo_path_to_use):
-            print(f"Logo path not found: {logo_path_to_use}")
-            logo_path_to_use = None
-
-    # To generate the PDF, we need the full loom objects with their cables.
-    # The payload only gives us loom IDs, so we need to fetch the data.
+@router.post("/pdf/loom_builder-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("loom_builder"))])
+async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client), show_branding: bool = Depends(get_branding_visibility)):
     loom_ids = [loom.id for loom in payload.looms]
-    
-    # Verify user has access to all requested looms
     looms_res = supabase.table('looms').select('id, user_id').in_('id', loom_ids).execute()
     for loom in looms_res.data:
         if loom['user_id'] != str(user.id):
             raise HTTPException(status_code=403, detail="You do not have access to one or more of the requested looms.")
 
-    # Fetch all cables for the requested looms
     cables_res = supabase.table('cables').select('*').in_('loom_id', loom_ids).execute()
-    
-    # Group cables by loom_id
     cables_by_loom = {}
     for cable in cables_res.data:
         loom_id = cable['loom_id']
@@ -1392,27 +1465,26 @@ async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends
             cables_by_loom[loom_id] = []
         cables_by_loom[loom_id].append(cable)
         
-    # Build the full payload for the PDF utility
-    final_looms = []
-    for loom_data in payload.looms:
-        loom_with_cables = LoomWithCables(
+    final_looms = [
+        LoomWithCables(
             **loom_data.model_dump(exclude={'cables'}),
             cables=[Cable(**c) for c in cables_by_loom.get(str(loom_data.id), [])]
-        )
-        final_looms.append(loom_with_cables)
+        ) for loom_data in payload.looms
+    ]
     
     pdf_payload = LoomBuilderPDFPayload(looms=final_looms, show_name=payload.show_name)
-    
-    pdf_buffer = generate_loom_builder_pdf(pdf_payload, logo_path=logo_path_to_use)
+    pdf_buffer = generate_loom_builder_pdf(pdf_payload, show_branding=show_branding)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
-@router.post("/pdf/loom-labels", tags=["PDF Generation"])
+@router.post("/pdf/loom-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("loom_labels"))])
 async def create_loom_label_pdf(payload: LoomLabelPayload, user = Depends(get_user)):
     pdf_buffer = generate_loom_label_pdf(payload.labels, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
-@router.post("/pdf/case-labels", tags=["PDF Generation"])
+@router.post("/pdf/case-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("case_labels"))])
 async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # Per user feedback, user-uploaded show logos should ALWAYS be visible.
+    # The 'pdf_logo' restriction does not apply here.
     logo_bytes = None
     if payload.logo_path:
         try:
@@ -1424,22 +1496,22 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
-@router.post("/pdf/wire-diagram", tags=["PDF Generation"])
-async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user)):
+@router.post("/pdf/wire-diagram", tags=["PDF Generation"], dependencies=[Depends(feature_check("wire_diagram"))])
+async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility)):
     """Generates a PDF for the wire diagram."""
     try:
-        pdf_buffer = generate_wire_diagram_pdf(payload)
+        pdf_buffer = generate_wire_diagram_pdf(payload, show_branding=show_branding)
         return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
     except Exception as e:
         print(f"Error generating wire diagram PDF: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
-@router.post("/pdf/racks", tags=["PDF Generation"])
-async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user)):
+@router.post("/pdf/racks", tags=["PDF Generation"], dependencies=[Depends(feature_check("rack_builder"))])
+async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility)):
     """Generates a PDF for the rack builder view."""
     try:
-        pdf_buffer = generate_racks_pdf(payload)
+        pdf_buffer = generate_racks_pdf(payload, show_branding=show_branding)
         return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
     except Exception as e:
         print(f"Error generating rack PDF: {e}")
