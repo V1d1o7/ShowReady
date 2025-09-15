@@ -227,9 +227,10 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
 
     return (
         <>
-            <ul>
-                {tree.map(root => (
-                     <li key={root.id} className="mb-4">
+            <div className="max-h-[500px] overflow-y-auto pr-2">
+                <ul>
+                    {tree.map(root => (
+                        <li key={root.id} className="mb-4">
                         <div
                             className="flex items-center cursor-pointer p-1 rounded-md text-amber-400 font-bold"
                             onClick={() => toggleFolder(root.id)}
@@ -243,8 +244,9 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
                             </ul>
                         )}
                     </li>
-                ))}
-            </ul>
+                    ))}
+                </ul>
+            </div>
 
             {editingItem && editingItem.type === 'folder' && (
                 <EditUserFolderModal 

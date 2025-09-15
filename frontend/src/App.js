@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Routes, Route, useNavigate, useParams, Outlet, Navigate } from 'react-router-dom';
 import { supabase, api } from './api/api';
 
@@ -7,6 +7,7 @@ import { ShowProvider } from './contexts/ShowContext';
 import { ShowsContext } from './contexts/ShowsContext';
 import { ModalProvider } from './contexts/ModalContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { LayoutContext } from './contexts/LayoutContext';
 
 // Views
 import Auth from './views/Auth';
@@ -43,6 +44,9 @@ const MainLayout = ({ session }) => {
     const [isLoadingShows, setIsLoadingShows] = useState(true);
     const [isNewShowModalOpen, setIsNewShowModalOpen] = useState(false);
     const navigate = useNavigate();
+
+    const [shouldScroll, setShouldScroll] = useState(false);
+    const layoutContextValue = useMemo(() => ({ setShouldScroll }), [setShouldScroll]);
 
     const loadShows = useCallback(async () => {
         if (!session) return;
@@ -90,66 +94,68 @@ const MainLayout = ({ session }) => {
     return (
         <ShowsContext.Provider value={{ shows, isLoadingShows }}>
             <ModalProvider>
-                <div className="flex flex-col h-full">
-                    <Navbar />
-                    <main className="flex-grow min-h-0">
-                        <Routes>
-                            <Route
-                                path="/"
-                                element={
-                                    <DashboardView
-                                        shows={shows}
-                                        onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
-                                        onNewShow={() => setIsNewShowModalOpen(true)}
-                                        onDeleteShow={handleDeleteShow}
-                                        isLoading={isLoadingShows}
-                                        user={session.user}
-                                    />
-                                }
-                            />
-                            <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
-                                <Route element={<ShowLayout />}>
-                                    <Route element={<ShowView />}>
-                                        <Route index element={<Navigate to="info" replace />} />
-                                        <Route path="info" element={<ShowInfoView />} />
-                                        <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
-                                        <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
-                                        <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
-                                        <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
-                                        <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
+                <LayoutContext.Provider value={layoutContextValue}>
+                    <div className="flex flex-col h-full">
+                        <Navbar />
+                        <main className={`flex-grow min-h-0 ${shouldScroll ? 'overflow-y-auto' : ''}`}>
+                            <Routes>
+                                <Route
+                                    path="/"
+                                    element={
+                                        <DashboardView
+                                            shows={shows}
+                                            onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
+                                            onNewShow={() => setIsNewShowModalOpen(true)}
+                                            onDeleteShow={handleDeleteShow}
+                                            isLoading={isLoadingShows}
+                                            user={session.user}
+                                        />
+                                    }
+                                />
+                                <Route path="/show/:showName" element={<ShowWrapper onShowUpdate={loadShows} />}>
+                                    <Route element={<ShowLayout />}>
+                                        <Route element={<ShowView />}>
+                                            <Route index element={<Navigate to="info" replace />} />
+                                            <Route path="info" element={<ShowInfoView />} />
+                                            <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
+                                            <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
+                                            <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
+                                            <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
+                                            <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
+                                        </Route>
                                     </Route>
                                 </Route>
-                            </Route>
-                            <Route path="/account" element={<AccountView />} />
-                            <Route path="/sso-setup" element={<AdvancedSSOView />} />
-                            <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
-                                <Route index element={<Navigate to="equipment" replace />} />
-                                <Route path="equipment" element={<EquipmentLibraryView />} />
-                                <Route path="racks" element={<UserRackBuilderView />} />
-                            </Route>
-                            <Route
-                                path="/mgmt"
-                                element={
-                                    <ProtectedRoute adminOnly={true}>
-                                        <AdminLayout />
-                                    </ProtectedRoute>
-                                }
-                            >
-                                <Route index element={<Navigate to="email" replace />} />
-                                <Route path="email" element={<EmailView />} />
-                                <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
-                                <Route path="user-management" element={<UserManagementView />} />
-                                <Route path="metrics" element={<MetricsView />} />
-                                <Route path="rbac" element={<RbacView />} />
-                            </Route>
-                        </Routes>
-                    </main>
-                    <NewShowModal
-                        isOpen={isNewShowModalOpen}
-                        onClose={() => setIsNewShowModalOpen(false)}
-                        onSubmit={handleCreateShow}
-                    />
-                </div>
+                                <Route path="/account" element={<AccountView />} />
+                                <Route path="/sso-setup" element={<AdvancedSSOView />} />
+                                <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
+                                    <Route index element={<Navigate to="equipment" replace />} />
+                                    <Route path="equipment" element={<EquipmentLibraryView />} />
+                                    <Route path="racks" element={<UserRackBuilderView />} />
+                                </Route>
+                                <Route
+                                    path="/mgmt"
+                                    element={
+                                        <ProtectedRoute adminOnly={true}>
+                                            <AdminLayout />
+                                        </ProtectedRoute>
+                                    }
+                                >
+                                    <Route index element={<Navigate to="email" replace />} />
+                                    <Route path="email" element={<EmailView />} />
+                                    <Route path="equipment-library" element={<AdminEquipmentLibraryView />} />
+                                    <Route path="user-management" element={<UserManagementView />} />
+                                    <Route path="metrics" element={<MetricsView />} />
+                                    <Route path="rbac" element={<RbacView />} />
+                                </Route>
+                            </Routes>
+                        </main>
+                        <NewShowModal
+                            isOpen={isNewShowModalOpen}
+                            onClose={() => setIsNewShowModalOpen(false)}
+                            onSubmit={handleCreateShow}
+                        />
+                    </div>
+                </LayoutContext.Provider>
             </ModalProvider>
         </ShowsContext.Provider>
     );

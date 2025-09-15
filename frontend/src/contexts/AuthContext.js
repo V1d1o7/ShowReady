@@ -1,17 +1,16 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { supabase, api } from '../api/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-    const [session, setSession] = useState(null);
+    // Session is initialized to `undefined` to distinguish from `null` (logged out).
+    const [session, setSession] = useState(undefined);
     const [profile, setProfile] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [permissionsVersion, setPermissionsVersion] = useState(null);
 
     const fetchProfile = useCallback(async () => {
-        // This function now relies on the `session` from the closure.
-        // It should only be called when we know a session exists.
         try {
             const profileData = await api.getProfile();
             setProfile(profileData);
@@ -19,29 +18,45 @@ export const AuthProvider = ({ children }) => {
             setPermissionsVersion(versionData.version);
         } catch (error) {
             console.error("AuthContext: Failed to fetch profile:", error);
-            setProfile(null); // Clear profile on error
+            setProfile(null);
         }
     }, []);
 
-    // Effect for handling auth state changes ONLY.
-    // This sets the session and lets the next effect handle the profile fetching.
+    // Effect to handle session setup and listen for auth changes.
     useEffect(() => {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        // On initial load, get the session.
+        supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
+        });
+
+        // Listen for auth state changes.
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+            // This smart setter prevents re-renders on background token refreshes.
+            setSession(currentSession => {
+                if (newSession?.user?.id !== currentSession?.user?.id) {
+                    return newSession;
+                }
+                return currentSession;
+            });
         });
 
         return () => subscription.unsubscribe();
     }, []);
 
-    // Effect for fetching the profile when the session is first loaded or changes.
+    // Effect to handle profile fetching and loading state based on session status.
     useEffect(() => {
-        setIsLoading(true);
+        // Do nothing until the initial session check is complete.
+        if (session === undefined) {
+            return;
+        }
+
         if (session) {
-            fetchProfile().then(() => {
+            // Session exists, fetch profile and then finish loading.
+            fetchProfile().finally(() => {
                 setIsLoading(false);
             });
         } else {
-            // No session, so not loading and no profile.
+            // Session is null (logged out), so no profile and loading is finished.
             setProfile(null);
             setIsLoading(false);
         }
@@ -72,12 +87,12 @@ export const AuthProvider = ({ children }) => {
     }, [permissionsVersion, session, fetchProfile]);
 
 
-    const value = {
+    const value = useMemo(() => ({
         session,
         profile,
         isLoading,
         refetchProfile: fetchProfile,
-    };
+    }), [session, profile, isLoading, fetchProfile]);
 
     return (
         <AuthContext.Provider value={value}>

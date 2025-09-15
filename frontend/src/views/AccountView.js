@@ -1,18 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { Save, Trash2, KeyRound } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { LayoutContext } from '../contexts/LayoutContext';
 
 const AccountView = () => {
     const navigate = useNavigate();
     const { profile, isLoading, refetchProfile, session } = useAuth();
+    const { setShouldScroll } = useContext(LayoutContext);
     const user = session?.user;
 
     const [editableProfile, setEditableProfile] = useState(profile || {});
     const [newEmail, setNewEmail] = useState(user?.email || '');
+
+    // Effect to control page scrolling
+    useEffect(() => {
+        setShouldScroll(true);
+        // Cleanup function to reset scroll behavior when the component unmounts
+        return () => setShouldScroll(false);
+    }, [setShouldScroll]);
 
     useEffect(() => {
         // When the profile from the context changes, update the local editable state
