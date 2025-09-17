@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShow } from '../contexts/ShowContext';
 import { useModal } from '../contexts/ModalContext';
-import { Plus, Edit, Trash2, FileText } from 'lucide-react';
+import { Plus, Edit, Copy, Trash2, FileText, Printer, Spline } from 'lucide-react';
 import Card from '../components/Card';
 import NamePromptModal from '../components/NamePromptModal';
 import CableManagerModal from '../components/CableManagerModal';
@@ -14,6 +14,7 @@ const LoomBuilderView = () => {
     const [looms, setLooms] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isNameModalOpen, setIsNameModalOpen] = useState(false);
+    const [editingLoom, setEditingLoom] = useState(null);
     const [managingLoom, setManagingLoom] = useState(null);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
 
@@ -44,6 +45,22 @@ const LoomBuilderView = () => {
         setIsNameModalOpen(false);
     };
 
+    const handleStartEditLoom = (loom) => {
+        setEditingLoom(loom);
+    };
+
+    const handleUpdateLoomName = async (newName) => {
+        if (!editingLoom || !newName) return;
+        try {
+            await api.updateLoom(editingLoom.id, { name: newName });
+            fetchLooms();
+        } catch (error) {
+            console.error("Failed to update loom name:", error);
+            alert(`Error: ${error.message}`);
+        }
+        setEditingLoom(null);
+    };
+
     const handleDeleteLoom = (loomId) => {
         showConfirmationModal(
             "Are you sure you want to delete this entire loom and all its cables?",
@@ -56,6 +73,16 @@ const LoomBuilderView = () => {
                 }
             }
         );
+    };
+
+    const handleCopyLoom = async (loomId) => {
+        try {
+            await api.copyLoom(loomId);
+            fetchLooms();
+        } catch (error) {
+            console.error("Failed to copy loom:", error);
+            alert(`Error: ${error.message}`);
+        }
     };
 
     const handleGeneratePdf = async (selectedLooms = null) => {
@@ -108,9 +135,12 @@ const LoomBuilderView = () => {
                                 <tr key={loom.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
                                     <td className="p-3 truncate max-w-xs">{loom.name}</td>
                                     <td className="p-3 truncate">{new Date(loom.created_at).toLocaleDateString()}</td>
-                                    <td className="p-3 flex justify-end gap-2">
-                                        <button onClick={() => setManagingLoom(loom)} className="text-blue-400 hover:text-blue-300">Edit Cables</button>
-                                        <button onClick={() => handleDeleteLoom(loom.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
+                                    <td className="p-3 flex justify-end gap-3">
+                                        <button onClick={() => setManagingLoom(loom)} title="Edit Cables" className="text-blue-400 hover:text-blue-300"><Spline size={16} /></button>
+                                        <button onClick={() => handleStartEditLoom(loom)} title="Edit Loom Name" className="text-gray-400 hover:text-gray-300"><Edit size={16} /></button>
+                                        <button onClick={() => handleCopyLoom(loom.id)} title="Copy Loom" className="text-gray-400 hover:text-gray-300"><Copy size={16} /></button>
+                                        <button onClick={() => handleGeneratePdf(loom)} title="Print Loom" className="text-gray-400 hover:text-gray-300"><Printer size={16} /></button>
+                                        <button onClick={() => handleDeleteLoom(loom.id)} title="Delete Loom" className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
                                     </td>
                                 </tr>
                             ))}
@@ -131,6 +161,17 @@ const LoomBuilderView = () => {
                     onSubmit={handleCreateLoom}
                     title="Create New Loom"
                     label="Loom Name"
+                />
+            )}
+
+            {editingLoom && (
+                <NamePromptModal
+                    isOpen={!!editingLoom}
+                    onClose={() => setEditingLoom(null)}
+                    onSubmit={handleUpdateLoomName}
+                    title="Edit Loom Name"
+                    label="New Loom Name"
+                    initialValue={editingLoom.name}
                 />
             )}
 

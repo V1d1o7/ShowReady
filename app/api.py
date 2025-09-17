@@ -723,6 +723,56 @@ async def delete_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Cl
     supabase.table('looms').delete().eq('id', str(loom_id)).execute() # RLS and CASCADE will handle deletion
     return
 
+@router.post("/looms/{loom_id}/copy", response_model=Loom, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
+async def copy_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Copies a loom and all its cables."""
+    # 1. Fetch the original loom
+    original_loom_res = supabase.table('looms').select('*').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
+    if not original_loom_res.data:
+        raise HTTPException(status_code=404, detail="Loom not found or access denied.")
+    original_loom = original_loom_res.data
+
+    # 2. Create the new loom with the same name
+    new_loom_data = {
+        "name": original_loom['name'],
+        "show_name": original_loom['show_name'],
+        "user_id": str(user.id)
+    }
+    new_loom_res = supabase.table('looms').insert(new_loom_data).execute()
+    if not new_loom_res.data:
+        raise HTTPException(status_code=500, detail="Failed to create new loom copy.")
+    new_loom = new_loom_res.data[0]
+
+    # 3. Fetch cables from the original loom
+    original_cables_res = supabase.table('cables').select('*').eq('loom_id', str(loom_id)).order('created_at').execute()
+    original_cables = original_cables_res.data
+
+    # 4. Copy cables to the new loom
+    if original_cables:
+        new_cables_to_create = []
+        for cable in original_cables:
+            new_cable_data = {
+                "loom_id": new_loom['id'],
+                "label_content": cable['label_content'],
+                "cable_type": cable['cable_type'],
+                "length_ft": cable.get('length_ft'),
+                "origin": cable['origin'],
+                "destination": cable['destination'],
+                "origin_color": cable['origin_color'],
+                "destination_color": cable['destination_color'],
+                "is_rcvd": cable['is_rcvd'],
+                "is_complete": cable['is_complete'],
+            }
+            new_cables_to_create.append(new_cable_data)
+        
+        new_cables_res = supabase.table('cables').insert(new_cables_to_create).execute()
+        if not new_cables_res.data:
+            # Rollback loom creation if cable copy fails
+            supabase.table('looms').delete().eq('id', new_loom['id']).execute()
+            raise HTTPException(status_code=500, detail="Failed to copy cables to new loom.")
+
+    return new_loom
+
 # -- Cables (within a Loom) --
 @router.get("/looms/{loom_id}/cables", response_model=List[Cable], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def get_cables_for_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -731,7 +781,7 @@ async def get_cables_for_loom(loom_id: uuid.UUID, user = Depends(get_user), supa
     if not loom_res.data:
         raise HTTPException(status_code=404, detail="Loom not found or access denied.")
         
-    response = supabase.table('cables').select('*').eq('loom_id', str(loom_id)).execute()
+    response = supabase.table('cables').select('*').eq('loom_id', str(loom_id)).order('created_at').execute()
     return response.data
 
 @router.post("/cables", response_model=Cable, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
 import { useModal } from '../contexts/ModalContext';
-import { X, Plus, Edit, Trash2, FileText } from 'lucide-react';
+import { X, Plus, Edit, Trash2, FileText, Copy } from 'lucide-react';
 import CableForm from './CableForm';
 
 const CableManagerModal = ({ loom, onClose, onExport }) => {
@@ -43,12 +43,23 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
         setEditingCable(newCable);
     };
 
+    const handleCopyCable = (cableToCopy) => {
+        const newCable = {
+            ...cableToCopy,
+            id: undefined, // Ensure it's treated as a new cable
+            label_content: cableToCopy.label_content, // Keep the exact same name
+        };
+        setEditingCable(newCable);
+    };
+
     const handleSaveCable = async (cableToSave) => {
         try {
             if (cableToSave.id) {
                 await api.updateCable(cableToSave.id, cableToSave);
             } else {
-                await api.createCable(cableToSave);
+                // Ensure id is not part of the payload for new cables
+                const { id, ...newCableData } = cableToSave;
+                await api.createCable(newCableData);
             }
             setEditingCable(null);
             fetchCables();
@@ -122,6 +133,7 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                                             <td className="p-3">{renderLocation(cable.origin)}</td>
                                             <td className="p-3">{renderLocation(cable.destination)}</td>
                                             <td className="p-3 flex justify-end gap-2">
+                                                <button onClick={() => handleCopyCable(cable)} className="text-gray-400 hover:text-gray-300"><Copy size={16} /></button>
                                                 <button onClick={() => setEditingCable(cable)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
                                                 <button onClick={() => handleDeleteCable(cable.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
                                             </td>

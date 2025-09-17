@@ -164,26 +164,32 @@ const MainLayout = ({ session }) => {
 const ShowWrapper = ({ onShowUpdate }) => {
     const { showName } = useParams();
     const [showData, setShowData] = useState(null);
+    const [racks, setRacks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const navigate = useNavigate();
 
+    const fetchShowData = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const [data, racksData] = await Promise.all([
+                api.getShow(showName),
+                api.getDetailedRacksForShow(showName)
+            ]);
+            setShowData(data);
+            setRacks(racksData);
+        } catch (error) {
+            console.error("Failed to fetch show data:", error);
+            navigate('/');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [showName, navigate]);
+
     useEffect(() => {
-        const fetchShowData = async () => {
-            setIsLoading(true);
-            try {
-                const data = await api.getShow(showName);
-                setShowData(data);
-            } catch (error) {
-                console.error("Failed to fetch show data:", error);
-                navigate('/');
-            } finally {
-                setIsLoading(false);
-            }
-        };
         if (showName) {
             fetchShowData();
         }
-    }, [showName, navigate]);
+    }, [showName, fetchShowData]);
 
     const handleSaveShowData = async (updatedData) => {
         try {
@@ -206,7 +212,7 @@ const ShowWrapper = ({ onShowUpdate }) => {
     };
 
     return (
-        <ShowProvider value={{ showData, onSave: handleSaveShowData, isLoading, showName }}>
+        <ShowProvider value={{ showData, racks, onSave: handleSaveShowData, isLoading, showName, refreshRacks: fetchShowData }}>
             <Outlet />
         </ShowProvider>
     );
