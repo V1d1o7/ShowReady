@@ -230,6 +230,11 @@ export const api = {
         method: 'DELETE',
         headers: await getAuthHeader(),
     }),
+    bulkUpdateCables: async (updateData) => fetch('/api/cables/bulk-update', {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(updateData),
+    }).then(handleResponse),
 
     sendNewUserListEmail: async (payload) => fetch('/api/admin/send-new-user-list-email', {
         method: 'POST',

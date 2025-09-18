@@ -119,6 +119,10 @@ class Cable(CableBase):
     loom_id: uuid.UUID
     created_at: datetime
 
+class BulkCableUpdate(BaseModel):
+    cable_ids: List[uuid.UUID]
+    updates: CableUpdate
+
 # A Loom is a container for multiple cables.
 class LoomBase(BaseModel):
     name: str

@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
 import { X, Plus, Edit, Trash2, FileText } from 'lucide-react';
 import CableForm from './CableForm';
+import BulkEditCableForm from './BulkEditCableForm';
 import ConfirmationModal from './ConfirmationModal';
 
 const CableManagerModal = ({ loom, onClose, onExport }) => {
     const [cables, setCables] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [editingCable, setEditingCable] = useState(null);
+    const [isBulkEditing, setIsBulkEditing] = useState(false);
+    const [selectedCables, setSelectedCables] = useState(new Set());
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const fetchCables = useCallback(async () => {
@@ -26,6 +29,24 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
     useEffect(() => {
         fetchCables();
     }, [fetchCables]);
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                // If a confirmation or edit modal is open, let it handle the escape key.
+                if (confirmationModal.isOpen || editingCable || isBulkEditing) {
+                    return;
+                }
+                onClose();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [onClose, confirmationModal.isOpen, editingCable, isBulkEditing]);
     
     const handleAddNewCable = () => {
         const newCable = {
@@ -57,6 +78,18 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
         }
     };
 
+    const handleBulkSave = async (updates) => {
+        try {
+            const cableIds = Array.from(selectedCables);
+            await api.bulkUpdateCables({ cable_ids: cableIds, updates });
+            setIsBulkEditing(false);
+            setSelectedCables(new Set());
+            fetchCables();
+        } catch (error) {
+            console.error("Failed to bulk update cables:", error);
+        }
+    };
+
     const handleDeleteCable = (cableId) => {
         setConfirmationModal({
             isOpen: true,
@@ -74,6 +107,29 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
         });
     };
     
+    const handleSelectCable = (cableId) => {
+        setSelectedCables(prev => {
+            const newSelection = new Set(prev);
+            if (newSelection.has(cableId)) {
+                newSelection.delete(cableId);
+            } else {
+                newSelection.add(cableId);
+            }
+            return newSelection;
+        });
+    };
+
+    const handleSelectAll = (e) => {
+        if (e.target.checked) {
+            const allCableIds = cables.map(c => c.id);
+            setSelectedCables(new Set(allCableIds));
+        } else {
+            setSelectedCables(new Set());
+        }
+    };
+
+    const isAllSelected = selectedCables.size === cables.length && cables.length > 0;
+
     const renderLocation = (location) => {
         if (!location) return 'N/A';
         return `${location.value || 'N/A'} (${location.end || 'N/A'})`
@@ -96,7 +152,12 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                     </header>
 
                     <main className="flex-grow p-4 overflow-y-auto">
-                        <div className="flex justify-end mb-4">
+                        <div className="flex justify-end mb-4 gap-4">
+                            {selectedCables.size > 0 && (
+                                <button onClick={() => setIsBulkEditing(true)} className="flex items-center gap-2 px-3 py-1.5 bg-blue-500 text-white text-sm font-bold rounded-lg hover:bg-blue-400 transition-colors">
+                                    <Edit size={16}/> Bulk Edit ({selectedCables.size})
+                                </button>
+                            )}
                             <button onClick={handleAddNewCable} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
                                 <Plus size={16}/> Add New Cable
                             </button>
@@ -106,6 +167,9 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                             <table className="w-full text-sm text-left">
                                 <thead className="border-b border-gray-700">
                                     <tr>
+                                        <th className="p-3 w-4">
+                                            <input type="checkbox" onChange={handleSelectAll} checked={isAllSelected} className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-amber-500 focus:ring-amber-500" />
+                                        </th>
                                         <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Label</th>
                                         <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Type</th>
                                         <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Length</th>
@@ -116,9 +180,12 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                                 </thead>
                                 <tbody>
                                     {isLoading ? (
-                                        <tr><td colSpan="6" className="text-center py-8 text-gray-500">Loading cables...</td></tr>
+                                        <tr><td colSpan="7" className="text-center py-8 text-gray-500">Loading cables...</td></tr>
                                     ) : cables.map((cable) => (
-                                        <tr key={cable.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
+                                        <tr key={cable.id} className={`border-b border-gray-700/50 ${selectedCables.has(cable.id) ? 'bg-blue-900/50' : 'hover:bg-gray-800/50'}`}>
+                                            <td className="p-3">
+                                                <input type="checkbox" checked={selectedCables.has(cable.id)} onChange={() => handleSelectCable(cable.id)} className="h-4 w-4 rounded border-gray-500 bg-gray-700 text-amber-500 focus:ring-amber-500" />
+                                            </td>
                                             <td className="p-3">{cable.label_content}</td>
                                             <td className="p-3">{cable.cable_type}</td>
                                             <td className="p-3">{cable.length_ft} ft</td>
@@ -144,6 +211,13 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                     cable={editingCable}
                     onSave={handleSaveCable}
                     onCancel={() => setEditingCable(null)}
+                />
+            )}
+            {isBulkEditing && (
+                <BulkEditCableForm
+                    selectedCables={Array.from(selectedCables)}
+                    onSave={handleBulkSave}
+                    onCancel={() => setIsBulkEditing(false)}
                 />
             )}
             {confirmationModal.isOpen && (

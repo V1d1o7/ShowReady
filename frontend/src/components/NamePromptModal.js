@@ -11,6 +11,22 @@ const NamePromptModal = ({ isOpen, onClose, onSubmit, title, initialValue = '' }
         }
     }, [isOpen, initialValue]);
 
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+
+        if (isOpen) {
+            document.addEventListener('keydown', handleKeyDown);
+        }
+
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isOpen, onClose]);
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (name.trim()) {

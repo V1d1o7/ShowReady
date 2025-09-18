@@ -19,7 +19,7 @@ from .models import (
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
     SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
     Loom, LoomCreate, LoomUpdate, LoomWithCables,
-    Cable, CableCreate, CableUpdate, LoomBuilderPDFPayload
+    Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf, generate_racks_pdf, generate_loom_builder_pdf
 from .email_utils import create_email_html, send_email
@@ -798,6 +798,33 @@ async def create_cable(cable_data: CableCreate, user = Depends(get_user), supaba
         raise HTTPException(status_code=500, detail="Failed to create cable.")
     return response.data[0]
 
+@router.put("/cables/bulk-update", status_code=200, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
+async def bulk_update_cables(update_data: BulkCableUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Bulk updates multiple cables."""
+    if not update_data.cable_ids:
+        raise HTTPException(status_code=400, detail="No cable IDs provided.")
+
+    # Verify user ownership of all cables through their looms
+    cables_res = supabase.table('cables').select('id, looms(user_id)').in_('id', [str(cid) for cid in update_data.cable_ids]).execute()
+    
+    if len(cables_res.data) != len(update_data.cable_ids):
+        raise HTTPException(status_code=404, detail="One or more cables not found.")
+
+    for cable in cables_res.data:
+        if str(cable['looms']['user_id']) != str(user.id):
+            raise HTTPException(status_code=403, detail="Access denied: you do not own one or more of the selected cables.")
+
+    update_payload = update_data.updates.model_dump(exclude_unset=True)
+    if not update_payload:
+        raise HTTPException(status_code=400, detail="No update fields provided.")
+    
+    response = supabase.table('cables').update(update_payload).in_('id', [str(cid) for cid in update_data.cable_ids]).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to bulk update cables.")
+        
+    return {"message": f"Successfully updated {len(response.data)} cables."}
+
 @router.put("/cables/{cable_id}", response_model=Cable, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def update_cable(cable_id: uuid.UUID, cable_data: CableUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates an existing cable."""
@@ -828,6 +855,33 @@ async def delete_cable(cable_id: uuid.UUID, user = Depends(get_user), supabase: 
         
     supabase.table('cables').delete().eq('id', str(cable_id)).execute()
     return
+
+@router.put("/cables/bulk-update", status_code=200, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
+async def bulk_update_cables(update_data: BulkCableUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Bulk updates multiple cables."""
+    if not update_data.cable_ids:
+        raise HTTPException(status_code=400, detail="No cable IDs provided.")
+
+    # Verify user ownership of all cables through their looms
+    cables_res = supabase.table('cables').select('id, looms(user_id)').in_('id', [str(cid) for cid in update_data.cable_ids]).execute()
+    
+    if len(cables_res.data) != len(update_data.cable_ids):
+        raise HTTPException(status_code=404, detail="One or more cables not found.")
+
+    for cable in cables_res.data:
+        if str(cable['looms']['user_id']) != str(user.id):
+            raise HTTPException(status_code=403, detail="Access denied: you do not own one or more of the selected cables.")
+
+    update_payload = update_data.updates.model_dump(exclude_unset=True)
+    if not update_payload:
+        raise HTTPException(status_code=400, detail="No update fields provided.")
+    
+    response = supabase.table('cables').update(update_payload).in_('id', [str(cid) for cid in update_data.cable_ids]).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to bulk update cables.")
+        
+    return {"message": f"Successfully updated {len(response.data)} cables."}
 
 # --- File Upload Endpoint ---
 @router.post("/upload/logo", tags=["File Upload"])
