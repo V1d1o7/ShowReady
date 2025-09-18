@@ -18,6 +18,7 @@ const RackComponent = ({
     view,
     onDrop,
     onDelete,
+    onUpdate,
     onDragStart,
     draggedItem,
     dragOverData,
@@ -99,6 +100,7 @@ const RackComponent = ({
                                 key={item.id}
                                 item={item}
                                 onDelete={onDelete}
+                                onUpdate={onUpdate}
                                 onDragStart={onDragStart}
                             />
                         ))}

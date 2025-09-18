@@ -1059,7 +1059,7 @@ async def add_equipment_to_rack(
     user = Depends(get_user), 
     supabase: Client = Depends(get_supabase_client)
 ):
-    rack_res = supabase.table('racks').select('id, ru_height').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
+    rack_res = supabase.table('racks').select('id, ru_height, show_name').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
     if not rack_res.data:
         raise HTTPException(status_code=404, detail="Rack not found or access denied")
 
@@ -1069,6 +1069,15 @@ async def add_equipment_to_rack(
         
     template = template_res.data
     
+    # Get all equipment in the show for nomenclature calculation
+    show_name = rack_res.data['show_name']
+    all_racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    all_rack_ids = [r['id'] for r in all_racks_res.data]
+    
+    all_show_equipment_res = supabase.table('rack_equipment_instances').select('instance_name').in_('rack_id', all_rack_ids).execute()
+    all_show_equipment = all_show_equipment_res.data
+
+    # Get equipment for the current rack for collision detection
     existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(width, ru_height)').eq('rack_id', str(rack_id)).execute()
     existing_equipment = existing_equipment_res.data
 
@@ -1115,7 +1124,7 @@ async def add_equipment_to_rack(
     base_name = prefix if prefix else template['model_number']
     
     highest_num = 0
-    for item in existing_equipment:
+    for item in all_show_equipment:
         if item['instance_name'].startswith(base_name + "-"):
             try:
                 num = int(item['instance_name'].split('-')[-1])

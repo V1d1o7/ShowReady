@@ -101,6 +101,22 @@ const RackBuilderView = () => {
         }
     };
 
+    const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
+        try {
+            const updatedInstance = await api.updateEquipmentInstance(instanceId, updatedData);
+            setActiveRack(currentRack => ({
+                ...currentRack,
+                equipment: currentRack.equipment.map(item =>
+                    item.id === instanceId ? { ...item, ...updatedInstance } : item
+                )
+            }));
+            toast.success("Equipment updated successfully!");
+        } catch (error) {
+            console.error("Failed to update equipment:", error);
+            toast.error(`Error: ${error.message}`);
+        }
+    };
+
     const handleCreateUserEquipment = async (equipmentData) => {
         try {
             await api.createUserEquipment(equipmentData);
@@ -415,6 +431,7 @@ const RackBuilderView = () => {
                                 view="front"
                                 onDrop={handleDrop}
                                 onDelete={handleDeleteEquipment}
+                                onUpdate={handleUpdateEquipmentInstance}
                                 onDragStart={handleDragStart}
                                 draggedItem={draggedItem}
                                 dragOverData={dragOverData}
@@ -426,6 +443,7 @@ const RackBuilderView = () => {
                                 view="rear"
                                 onDrop={handleDrop}
                                 onDelete={handleDeleteEquipment}
+                                onUpdate={handleUpdateEquipmentInstance}
                                 onDragStart={handleDragStart}
                                 draggedItem={draggedItem}
                                 dragOverData={dragOverData}

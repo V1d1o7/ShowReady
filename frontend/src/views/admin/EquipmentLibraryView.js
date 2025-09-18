@@ -11,6 +11,7 @@ import EditFolderModal from '../../components/EditFolderModal';
 import EditEquipmentModal from '../../components/EditEquipmentModal';
 import toast, { Toaster } from 'react-hot-toast';
 import InputField from '../../components/InputField';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 // --- Draggable Tree Components ---
 
@@ -183,6 +184,7 @@ const EquipmentLibraryView = () => {
     const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
     const [activeDragItem, setActiveDragItem] = useState(null);
     const [editingItem, setEditingItem] = useState(null);
+    const [itemToDelete, setItemToDelete] = useState(null);
     const sensors = useSensors(useSensor(PointerSensor));
 
     const fetchData = async () => {
@@ -239,55 +241,82 @@ const EquipmentLibraryView = () => {
     };
 
     const handleCreateFolder = async (folderData) => {
-        try { 
-            await api.createAdminFolder(folderData); 
-            await fetchData(); 
-        } catch(error) { 
-            console.error("Failed to create folder", error); 
-            alert(`Error: ${error.message}`); 
+        try {
+            const newFolder = await api.createAdminFolder(folderData);
+            setLibrary(prev => ({ ...prev, folders: [...prev.folders, newFolder] }));
+            toast.success("Folder created successfully!");
+        } catch (error) {
+            console.error("Failed to create folder", error);
+            toast.error(`Error: ${error.message}`);
         }
         setIsFolderModalOpen(false);
     };
 
     const handleCreateEquipment = async (equipmentData) => {
-        try { 
-            await api.createAdminEquipment(equipmentData); 
-            await fetchData(); 
-        } catch(error) { 
-            console.error("Failed to create equipment", error); 
-            alert(`Error: ${error.message}`); 
+        try {
+            const newEquipment = await api.createAdminEquipment(equipmentData);
+            setLibrary(prev => ({ ...prev, equipment: [...prev.equipment, newEquipment] }));
+            toast.success("Equipment created successfully!");
+        } catch (error) {
+            console.error("Failed to create equipment", error);
+            toast.error(`Error: ${error.message}`);
         }
         setIsEquipmentModalOpen(false);
     };
 
+    const handleDeleteConfirmation = (item, type) => {
+        setItemToDelete({ ...item, type });
+    };
+
+    const closeConfirmationModal = () => {
+        setItemToDelete(null);
+    };
+
     const handleDeleteFolder = async (folderId) => {
-        if (!window.confirm("Are you sure? This will also delete all equipment and subfolders inside.")) return;
-        try { 
-            const res = await api.deleteAdminFolder(folderId); 
+        try {
+            const res = await api.deleteAdminFolder(folderId);
             if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.detail || "Failed to delete folder.");
             }
-            await fetchData();
-        } catch(error) { 
-            console.error("Failed to delete folder", error); 
-            alert(`Error: ${error.message}`);
+            setLibrary(prev => ({
+                ...prev,
+                folders: prev.folders.filter(f => f.id !== folderId)
+            }));
+            toast.success("Folder deleted successfully!");
+        } catch (error) {
+            console.error("Failed to delete folder", error);
+            toast.error(`Error: ${error.message}`);
         }
     };
 
     const handleDeleteEquipment = async (equipmentId) => {
-        if (!window.confirm("Are you sure?")) return;
-        try { 
-            const res = await api.deleteAdminEquipment(equipmentId); 
+        try {
+            const res = await api.deleteAdminEquipment(equipmentId);
             if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.detail || "Failed to delete equipment.");
             }
-            await fetchData();
-        } catch(error) { 
-            console.error("Failed to delete equipment", error); 
-            alert(`Error: ${error.message}`);
+            setLibrary(prev => ({
+                ...prev,
+                equipment: prev.equipment.filter(e => e.id !== equipmentId)
+            }));
+            toast.success("Equipment deleted successfully!");
+        } catch (error) {
+            console.error("Failed to delete equipment", error);
+            toast.error(`Error: ${error.message}`);
         }
+    };
+
+    const handleConfirmDelete = () => {
+        if (!itemToDelete) return;
+
+        if (itemToDelete.type === 'folder') {
+            handleDeleteFolder(itemToDelete.id);
+        } else {
+            handleDeleteEquipment(itemToDelete.id);
+        }
+        closeConfirmationModal();
     };
     
     const handleEditItem = (item, type) => {
@@ -296,17 +325,25 @@ const EquipmentLibraryView = () => {
 
     const handleUpdateItem = async (updatedData) => {
         if (!editingItem) return;
-        
+
         try {
             if (editingItem.type === 'folder') {
-                await api.updateAdminFolder(editingItem.id, updatedData);
+                const updatedFolder = await api.updateAdminFolder(editingItem.id, updatedData);
+                setLibrary(prev => ({
+                    ...prev,
+                    folders: prev.folders.map(f => f.id === editingItem.id ? updatedFolder : f)
+                }));
             } else {
-                await api.updateAdminEquipment(editingItem.id, updatedData);
+                const updatedEquipment = await api.updateAdminEquipment(editingItem.id, updatedData);
+                setLibrary(prev => ({
+                    ...prev,
+                    equipment: prev.equipment.map(e => e.id === editingItem.id ? updatedEquipment : e)
+                }));
             }
-            await fetchData();
-        } catch(error) {
+            toast.success("Item updated successfully!");
+        } catch (error) {
             console.error("Failed to update item", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         } finally {
             setEditingItem(null);
         }
@@ -348,8 +385,8 @@ const EquipmentLibraryView = () => {
                        <AdminTreeView 
                            folders={library.folders} 
                            equipment={library.equipment} 
-                           onDeleteFolder={handleDeleteFolder} 
-                           onDeleteEquipment={handleDeleteEquipment} 
+                           onDeleteFolder={(folderId) => handleDeleteConfirmation({ id: folderId }, 'folder')}
+                           onDeleteEquipment={(equipmentId) => handleDeleteConfirmation({ id: equipmentId }, 'equipment')}
                            onEditItem={handleEditItem}
                         />
                     </div>
@@ -364,6 +401,13 @@ const EquipmentLibraryView = () => {
             </DndContext>
             
             {/* Modals */}
+            {itemToDelete && (
+                <ConfirmationModal
+                    message={itemToDelete.type === 'folder' ? "Are you sure? This will also delete all equipment and subfolders inside." : "Are you sure?"}
+                    onConfirm={handleConfirmDelete}
+                    onCancel={closeConfirmationModal}
+                />
+            )}
             <NewFolderModal isOpen={isFolderModalOpen} onClose={() => setIsFolderModalOpen(false)} onSubmit={handleCreateFolder} folderTree={folderTree} />
             <NewEquipmentModal isOpen={isEquipmentModalOpen} onClose={() => setIsEquipmentModalOpen(false)} onSubmit={handleCreateEquipment} folderTree={folderTree} />
             
