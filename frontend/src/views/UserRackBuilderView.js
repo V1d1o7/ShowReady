@@ -9,6 +9,7 @@ import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import RackComponent from '../components/RackComponent';
 import { useLibrary } from '../contexts/LibraryContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const UserRackBuilderView = () => {
     const {
@@ -27,6 +28,7 @@ const UserRackBuilderView = () => {
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     useEffect(() => {
         const fetchRackDetails = async () => {
@@ -115,16 +117,27 @@ const UserRackBuilderView = () => {
         return false;
     }, []);
 
-    const handleDeleteRack = async (rackId) => {
-        if (!window.confirm("Are you sure you want to delete this rack template?")) return;
-        try {
-            await api.deleteRack(rackId);
-            onUpdate();
-            toast.success("Rack template deleted.");
-        } catch (error) {
-            console.error("Failed to delete rack:", error);
-            toast.error(`Error: ${error.message}`);
-        }
+    const handleDeleteRack = (rackId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to delete this rack template? This action cannot be undone.",
+            onConfirm: async () => {
+                try {
+                    await api.deleteRack(rackId);
+                    onUpdate(); // This will refetch the rack list in the parent context
+                    if (selectedRackId === rackId) {
+                        onSelectRack(null); // Deselect the rack
+                        setActiveRack(null);
+                    }
+                    toast.success("Rack template deleted.");
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete rack:", error);
+                    toast.error(`Error: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
     const handleUpdateRack = async (rackId, rackData) => {
@@ -162,21 +175,27 @@ const UserRackBuilderView = () => {
         setIsRackLibraryOpen(false);
     };
 
-    const handleDeleteEquipment = async (instanceId) => {
-        if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
-        try {
-            await api.deleteEquipmentFromRack(instanceId);
-            toast.success("Equipment removed from rack.");
-            // Optimistically update UI
-            setActiveRack(currentRack => ({
-                ...currentRack,
-                equipment: currentRack.equipment.filter(item => item.id !== instanceId)
-            }));
-        } catch (error) {
-            console.error("Failed to delete equipment:", error);
-            toast.error(`Error: ${error.message}`);
-            onUpdate(); // Re-fetch on error to revert optimistic update
-        }
+    const handleDeleteEquipment = (instanceId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to remove this equipment from the rack template?",
+            onConfirm: async () => {
+                try {
+                    await api.deleteEquipmentFromRack(instanceId);
+                    toast.success("Equipment removed from rack.");
+                    setActiveRack(currentRack => ({
+                        ...currentRack,
+                        equipment: currentRack.equipment.filter(item => item.id !== instanceId)
+                    }));
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete equipment:", error);
+                    toast.error(`Error: ${error.message}`);
+                    onUpdate();
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
     const handleDragStart = (e, item, isNew = false) => {
@@ -382,6 +401,13 @@ const UserRackBuilderView = () => {
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={confirmationModal.onConfirm}
+                    onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                />
+            )}
         </div>
     );
 };

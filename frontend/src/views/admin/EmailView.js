@@ -5,6 +5,7 @@ import InputField from '../../components/InputField';
 import Modal from '../../components/Modal';
 import toast, { Toaster } from 'react-hot-toast';
 import { MailPlus, Send, Trash2 } from 'lucide-react';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 // --- Sender Identity Manager Component ---
 const SenderManager = ({ senders, onUpdate }) => {
@@ -12,6 +13,7 @@ const SenderManager = ({ senders, onUpdate }) => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [loginEmail, setLoginEmail] = useState('');
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const handleAddSender = async (e) => {
         e.preventDefault();
@@ -28,15 +30,22 @@ const SenderManager = ({ senders, onUpdate }) => {
         }
     };
 
-    const handleDeleteSender = async (id) => {
-        if (!window.confirm("Are you sure you want to delete this sender identity?")) return;
-        try {
-            await api.deleteSenderIdentity(id);
-            toast.success("Sender identity deleted!");
-            onUpdate();
-        } catch (error) {
-            toast.error(`Failed to delete sender: ${error.message}`);
-        }
+    const handleDeleteSender = (id) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to delete this sender identity?",
+            onConfirm: async () => {
+                try {
+                    await api.deleteSenderIdentity(id);
+                    toast.success("Sender identity deleted!");
+                    onUpdate();
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    toast.error(`Failed to delete sender: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
     return (
@@ -74,6 +83,13 @@ const SenderManager = ({ senders, onUpdate }) => {
                     </div>
                 </form>
             </Modal>
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={confirmationModal.onConfirm}
+                    onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                />
+            )}
         </>
     );
 };

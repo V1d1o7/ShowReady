@@ -34,7 +34,7 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate }) => {
                 onDragEnd={handleDragEnd}
                 className={`
                     absolute ${widthClass} ${positionClass} bg-blue-500/30 border border-blue-400
-                    rounded-sm text-white text-xs flex items-center justify-between
+                    rounded-sm text-white text-xs flex items-center
                     p-1 cursor-grab group transition-opacity
                     ${isDragging ? 'opacity-0' : 'opacity-100'}
                 `}
@@ -44,14 +44,14 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate }) => {
                     zIndex: 20,
                 }}
             >
-                <span className="truncate px-2">{item.instance_name}</span>
-                <div className="flex items-center">
+                <span className="flex-grow text-center truncate px-2">{item.instance_name}</span>
+                <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2">
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setIsEditModalOpen(true);
                         }}
-                        className="pr-1 text-gray-400 hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="p-1 text-gray-400 hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         <Edit size={14} />
                     </button>
@@ -60,7 +60,7 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate }) => {
                             e.stopPropagation();
                             onDelete(item.id);
                         }}
-                        className="pr-2 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="p-1 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         <Trash2 size={14} />
                     </button>

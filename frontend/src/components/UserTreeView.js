@@ -38,27 +38,6 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
         setContextMenu(null);
     };
 
-    const handleDeleteFolder = async (folderId) => {
-        if (!window.confirm("Are you sure? This will also delete all equipment and subfolders inside.")) return;
-        try { 
-            await api.deleteUserFolder(folderId); 
-            // The parent component should handle fetching the data
-        } catch(error) { 
-            console.error("Failed to delete folder", error); 
-            alert(`Error: ${error.message}`); 
-        }
-    };
-
-    const handleDeleteEquipment = async (equipmentId) => {
-        if (!window.confirm("Are you sure?")) return;
-        try { 
-            await api.deleteUserEquipment(equipmentId);
-            // The parent component should handle fetching the data
-        } catch(error) { 
-            console.error("Failed to delete equipment", error); 
-            alert(`Error: ${error.message}`); 
-        }
-    };
 
     const handleEditItem = (item, type) => {
         setEditingItem({ ...item, type });

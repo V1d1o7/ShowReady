@@ -170,6 +170,7 @@ class EquipmentTemplate(BaseModel):
     ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
+    has_ip_address: bool = False
 
 # Updated create model to include ports
 class EquipmentTemplateCreate(BaseModel):
@@ -179,6 +180,7 @@ class EquipmentTemplateCreate(BaseModel):
     width: str = 'full'
     ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
+    has_ip_address: bool = False
 
 class RackEquipmentInstance(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -300,6 +302,7 @@ class EquipmentTemplateUpdate(BaseModel):
     width: Optional[str] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
+    has_ip_address: Optional[bool] = None
     
 class UserEquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
@@ -308,6 +311,7 @@ class UserEquipmentTemplateUpdate(BaseModel):
     width: Optional[str] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
+    has_ip_address: Optional[bool] = None
 
 class EquipmentCopy(BaseModel):
     template_id: uuid.UUID

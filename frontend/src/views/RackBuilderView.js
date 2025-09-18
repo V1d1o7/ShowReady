@@ -11,6 +11,7 @@ import RackComponent from '../components/RackComponent';
 import RackPdfModal from '../components/RackPdfModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const RackBuilderView = () => {
     const { showName } = useShow();
@@ -28,6 +29,7 @@ const RackBuilderView = () => {
     const [draggedItem, setDraggedItem] = useState(null);
     const [dragOverData, setDragOverData] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -44,8 +46,17 @@ const RackBuilderView = () => {
 
             if (currentRackId) {
                 if (!selectedRackId) setSelectedRackId(currentRackId);
+            try {
                 const detailedRack = await api.getRackDetails(currentRackId);
                 setActiveRack(detailedRack);
+            } catch (error) {
+                if (error.message.includes("Not Found")) {
+                    setActiveRack(null);
+                    setSelectedRackId(null);
+                } else {
+                    throw error;
+                }
+            }
             } else {
                 setActiveRack(null);
                 setSelectedRackId(null);
@@ -79,16 +90,37 @@ const RackBuilderView = () => {
         setIsNewRackModalOpen(false);
     };
     
-    const handleDeleteRack = async (rackId) => {
-        if (!window.confirm("Are you sure you want to delete this rack?")) return;
-        try {
-            await api.deleteRack(rackId);
-            setSelectedRackId(null);
-            await fetchData();
-        } catch (error) {
-            console.error("Failed to delete rack:", error);
-            toast.error(`Error: ${error.message}`);
-        }
+    const handleDeleteRack = (rackId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to delete this rack? This action cannot be undone.",
+            onConfirm: async () => {
+                try {
+                    await api.deleteRack(rackId);
+                    
+                    const newRacks = racks.filter(r => r.id !== rackId);
+                    setRacks(newRacks);
+
+                    if (selectedRackId === rackId) {
+                        const newSelectedId = newRacks.length > 0 ? newRacks[0].id : null;
+                        setSelectedRackId(newSelectedId);
+                        if (newSelectedId) {
+                            const detailedRack = await api.getRackDetails(newSelectedId);
+                            setActiveRack(detailedRack);
+                        } else {
+                            setActiveRack(null);
+                        }
+                    }
+                    
+                    toast.success("Rack deleted successfully.");
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete rack:", error);
+                    toast.error(`Error: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
     const handleUpdateRack = async (rackId, rackData) => {
@@ -181,18 +213,25 @@ const RackBuilderView = () => {
         }
     };
     
-    const handleDeleteEquipment = async (instanceId) => {
-        if (!activeRack || !window.confirm("Are you sure you want to remove this equipment?")) return;
-        try {
-            await api.deleteEquipmentFromRack(instanceId);
-            setActiveRack(currentRack => ({
-                ...currentRack,
-                equipment: currentRack.equipment.filter(item => item.id !== instanceId)
-            }));
-        } catch (error) {
-            console.error("Failed to delete equipment:", error);
-            toast.error(`Error: ${error.message}`);
-        }
+    const handleDeleteEquipment = (instanceId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to remove this equipment from the rack?",
+            onConfirm: async () => {
+                try {
+                    await api.deleteEquipmentFromRack(instanceId);
+                    setActiveRack(currentRack => ({
+                        ...currentRack,
+                        equipment: currentRack.equipment.filter(item => item.id !== instanceId)
+                    }));
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete equipment:", error);
+                    toast.error(`Error: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
     const checkCollision = useCallback((rackData, itemToPlace, targetRu, targetSide) => {
@@ -495,6 +534,13 @@ const RackBuilderView = () => {
                 title="Name New Rack"
                 initialValue={rackToCopy ? `${rackToCopy.rack_name} (Copy)` : ''}
             />
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={confirmationModal.onConfirm}
+                    onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                />
+            )}
         </div>
     );
 };

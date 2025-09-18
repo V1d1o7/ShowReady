@@ -272,6 +272,7 @@ async def create_default_equipment(
         "width": equipment_data.width,
         "ports": ports_data,
         "is_default": True,
+        "has_ip_address": equipment_data.has_ip_address,
     }
     if equipment_data.folder_id:
         insert_data["folder_id"] = str(equipment_data.folder_id)
@@ -889,8 +890,8 @@ async def list_racks(show_name: Optional[str] = None, from_library: bool = False
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get the rack data
-    response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
-    if not response.data:
+    response = supabase.table('racks').select('*').eq('id', str(rack_id)).eq('user_id', str(user.id)).maybe_single().execute()
+    if not response or not response.data:
         raise HTTPException(status_code=404, detail="Rack not found or you do not have permission to view it.")
     
     rack_data = response.data
@@ -1133,7 +1134,7 @@ async def add_equipment_to_rack(
             except (ValueError, IndexError):
                 continue
     
-    new_instance_name = f"{base_name}-{highest_num + 1}"
+    new_instance_name = f"{base_name}-{(highest_num + 1):02}"
 
     insert_data = {
         "rack_id": str(rack_id),
@@ -1327,7 +1328,8 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
         "width": equipment_data.width,
         "ports": ports_data,
         "is_default": False,
-        "user_id": str(user.id)
+        "user_id": str(user.id),
+        "has_ip_address": equipment_data.has_ip_address
     }
     if equipment_data.folder_id:
         insert_data["folder_id"] = str(equipment_data.folder_id)

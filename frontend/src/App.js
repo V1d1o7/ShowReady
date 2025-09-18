@@ -36,6 +36,7 @@ import LoomBuilderView from './views/LoomBuilderView';
 import NewShowModal from './components/NewShowModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
+import ConfirmationModal from './components/ConfirmationModal';
 
 
 const MainLayout = ({ session }) => {
@@ -47,6 +48,7 @@ const MainLayout = ({ session }) => {
 
     const [shouldScroll, setShouldScroll] = useState(false);
     const layoutContextValue = useMemo(() => ({ setShouldScroll }), [setShouldScroll]);
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const loadShows = useCallback(async () => {
         if (!session) return;
@@ -81,14 +83,21 @@ const MainLayout = ({ session }) => {
         setIsNewShowModalOpen(false);
     };
 
-    const handleDeleteShow = async (showNameToDelete) => {
-        if (!window.confirm(`Are you sure you want to delete "${showNameToDelete}"?`)) return;
-        try {
-            await api.deleteShow(showNameToDelete);
-            loadShows();
-        } catch (error) {
-            console.error("Failed to delete show:", error);
-        }
+    const handleDeleteShow = (showNameToDelete) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: `Are you sure you want to delete "${showNameToDelete}"? This action cannot be undone.`,
+            onConfirm: async () => {
+                try {
+                    await api.deleteShow(showNameToDelete);
+                    loadShows();
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete show:", error);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
     return (
@@ -154,6 +163,13 @@ const MainLayout = ({ session }) => {
                             onClose={() => setIsNewShowModalOpen(false)}
                             onSubmit={handleCreateShow}
                         />
+                        {confirmationModal.isOpen && (
+                            <ConfirmationModal
+                                message={confirmationModal.message}
+                                onConfirm={confirmationModal.onConfirm}
+                                onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                            />
+                        )}
                     </div>
                 </LayoutContext.Provider>
             </ModalProvider>

@@ -3,9 +3,10 @@ import Modal from './Modal';
 import InputField from './InputField';
 import { Plus } from 'lucide-react';
 import PortManagerModal from './PortManagerModal';
+import ToggleSwitch from './ToggleSwitch';
 
 const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
-    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full' });
+    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', has_ip_address: false });
     const [ports, setPorts] = useState([]);
     const [isPortModalOpen, setIsPortModalOpen] = useState(false);
 
@@ -16,14 +17,15 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
                 manufacturer: equipment.manufacturer || '',
                 ru_height: equipment.ru_height || 1,
                 width: equipment.width || 'full',
+                has_ip_address: equipment.has_ip_address || false,
             });
             setPorts(equipment.ports || []);
         }
     }, [equipment]);
 
     const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
     const handleSubmit = (e) => {
@@ -53,6 +55,17 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
                                 <option value="half">Half</option>
                             </select>
                         </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <label htmlFor="has_ip_address" className="block text-sm font-medium text-gray-300">
+                            Device is IP Addressable
+                        </label>
+                        <ToggleSwitch
+                            id="has_ip_address"
+                            name="has_ip_address"
+                            checked={formData.has_ip_address}
+                            onChange={handleChange}
+                        />
                     </div>
 
                     <div className="border-t border-gray-700 pt-4">

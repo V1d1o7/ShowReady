@@ -8,6 +8,7 @@ import EditUserFolderModal from '../components/EditUserFolderModal';
 import EditUserEquipmentModal from '../components/EditUserEquipmentModal';
 import NewRackModal from '../components/NewRackModal';
 import { LibraryProvider } from '../contexts/LibraryContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const UserLibraryView = () => {
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
@@ -18,6 +19,7 @@ const UserLibraryView = () => {
     const [isRackModalOpen, setIsRackModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
     const [selectedRackId, setSelectedRackId] = useState(null);
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -81,26 +83,40 @@ const UserLibraryView = () => {
         setIsRackModalOpen(false);
     };
 
-    const handleDeleteFolder = async (folderId) => {
-        if (!window.confirm("Are you sure? This will also delete all equipment and subfolders inside.")) return;
-        try { 
-            await api.deleteUserFolder(folderId); 
-            fetchData();
-        } catch(error) { 
-            console.error("Failed to delete folder", error); 
-            alert(`Error: ${error.message}`);
-        }
+    const handleDeleteFolder = (folderId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure? This will also delete all equipment and subfolders inside.",
+            onConfirm: async () => {
+                try {
+                    await api.deleteUserFolder(folderId);
+                    fetchData();
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete folder", error);
+                    alert(`Error: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
 
-    const handleDeleteEquipment = async (equipmentId) => {
-        if (!window.confirm("Are you sure?")) return;
-        try { 
-            await api.deleteUserEquipment(equipmentId);
-            fetchData();
-        } catch(error) { 
-            console.error("Failed to delete equipment", error); 
-            alert(`Error: ${error.message}`);
-        }
+    const handleDeleteEquipment = (equipmentId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to delete this equipment?",
+            onConfirm: async () => {
+                try {
+                    await api.deleteUserEquipment(equipmentId);
+                    fetchData();
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete equipment", error);
+                    alert(`Error: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
     };
     
     const handleEditItem = (item, type) => {
@@ -212,6 +228,13 @@ const UserLibraryView = () => {
                     onSubmit={handleUpdateItem} 
                     equipment={editingItem} 
                     userFolderTree={userFolderTree}
+                />
+            )}
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={confirmationModal.onConfirm}
+                    onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
                 />
             )}
         </LibraryProvider>

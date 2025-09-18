@@ -6,6 +6,7 @@ import InputField from '../components/InputField';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LayoutContext } from '../contexts/LayoutContext';
+import ConfirmationModal from '../components/ConfirmationModal';
 
 const AccountView = () => {
     const navigate = useNavigate();
@@ -15,6 +16,7 @@ const AccountView = () => {
 
     const [editableProfile, setEditableProfile] = useState(profile || {});
     const [newEmail, setNewEmail] = useState(user?.email || '');
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     // Effect to control page scrolling
     useEffect(() => {
@@ -65,15 +67,21 @@ const AccountView = () => {
         });
     };
 
-    const handleDeleteAccount = async () => {
-        if (window.confirm("Are you absolutely sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.")) {
-            try {
-                await api.deleteAccount();
-                await supabase.auth.signOut();
-            } catch (error) {
-                alert(`Failed to delete account: ${error.message}`);
+    const handleDeleteAccount = () => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you absolutely sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.",
+            onConfirm: async () => {
+                try {
+                    await api.deleteAccount();
+                    await supabase.auth.signOut();
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    alert(`Failed to delete account: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
             }
-        }
+        });
     };
 
     if (isLoading) {
@@ -146,6 +154,13 @@ const AccountView = () => {
                     </div>
                 </Card>
             </main>
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={confirmationModal.onConfirm}
+                    onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                />
+            )}
         </div>
     );
 };

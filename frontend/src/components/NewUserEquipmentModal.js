@@ -4,23 +4,24 @@ import InputField from './InputField';
 import { Plus } from 'lucide-react';
 import PortManagerModal from './PortManagerModal';
 import FolderOptions from './FolderOptions';
+import ToggleSwitch from './ToggleSwitch';
 
 const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) => {
-    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '' });
+    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '', has_ip_address: false });
     const [ports, setPorts] = useState([]);
     const [isPortModalOpen, setIsPortModalOpen] = useState(false);
 
     // Reset form state when the modal opens
     useEffect(() => {
         if (isOpen) {
-            setFormData({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '' });
+            setFormData({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '', has_ip_address: false });
             setPorts([]);
         }
     }, [isOpen]);
 
     const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        const { name, value, type, checked } = e.target;
+        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
     };
 
     const handleSubmit = (e) => {
@@ -62,6 +63,17 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
                             {/* We only show the user's personal folders */}
                             <FolderOptions folders={userFolderTree} />
                         </select>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <label htmlFor="new_has_ip_address" className="block text-sm font-medium text-gray-300">
+                            Device is IP Addressable
+                        </label>
+                        <ToggleSwitch
+                            id="new_has_ip_address"
+                            name="has_ip_address"
+                            checked={formData.has_ip_address}
+                            onChange={handleChange}
+                        />
                     </div>
 
                     <div className="border-t border-gray-700 pt-4">

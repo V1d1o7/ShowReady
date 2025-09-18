@@ -6,6 +6,7 @@ import NewSheetModal from './NewSheetModal';
 import PdfPreviewModal from './PdfPreviewModal';
 import AdvancedPrintModal from './AdvancedPrintModal';
 import { api } from '../api/api';
+import ConfirmationModal from './ConfirmationModal';
 
 function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType }) {
     const [activeSheetName, setActiveSheetName] = useState('');
@@ -14,6 +15,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
     const [isAdvancedPrintModalOpen, setIsAdvancedPrintModalOpen] = useState(false);
     const [editingIndex, setEditingIndex] = useState(null);
     const [editFormData, setEditFormData] = useState({});
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const sheets = useMemo(() => showData[sheetType] || {}, [showData, sheetType]);
     const sheetNames = useMemo(() => Object.keys(sheets), [sheets]);
@@ -76,9 +78,15 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
     };
 
     const handleDeleteLabel = (indexToDelete) => {
-        if (!window.confirm("Are you sure you want to delete this label?")) return;
-        const newLabels = labels.filter((_, i) => i !== indexToDelete);
-        handleUpdateLabels(newLabels);
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to delete this label?",
+            onConfirm: () => {
+                const newLabels = labels.filter((_, i) => i !== indexToDelete);
+                handleUpdateLabels(newLabels);
+                setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+            }
+        });
     };
 
     const handleGeneratePdf = async (placement = null) => {
@@ -169,6 +177,13 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                 numSlots={numSlots}
                 pdfType={pdfType}
             />}
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={confirmationModal.onConfirm}
+                    onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                />
+            )}
         </>
     );
 }
