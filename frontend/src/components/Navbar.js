@@ -13,7 +13,7 @@ const Navbar = () => {
                     <div className="flex items-center">
                         <div className="flex-shrink-0">
                             <NavLink to="/" className="text-xl font-bold text-amber-400">
-                                ShowReady
+                                ShowReady BETA
                             </NavLink>
                         </div>
                     </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Modal from './Modal';
 import InputField from './InputField';
 import { Plus, Trash2 } from 'lucide-react';
@@ -6,12 +6,14 @@ import { v4 as uuidv4 } from 'uuid';
 
 const PortManagerModal = ({ isOpen, onClose, ports, setPorts }) => {
     const [newPort, setNewPort] = useState({ label: '', type: 'input', connector_type: '' });
+    const portLabelRef = useRef(null);
 
     const handleAddPort = (e) => {
         e.preventDefault();
         if (newPort.label && newPort.connector_type) {
             setPorts([...ports, { ...newPort, id: uuidv4() }]);
             setNewPort({ label: '', type: 'input', connector_type: '' });
+            portLabelRef.current?.focus();
         }
     };
 
@@ -24,7 +26,7 @@ const PortManagerModal = ({ isOpen, onClose, ports, setPorts }) => {
             <div className="space-y-4">
                 <form onSubmit={handleAddPort} className="flex flex-col md:flex-row gap-4 items-end">
                     <div className="flex-grow space-y-2">
-                        <InputField label="Port Label" type="text" value={newPort.label} onChange={(e) => setNewPort({ ...newPort, label: e.target.value })} required />
+                        <InputField label="Port Label" type="text" value={newPort.label} onChange={(e) => setNewPort({ ...newPort, label: e.target.value })} required ref={portLabelRef} />
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-1.5">Port Type</label>
                             <select value={newPort.type} onChange={(e) => setNewPort({ ...newPort, type: e.target.value })} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">

@@ -201,6 +201,7 @@ class RackEquipmentInstanceCreate(BaseModel):
     rack_side: Optional[str] = None
 
 class RackEquipmentInstanceUpdate(BaseModel):
+    instance_name: Optional[str] = None
     ru_position: Optional[int] = None
     rack_side: Optional[str] = None
     ip_address: Optional[str] = None
