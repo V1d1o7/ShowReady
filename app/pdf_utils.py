@@ -594,7 +594,7 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
         c.setFillColor(colors.white)
         c.drawString(node_x + header_padding, text_y, node.data.label)
         c.setFont("SpaceMono", 7 * scale)
-        c.drawRightString(node_x + node_w - header_padding, text_y, f"{node_data.rack_name or ''} RU{node_data.ru_position or ''}")
+        c.drawRightString(node_x + node_w - header_padding, text_y, f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
 
         c.setFont("SpaceMono", 8 * scale)
         port_start_y = node_y + node_h - header_h - (15 * scale)
