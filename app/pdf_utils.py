@@ -20,6 +20,7 @@ from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPa
 try:
     pdfmetrics.registerFont(TTFont('SpaceMono', 'fonts/SpaceMono-Regular.ttf'))
     pdfmetrics.registerFont(TTFont('SpaceMono-Bold', 'fonts/SpaceMono-Bold.ttf'))
+    pdfmetrics.registerFont(TTFont('SpaceMono-Italic', 'fonts/SpaceMono-Italic.ttf'))
 except Exception as e:
     print(f"Could not register Space Mono font: {e}")
 
@@ -45,8 +46,8 @@ except Exception as e:
 
 tabloid = (11 * inch, 17 * inch)
 PAGE_SIZES = {
-    "letter": portrait(letter),
-    "tabloid": portrait(tabloid),
+    "letter": letter,
+    "tabloid": tabloid,
     "22x17": (22 * inch, 17 * inch),
 }
 
@@ -58,7 +59,7 @@ def parse_color(color_string: Optional[str]) -> colors.Color:
     hex_val = {
         'red': '#FF0000', 'orange': '#FFA500', 'yellow': '#FFFF00', 'green': '#008000', 
         'blue': '#0000FF', 'indigo': '#4B0082', 'violet': '#EE82EE', 'black': '#000000', 
-        'white': '#FFFFFF', 'gray': '#808080', 'silver': '#C0C0C0', 'maroon': '#800000',
+        'white': '#FFFFFF', 'gray': '#808000', 'silver': '#C0C0C0', 'maroon': '#800000',
         'olive': '#808000', 'lime': '#00FF00', 'aqua': '#00FFFF', 'teal': '#008080',
         'navy': '#000080', 'fuchsia': '#FF00FF', 'purple': '#800080'
     }.get(color_string)
@@ -432,7 +433,8 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
 def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
     """Generates a PDF document from a list of racks."""
     buffer = io.BytesIO()
-    page_size = PAGE_SIZES.get(payload.page_size.lower(), portrait(letter))
+    page_size_base = PAGE_SIZES.get(payload.page_size.lower(), letter)
+    page_size = portrait(page_size_base)
     c = canvas.Canvas(buffer, pagesize=page_size)
     width, height = page_size
     
@@ -479,7 +481,7 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
 
 def draw_port_symbol(c, x, y, port_type, scale):
     size = 4 * scale
-    if port_type == 'input':
+    if port_type in ['input', 'io']:
         c.setFillColor(colors.green)
         p = c.beginPath()
         p.moveTo(x + size, y - size)
@@ -487,7 +489,7 @@ def draw_port_symbol(c, x, y, port_type, scale):
         p.lineTo(x + size, y + size)
         p.close()
         c.drawPath(p, fill=1, stroke=0)
-    elif port_type == 'output':
+    if port_type in ['output', 'io']: # Draw red symbol for output and io
         c.setFillColor(colors.red)
         p = c.beginPath()
         p.moveTo(x - size, y - size)
@@ -496,19 +498,38 @@ def draw_port_symbol(c, x, y, port_type, scale):
         p.close()
         c.drawPath(p, fill=1, stroke=0)
 
-def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, current_page_num, total_pages, show_branding: bool = True):
+def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_data, all_nodes_map, show_name, current_page_num, total_pages, show_branding: bool = True):
     width, height = c._pagesize
     MARGIN = 0.5 * inch
     TITLE_BLOCK_HEIGHT = 0.75 * inch
     DRAW_AREA_WIDTH = width - (2 * MARGIN)
     DRAW_AREA_HEIGHT = height - (2 * MARGIN) - TITLE_BLOCK_HEIGHT
     
+    # Pre-calculate node heights
+    node_heights = {}
+    for node in page_data.nodes:
+        all_ports = node.data.equipment_templates.ports
+        input_ports = [p for p in all_ports if p.type == 'input']
+        output_ports = [p for p in all_ports if p.type == 'output']
+        io_ports = [p for p in all_ports if p.type == 'io']
+        
+        port_rows = max(len(input_ports), len(output_ports))
+        header_h = 25
+        port_spacing = 25
+        top_padding = 20
+        bottom_padding = 10
+        # Add height for IO ports, which will be drawn separately
+        calculated_height = header_h + top_padding + (port_rows * port_spacing) + (len(io_ports) * port_spacing) + bottom_padding
+        node_heights[node.id] = calculated_height
+
     min_x = min((n.position.x for n in page_data.nodes), default=0)
     max_x = max((n.position.x + n.width for n in page_data.nodes), default=DRAW_AREA_WIDTH)
     min_y = min((n.position.y for n in page_data.nodes), default=0)
-    max_y = max((n.position.y + n.height for n in page_data.nodes), default=DRAW_AREA_HEIGHT)
+    max_y = max((n.position.y + node_heights[n.id] for n in page_data.nodes), default=DRAW_AREA_HEIGHT)
 
-    content_width = max_x - min_x
+    # Add padding to prevent text boxes from overlapping nodes at the edges
+    horizontal_padding = 150 
+    content_width = (max_x - min_x) + (2 * horizontal_padding)
     content_height = max_y - min_y
 
     scale_x = DRAW_AREA_WIDTH / content_width if content_width > 0 else 1
@@ -521,47 +542,47 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
     offset_y = (DRAW_AREA_HEIGHT - scaled_content_height) / 2
 
     c.saveState()
-    c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
+    # Apply padding to the translation
+    c.translate(MARGIN + offset_x + (horizontal_padding * scale), height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
     c.translate(-min_x * scale, min_y * scale)
 
     c.restoreState()
     c.saveState()
     c.setStrokeColor(colors.black)
     c.setLineWidth(1)
-    c.rect(MARGIN, MARGIN, DRAW_AREA_WIDTH, DRAW_AREA_HEIGHT + TITLE_BLOCK_HEIGHT)
+    # Removed the full page border rectangle, keeping only the underline for the title block
     c.line(MARGIN, MARGIN + DRAW_AREA_HEIGHT, width - MARGIN, MARGIN + DRAW_AREA_HEIGHT)
     
     # --- Title Block Content ---
-    title_y = MARGIN + DRAW_AREA_HEIGHT + (TITLE_BLOCK_HEIGHT / 2)
-    title_x_start = MARGIN + 0.1 * inch
+    title_block_bottom = MARGIN + DRAW_AREA_HEIGHT
+    
+    # Define vertical positions for two lines within the title block
+    line1_y = title_block_bottom + (TITLE_BLOCK_HEIGHT * 0.66)
+    line2_y = title_block_bottom + (TITLE_BLOCK_HEIGHT * 0.25)
+    
+    # Define horizontal positions
+    left_x = MARGIN + 0.1 * inch
+    center_x = width / 2
+    right_x = width - MARGIN - 0.1 * inch
 
-    if show_branding:
-        # To implement a logo in the future:
-        # 1. Add 'logo_path' as an argument to this function.
-        # 2. Uncomment the following lines and remove the text rendering.
-        # 3. Ensure the logo_path is passed from the API layer.
-        # try:
-        #     c.drawImage(logo_path, title_x_start, MARGIN + 0.1 * inch, height=TITLE_BLOCK_HEIGHT - 0.2*inch, preserveAspectRatio=True, anchor='sw')
-        #     title_x_start += 1.3 * inch 
-        # except Exception as e:
-        #     print(f"Could not draw logo on wire diagram: {e}")
-
-        # Current implementation: render text
-        c.setFont("SpaceMono", 8)
-        c.drawString(title_x_start, MARGIN + DRAW_AREA_HEIGHT + 0.1*inch, "Created using ShowReady")
-        # Add space so title doesn't overlap
-        title_x_start += 1.5 * inch
-
-
+    # Line 1: Show Title (Centered)
     c.setFont("SpaceMono-Bold", 14)
-    c.drawString(title_x_start, title_y - 10, f"{show_name} - Wire Diagram")
-    c.setFont("SpaceMono", 12)
-    c.drawCentredString(width / 2, title_y - 10, f"Page {current_page_num} of {total_pages}")
+    c.drawCentredString(center_x, line1_y, f"{show_name} - Wire Diagram")
+    
+    # Line 2: Page Number (Left), Branding (if enabled), Generated Date (Right)
     c.setFont("SpaceMono", 10)
-    c.drawRightString(width - MARGIN - 0.1 * inch, title_y - 10, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    c.drawString(left_x, line2_y, f"Page {current_page_num} of {total_pages}")
+    
+    if show_branding:
+        c.setFont("SpaceMono", 8)
+        c.drawCentredString(center_x, line2_y, "Created using ShowReady")
+
+    c.setFont("SpaceMono", 10)
+    c.drawRightString(right_x, line2_y, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     c.restoreState()
     
-    c.translate(MARGIN + offset_x, height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
+    # Main drawing canvas transform
+    c.translate(MARGIN + offset_x + (horizontal_padding * scale), height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
     c.translate(-min_x * scale, min_y * scale)
 
     port_locations = {}
@@ -569,21 +590,19 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
 
     for node in page_data.nodes:
         node_w = node.width * scale
-        input_ports = [p for p in node.data.equipment_templates.ports if p.type == 'input']
-        output_ports = [p for p in node.data.equipment_templates.ports if p.type == 'output']
-        port_rows = max(len(input_ports), len(output_ports))
-        node_h = (25 + (port_rows * 15) + 10) * scale
+        node_h = node_heights[node.id] * scale
         
         node_x = node.position.x * scale
         node_y = -node.position.y * scale - node_h
-
+        
+        header_h = 25 * scale
+        
         c.saveState()
         path = c.beginPath()
         path.roundRect(node_x, node_y, node_w, node_h, 4 * scale)
         c.clipPath(path, stroke=1, fill=0)
         c.setFillColor(colors.white)
         c.rect(node_x, node_y, node_w, node_h, fill=1, stroke=0)
-        header_h = 25 * scale
         c.setFillColorRGB(0.2, 0.2, 0.2)
         c.rect(node_x, node_y + node_h - header_h, node_w, header_h, fill=1, stroke=0)
         c.restoreState()
@@ -597,52 +616,150 @@ def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, show_name, cur
         c.drawRightString(node_x + node_w - header_padding, text_y, f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
 
         c.setFont("SpaceMono", 8 * scale)
-        port_start_y = node_y + node_h - header_h - (15 * scale)
-        port_spacing = 15 * scale
+        port_spacing = 25 * scale
+        top_padding = 20 * scale
+        port_start_y = node_y + node_h - header_h - top_padding - (port_spacing / 2)
         port_locations[node.id] = {}
+
+        all_ports = node.data.equipment_templates.ports
+        input_ports = sorted([p for p in all_ports if p.type == 'input'], key=lambda p: p.id)
+        output_ports = sorted([p for p in all_ports if p.type == 'output'], key=lambda p: p.id)
+        io_ports = sorted([p for p in all_ports if p.type == 'io'], key=lambda p: p.id)
+
         for i, port in enumerate(input_ports):
             y = port_start_y - (i * port_spacing)
             c.setFillColor(colors.black)
             c.drawString(node_x + (15 * scale), y - (3*scale), f"{port.label} ({port.connector_type})")
-            draw_port_symbol(c, node_x + (8*scale), y, 'input', scale)
+            draw_port_symbol(c, node_x + (4*scale), y, port.type, scale)
             port_locations[node.id][f"port-in-{port.id}"] = (node_x, y)
+            
         for i, port in enumerate(output_ports):
             y = port_start_y - (i * port_spacing)
             c.setFillColor(colors.black)
             c.drawRightString(node_x + node_w - (15 * scale), y - (3*scale), f"({port.connector_type}) {port.label}")
-            draw_port_symbol(c, node_x + node_w - (8*scale), y, 'output', scale)
+            draw_port_symbol(c, node_x + node_w - (4*scale), y, port.type, scale)
             port_locations[node.id][f"port-out-{port.id}"] = (node_x + node_w, y)
 
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(1 * scale)
-    for edge in page_data.edges:
-        is_source_on_page = edge.source in port_locations
-        is_target_on_page = edge.target in current_page_node_ids
+        # Draw IO ports centered, below the dedicated inputs/outputs
+        io_start_y = port_start_y - (max(len(input_ports), len(output_ports)) * port_spacing)
+        for i, port in enumerate(io_ports):
+            y = io_start_y - (i * port_spacing)
+            c.setFillColor(colors.black)
+            c.drawCentredString(node_x + node_w / 2, y - (3 * scale), f"{port.label} ({port.connector_type})")
+            draw_port_symbol(c, node_x + (4*scale), y, port.type, scale)
+            draw_port_symbol(c, node_x + node_w - (4*scale), y, port.type, scale)
+            port_locations[node.id][f"port-in-{port.id}"] = (node_x, y)
+            port_locations[node.id][f"port-out-io-{port.id}"] = (node_x + node_w, y)
 
-        if is_source_on_page and is_target_on_page:
-            if edge.sourceHandle in port_locations[edge.source] and edge.targetHandle in port_locations[edge.target]:
-                start_x, start_y = port_locations[edge.source][edge.sourceHandle]
-                end_x, end_y = port_locations[edge.target][edge.targetHandle]
-                path = c.beginPath()
-                path.moveTo(start_x, start_y)
-                mid_x = start_x + (end_x - start_x) / 2
-                path.lineTo(mid_x, start_y)
-                path.lineTo(mid_x, end_y)
-                path.lineTo(end_x, end_y)
-                c.drawPath(path)
+    all_edges = [edge for p in payload.pages for edge in p.edges]
+
+    for edge in all_edges:
+        source_node_info = all_nodes_map.get(edge.source)
+        target_node_info = all_nodes_map.get(edge.target)
+        if not source_node_info or not target_node_info:
+            continue
+
+        source_node_data = source_node_info['node']
+        target_node_data = target_node_info['node']
         
-        elif is_source_on_page and not is_target_on_page:
-            target_node_info = all_nodes_map.get(edge.target)
-            if target_node_info and edge.sourceHandle in port_locations[edge.source]:
-                start_x, start_y = port_locations[edge.source][edge.sourceHandle]
-                c.setFont("SpaceMono-Italic", 7 * scale)
-                c.setFillColor(colors.blue)
-                label_text = f"-> To: {target_node_info['label']} on Page {target_node_info['page']}"
-                c.drawString(start_x + (5 * scale), start_y - (3 * scale), label_text)
+        def get_port_id_from_handle(handle):
+            parts = handle.split('-')
+            if len(parts) > 2:
+                return '-'.join(parts[2:])
+            return None
+
+        source_port_id_str = get_port_id_from_handle(edge.sourceHandle)
+        target_port_id_str = get_port_id_from_handle(edge.targetHandle)
+
+        if not source_port_id_str or not target_port_id_str:
+            continue
+
+        source_port = next((p for p in source_node_data.data.equipment_templates.ports if str(p.id) == source_port_id_str), None)
+        target_port = next((p for p in target_node_data.data.equipment_templates.ports if str(p.id) == target_port_id_str), None)
+
+        if not source_port or not target_port:
+            continue
+        
+        source_handle = edge.sourceHandle if source_port.type != 'io' else f"port-out-io-{source_port.id}" if edge.sourceHandle.startswith('port-out') else edge.sourceHandle
+        target_handle = edge.targetHandle
+
+        # Draw source-side text box if the source node is on the current page
+        if edge.source in port_locations and source_handle in port_locations[edge.source]:
+            text = f"{target_node_data.data.label}.{target_port.label}"
+            is_off_page = edge.target not in current_page_node_ids
+            if is_off_page:
+                text += f" (P.{target_node_info['page']})"
+            
+            start_x, start_y = port_locations[edge.source][source_handle]
+            
+            box_width = 150 * scale 
+            box_height = 15 * scale # Made smaller
+            
+            is_output_side = source_port.type == 'output' or (source_port.type == 'io' and edge.sourceHandle.startswith('port-out'))
+            box_x = start_x + (5 * scale) if is_output_side else start_x - box_width - (5 * scale)
+            box_y = start_y - (box_height / 2)
+
+            c.setStrokeColor(colors.gray)
+            c.setLineWidth(0.5)
+            line_end_x = box_x if is_output_side else box_x + box_width
+            c.line(start_x, start_y, line_end_x, box_y + box_height/2)
+            
+            c.setFillColor(colors.HexColor('#f59e0b'))
+            c.setStrokeColor(colors.black)
+            c.setLineWidth(1)
+            c.rect(box_x, box_y, box_width, box_height, fill=1, stroke=1)
+            
+            c.setFillColor(colors.black)
+            font_size = 8 * scale # Made smaller
+            text_width = c.stringWidth(text, "SpaceMono", font_size)
+            while text_width > box_width * 0.95 and font_size > 6:
+                font_size -= 1
+                text_width = c.stringWidth(text, "SpaceMono", font_size)
+            
+            c.setFont("SpaceMono", font_size)
+            c.drawCentredString(box_x + box_width / 2, box_y + box_height / 2 - (font_size / 2.5), text)
+
+        # Draw target-side text box if the target node is on the current page
+        if edge.target in port_locations and target_handle in port_locations[edge.target]:
+            text = f"{source_node_data.data.label}.{source_port.label}"
+            is_off_page = edge.source not in current_page_node_ids
+            if is_off_page:
+                text += f" (P.{source_node_info['page']})"
+            
+            start_x, start_y = port_locations[edge.target][target_handle]
+            
+            box_width = 150 * scale 
+            box_height = 15 * scale # Made smaller
+            
+            is_input_side = target_port.type == 'input' or (target_port.type == 'io' and edge.targetHandle.startswith('port-in'))
+            box_x = start_x - box_width - (5 * scale) if is_input_side else start_x + (5 * scale)
+            box_y = start_y - (box_height / 2)
+            
+            c.setStrokeColor(colors.gray)
+            c.setLineWidth(0.5)
+            line_end_x = box_x + box_width if is_input_side else box_x
+            c.line(start_x, start_y, line_end_x, box_y + box_height / 2)
+
+            c.setFillColor(colors.HexColor('#f59e0b'))
+            c.setStrokeColor(colors.black)
+            c.setLineWidth(1)
+            c.rect(box_x, box_y, box_width, box_height, fill=1, stroke=1)
+            
+            c.setFillColor(colors.black)
+            font_size = 8 * scale # Made smaller
+            text_width = c.stringWidth(text, "SpaceMono", font_size)
+            while text_width > box_width * 0.95 and font_size > 6:
+                font_size -= 1
+                text_width = c.stringWidth(text, "SpaceMono", font_size)
+            
+            c.setFont("SpaceMono", font_size)
+            c.drawCentredString(box_x + box_width / 2, box_y + box_height / 2 - (font_size / 2.5), text)
+
 
 def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
-    page_size = PAGE_SIZES.get(payload.page_size.lower(), landscape(letter))
+    page_size_base = PAGE_SIZES.get(payload.page_size.lower(), letter)
+    page_size = landscape(page_size_base)
     c = canvas.Canvas(buffer, pagesize=page_size)
 
     if not payload.pages:
@@ -654,11 +771,11 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, show_branding: boo
     all_nodes_map = {}
     for page_data in payload.pages:
         for node in page_data.nodes:
-            all_nodes_map[node.id] = {"label": node.data.label, "page": page_data.page_number}
+            all_nodes_map[node.id] = {"node": node, "page": page_data.page_number}
     
     total_pages = len(payload.pages)
     for i, page_data in enumerate(payload.pages):
-        draw_diagram_page(c, page_data, all_nodes_map, payload.show_name, i + 1, total_pages, show_branding=show_branding)
+        draw_diagram_page(c, payload, page_data, all_nodes_map, payload.show_name, i + 1, total_pages, show_branding=show_branding)
         c.showPage()
 
     c.save()
