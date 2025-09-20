@@ -1,18 +1,23 @@
 import React, { useState } from 'react';
-import { useReactFlow } from 'reactflow';
 import { exportWirePdf } from '../../api/exportWirePdf';
 
-const ExportWirePdfButton = ({ backendBaseUrl }) => {
+// The component now receives getNodes and getEdges as props instead of using the useReactFlow hook.
+const ExportWirePdfButton = ({ backendBaseUrl, getNodes, getEdges }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const { getNodes, getEdges } = useReactFlow();
 
   const handleExport = async () => {
     setIsLoading(true);
     try {
+      if (!getNodes || !getEdges) {
+        console.error("ExportWirePdfButton is missing required props: getNodes or getEdges.");
+        alert("Error: Export function is not configured correctly.");
+        setIsLoading(false); // Stop loading on error
+        return;
+      }
+
       const nodes = getNodes();
       const edges = getEdges();
 
-      // Transform React Flow data to the format required by the backend
       const apiGraph = {
         nodes: nodes.map(node => ({
           id: node.id,
@@ -35,7 +40,7 @@ const ExportWirePdfButton = ({ backendBaseUrl }) => {
 
     } catch (error) {
       console.error('Failed to export wire PDF:', error);
-      alert(`Error exporting PDF: ${error.message}`); // Simple feedback for now
+      alert(`Error exporting PDF: ${error.message}`);
     } finally {
       setIsLoading(false);
     }
