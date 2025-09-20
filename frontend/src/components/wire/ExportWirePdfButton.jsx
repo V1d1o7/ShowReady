@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { api } from '../../api/api'; // Correct import
+import { api } from '../../api/api';
 
-const ExportWirePdfButton = ({ getNodes, getEdges }) => { // Removed backendBaseUrl prop
+const ExportWirePdfButton = ({ getNodes, getEdges }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleExport = async () => {
@@ -17,15 +17,27 @@ const ExportWirePdfButton = ({ getNodes, getEdges }) => { // Removed backendBase
       const edges = getEdges();
 
       const apiGraph = {
-        nodes: nodes.map(node => ({
-          id: node.id,
-          deviceNomenclature: node.data.deviceNomenclature || 'N/A',
-          modelNumber: node.data.modelNumber || 'N/A',
-          rackName: node.data.rackName || 'Unracked',
-          deviceRu: node.data.deviceRu || 0,
-          ipAddress: node.data.ipAddress || '',
-          ports: node.data.ports || {},
-        })),
+        nodes: nodes.map(node => {
+          // FIX: Correctly transform the ports array into a dictionary
+          const portsData = node.data?.equipment_templates?.ports || [];
+          const portsDict = portsData.reduce((acc, port) => {
+            // The handle ID is constructed based on the convention used in WireDiagramView and DeviceNode
+            const handleId = `port-${port.port_type}-${port.id}`;
+            acc[handleId] = { name: port.port_name };
+            return acc;
+          }, {});
+
+          return {
+            id: node.id,
+            // Use instance_name as a fallback for deviceNomenclature
+            deviceNomenclature: node.data.instance_name || 'N/A',
+            modelNumber: node.data.equipment_templates?.model_number || 'N/A',
+            rackName: node.data.rack_name || 'Unracked',
+            deviceRu: node.data.ru_position || 0,
+            ipAddress: node.data.ip_address || '',
+            ports: portsDict,
+          };
+        }),
         edges: edges.map(edge => ({
           source: edge.source,
           sourceHandle: edge.sourceHandle,
@@ -34,7 +46,6 @@ const ExportWirePdfButton = ({ getNodes, getEdges }) => { // Removed backendBase
         })),
       };
 
-      // Call the central api object and handle the blob for download
       const blob = await api.exportWirePdf(apiGraph);
 
       const url = window.URL.createObjectURL(blob);
