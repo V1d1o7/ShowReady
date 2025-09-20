@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .api import router as api_router
-from .routers import export_wire_pdf as wire_export_router
+from app.routers.export_wire_pdf import router as wire_export_router
 
 
 app = FastAPI(

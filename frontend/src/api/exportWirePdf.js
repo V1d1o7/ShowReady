@@ -16,11 +16,19 @@ export async function exportWirePdf(graph, { filename = 'wire-export.pdf', baseU
     });
 
     if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({ detail: 'An unknown error occurred.' }));
+      const errorBody = await response.json().catch(() => ({ detail: 'An unknown error occurred while parsing the error response.' }));
       throw new Error(`Failed to export PDF: ${response.status} ${response.statusText} - ${errorBody.detail}`);
     }
 
     const blob = await response.blob();
+
+    // Check if the blob is of type application/pdf
+    if (blob.type !== 'application/pdf') {
+      // If not, try to read it as text to see the error message from the server
+      const errorText = await blob.text();
+      throw new Error(`Server returned an error: ${errorText}`);
+    }
+
     const url = window.URL.createObjectURL(blob);
 
     const a = document.createElement('a');

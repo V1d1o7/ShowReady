@@ -165,35 +165,33 @@ def build_pdf_bytes(graph: Graph) -> bytes:
     y_cursor = 0
 
     for node in graph.nodes:
-        # Check if the device fits on the current page
         if y_cursor > 0 and y_cursor + DEV_H_PX > PRINT_H_PX:
             pages_content.append(current_page_svg)
             current_page_svg = ""
             y_cursor = 0
 
-        # Generate SVG for the current device
         inputs = node_to_inputs.get(node.id, [])
         outputs = node_to_outputs.get(node.id, [])
         current_page_svg += _generate_device_svg(node, inputs, outputs, y_cursor)
-
-        # Move cursor for next device
         y_cursor += DEV_H_PX + BLOCK_V_SP_PX
 
-    # Add the last page if it has content
     if current_page_svg:
         pages_content.append(current_page_svg)
 
-    # --- PDF Conversion and Merging ---
+    # --- PDF Conversion and Merging (Robust Method) ---
     pdf_writer = PdfWriter()
+    pdf_page_readers = [] # Keep readers in scope
+
     for svg_content in pages_content:
         full_svg = _generate_svg_page(svg_content)
         pdf_page_bytes = cairosvg.svg2pdf(bytestring=full_svg.encode('utf-8'))
+
         pdf_reader = PdfReader(io.BytesIO(pdf_page_bytes))
+        pdf_page_readers.append(pdf_reader) # Keep reader alive
         pdf_writer.add_page(pdf_reader.pages[0])
 
     # Write to an in-memory buffer
-    pdf_buffer = io.BytesIO()
-    pdf_writer.write(pdf_buffer)
-    pdf_writer.close()
-
-    return pdf_buffer.getvalue()
+    with io.BytesIO() as pdf_buffer:
+        pdf_writer.write(pdf_buffer)
+        pdf_writer.close()
+        return pdf_buffer.getvalue()

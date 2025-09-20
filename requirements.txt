@@ -12,3 +12,4 @@ reportlab
 python-multipart
 cairosvg
 pypdf
+pytest

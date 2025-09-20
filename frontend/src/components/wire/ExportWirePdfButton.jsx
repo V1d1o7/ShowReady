@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { exportWirePdf } from '../../api/exportWirePdf';
 
-// The component now receives getNodes and getEdges as props instead of using the useReactFlow hook.
 const ExportWirePdfButton = ({ backendBaseUrl, getNodes, getEdges }) => {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -11,7 +10,7 @@ const ExportWirePdfButton = ({ backendBaseUrl, getNodes, getEdges }) => {
       if (!getNodes || !getEdges) {
         console.error("ExportWirePdfButton is missing required props: getNodes or getEdges.");
         alert("Error: Export function is not configured correctly.");
-        setIsLoading(false); // Stop loading on error
+        setIsLoading(false);
         return;
       }
 

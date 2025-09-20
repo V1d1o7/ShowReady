@@ -18,11 +18,15 @@ async def export_wire_pdf(graph: Graph):
     try:
         pdf_bytes = build_pdf_bytes(graph)
         if not pdf_bytes:
-            raise HTTPException(status_code=500, detail="Failed to generate PDF: no content.")
+            # This case can happen if the graph has nodes but generation still results in empty bytes.
+            # It's better to return a 500 than a potentially corrupted file.
+            raise HTTPException(status_code=500, detail="Failed to generate PDF: result was empty.")
 
         return Response(content=pdf_bytes, media_type="application/pdf", headers={
             "Content-Disposition": "attachment; filename=wire-export.pdf"
         })
     except Exception as e:
-        # Basic error handling
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        # It's good practice to log the exception here in a real application
+        # import logging
+        # logging.exception("PDF generation failed")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during PDF generation: {e}")
