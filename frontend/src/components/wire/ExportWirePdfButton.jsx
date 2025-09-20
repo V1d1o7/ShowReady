@@ -16,6 +16,10 @@ const ExportWirePdfButton = ({ getNodes, getEdges }) => {
       const nodes = getNodes();
       const edges = getEdges();
 
+      console.log("--- DEBUG: React Flow Nodes ---");
+      console.log(JSON.stringify(nodes, null, 2));
+      console.log("-------------------------------");
+
       const apiGraph = {
         nodes: nodes.map(node => {
           // FIX: Correctly transform the ports array into a dictionary
