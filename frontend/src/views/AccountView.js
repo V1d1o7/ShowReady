@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Save, Trash2, KeyRound } from 'lucide-react';
+import { Save, Trash2, KeyRound, UploadCloud } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
@@ -15,6 +15,9 @@ const AccountView = () => {
     const user = session?.user;
 
     const [editableProfile, setEditableProfile] = useState(profile || {});
+    const [companyLogoUrl, setCompanyLogoUrl] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
+    const [logoError, setLogoError] = useState(false);
     const [newEmail, setNewEmail] = useState(user?.email || '');
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
@@ -29,10 +32,49 @@ const AccountView = () => {
         // When the profile from the context changes, update the local editable state
         setEditableProfile(profile || {});
         setNewEmail(user?.email || '');
+
+        if (profile?.company_logo_path) {
+            setLogoError(false);
+            supabase.storage.from('logos').createSignedUrl(profile.company_logo_path, 3600)
+                .then(({ data, error }) => {
+                    if (error) {
+                        console.error("Error creating signed URL for company logo:", error);
+                        setLogoError(true);
+                    } else {
+                        setCompanyLogoUrl(data.signedUrl);
+                    }
+                });
+        } else {
+            setCompanyLogoUrl(null);
+        }
     }, [profile, user?.email]);
 
     const handleProfileChange = (e) => {
         setEditableProfile(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+
+    const handleCompanyLogoUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', file);
+        setIsUploading(true);
+        setLogoError(false);
+        try {
+            const result = await api.uploadLogo(uploadFormData);
+            if (result.logo_path) {
+                const updatedProfile = { ...editableProfile, company_logo_path: result.logo_path };
+                setEditableProfile(updatedProfile);
+                await api.updateProfile(updatedProfile);
+                await refetchProfile();
+                alert("Company logo updated successfully!");
+            }
+        } catch (error) { 
+            console.error("Company logo upload failed:", error); 
+            setLogoError(true);
+            alert(`Failed to upload company logo: ${error.message}`);
+        }
+        setIsUploading(false);
     };
 
     const handleUpdateProfile = async () => {
@@ -102,6 +144,27 @@ const AccountView = () => {
                         <InputField label="First Name" name="first_name" value={editableProfile?.first_name || ''} onChange={handleProfileChange} />
                         <InputField label="Last Name" name="last_name" value={editableProfile?.last_name || ''} onChange={handleProfileChange} />
                         <InputField label="Company Name (Optional)" name="company_name" value={editableProfile?.company_name || ''} onChange={handleProfileChange} />
+                        <div className="space-y-4">
+                            <label className="block text-sm font-medium text-gray-300">Company Logo</label>
+                            <div className="w-full aspect-video bg-gray-900/50 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-700 overflow-hidden">
+                                {companyLogoUrl && !logoError ? (
+                                    <img 
+                                        src={companyLogoUrl}
+                                        alt="Company Logo"
+                                        className="w-full h-full object-contain"
+                                        onError={() => setLogoError(true)}
+                                    />
+                                ) : (
+                                    <p className="text-gray-500 text-sm px-4 text-center">
+                                        {logoError ? `Failed to load logo` : 'No logo uploaded'}
+                                    </p>
+                                )}
+                            </div>
+                            <input type="file" id="company-logo-upload" className="hidden" onChange={handleCompanyLogoUpload} accept="image/*" />
+                            <button onClick={() => document.getElementById('company-logo-upload').click()} disabled={isUploading} className="w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 disabled:bg-gray-600 transition-colors">
+                                <UploadCloud size={16} /> {isUploading ? 'Uploading...' : 'Upload Logo'}
+                            </button>
+                        </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-1.5">Production Role</label>
                             <select name="production_role" value={editableProfile?.production_role || ''} onChange={handleProfileChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">

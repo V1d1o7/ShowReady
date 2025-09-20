@@ -451,16 +451,7 @@ const WireDiagramView = () => {
             }),
             page_size: pageSize,
             show_name: showName,
-            show_pm_name: showData.info.show_pm_name,
-            show_td_name: showData.info.show_td_name,
-            show_designer_name: showData.info.show_designer_name,
-            date_file_generated: new Date().toLocaleDateString(),
-            file_name: `${showName}-wire-diagram.pdf`,
-            users_full_name: profile ? `${profile.first_name} ${profile.last_name}` : '',
-            users_production_role: profile ? profile.production_role : '',
             sheet_title: 'Wire Diagram',
-            company_logo_path: profile ? profile.company_logo_path : null,
-            show_logo_path: showData.info.logo_path,
         };
 
         try {

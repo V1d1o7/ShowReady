@@ -1,0 +1,64 @@
+<svg width="1916" height="135" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+  <g>
+    <title>Title Block</title>
+    
+    <!-- Borders -->
+    <rect x="0" y="0" width="1916" height="135" stroke="#000" fill="#fff"/>
+    <rect x="240" y="0" width="1435" height="135" stroke="#000" fill="none"/>
+    <rect x="1675" y="0" width="241" height="135" stroke="#000" fill="#fff"/>
+    
+    <!-- Main Grid -->
+    <rect x="240" y="0" width="450" height="45" stroke="#000" fill="none"/>
+    <rect x="240" y="45" width="225" height="45" stroke="#000" fill="none"/>
+    <rect x="465" y="45" width="225" height="45" stroke="#000" fill="none"/>
+    <rect x="240" y="90" width="225" height="45" stroke="#000" fill="none"/>
+    <rect x="465" y="90" width="225" height="45" stroke="#000" fill="none"/>
+    
+    <rect x="690" y="0" width="535" height="135" stroke="#000" fill="none"/>
+    
+    <rect x="1225" y="0" width="450" height="45" stroke="#000" fill="none"/>
+    <rect x="1225" y="45" width="225" height="45" stroke="#000" fill="none"/>
+    <rect x="1450" y="45" width="225" height="45" stroke="#000" fill="none"/>
+    <rect x="1225" y="90" width="225" height="45" stroke="#000" fill="none"/>
+    <rect x="1450" y="90" width="225" height="45" stroke="#000" fill="none"/>
+
+    <!-- Logos will be drawn by reportlab -->
+
+    <!-- Text Fields -->
+    <!-- Column 1 -->
+    <text x="245" y="15" font-size="14">Show Name:</text>
+    <text x="255" y="35" font-size="20" font-weight="bold">{{SHOW_NAME}}</text>
+    
+    <text x="245" y="60" font-size="14">Show Production Manager:</text>
+    <text x="255" y="80" font-size="18" font-weight="bold">{{SHOW_PM}}</text>
+    
+    <text x="245" y="105" font-size="14">Designer:</text>
+    <text x="255" y="125" font-size="18" font-weight="bold">{{SHOW_DESIGNER}}</text>
+
+    <!-- Column 2 -->
+    <text x="470" y="60" font-size="14">Show Technical Director:</text>
+    <text x="475" y="80" font-size="18" font-weight="bold">{{SHOW_TD}}</text>
+
+    <!-- Column 3 (Center) -->
+    <text x="957.5" y="130" font-size="18" text-anchor="middle">Created using ShowReady</text>
+
+    <!-- Column 4 -->
+    <text x="1230" y="15" font-size="14">Drawn By:</text>
+    <text x="1350" y="20" font-size="18" font-weight="bold">{{USERS_FULL_NAME}}</text>
+    <text x="1350" y="35" font-size="14">{{USERS_PRODUCTION_ROLE}}</text>
+    
+    <text x="1230" y="60" font-size="14">Date:</text>
+    <text x="1240" y="80" font-size="18" font-weight="bold">{{DATE_FILE_GENERATED}}</text>
+    
+    <text x="1455" y="60" font-size="14">File Name:</text>
+    <text x="1465" y="80" font-size="16" font-weight="bold">{{FILE_NAME}}</text>
+    
+    <!-- Column 5 -->
+    <text x="1230" y="105" font-size="14">Sheet Title:</text>
+    <text x="1240" y="125" font-size="18" font-weight="bold">{{SHEET_TITLE}}</text>
+    
+    <text x="1455" y="105" font-size="14">Sheet No.:</text>
+    <text x="1465" y="125" font-size="18" font-weight="bold">{{PAGE_NUM}} of {{TOTAL_PAGES}}</text>
+    
+  </g>
+</svg>

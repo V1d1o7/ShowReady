@@ -60,8 +60,12 @@ const ShowInfoView = () => {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <Card className="lg:col-span-3 space-y-6">
             <InputField label="Show Name" name="show_name" value={formData.show_name || ''} onChange={handleChange} />
-            <InputField label="Production Manager" name="production_manager" value={formData.production_manager || ''} onChange={handleChange} />
-            <InputField label="PM Email" name="pm_email" type="email" value={formData.pm_email || ''} onChange={handleChange} />
+            <InputField label="Production Manager" name="show_pm_name" value={formData.show_pm_name || ''} onChange={handleChange} />
+            <InputField label="PM Email" name="show_pm_email" type="email" value={formData.show_pm_email || ''} onChange={handleChange} />
+            <InputField label="Technical Director" name="show_td_name" value={formData.show_td_name || ''} onChange={handleChange} />
+            <InputField label="TD Email" name="show_td_email" type="email" value={formData.show_td_email || ''} onChange={handleChange} />
+            <InputField label="Designer" name="show_designer_name" value={formData.show_designer_name || ''} onChange={handleChange} />
+            <InputField label="Designer Email" name="show_designer_email" type="email" value={formData.show_designer_email || ''} onChange={handleChange} />
             <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
           </Card>
           <Card className="lg:col-span-2 space-y-4">

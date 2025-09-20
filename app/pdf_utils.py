@@ -13,6 +13,8 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import base64
+from svglib.svglib import svg2rlg
 
 from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables
 
@@ -220,7 +222,7 @@ def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", show_branding: b
 
     for loom in payload.looms:
         # --- Header ---
-        y_top = height - 0.5 * inch
+        y_top = height - 0.25 * inch
         if show_branding:
             # To implement a logo in the future:
             # 1. Add 'logo_path' as an argument to this function.
@@ -366,7 +368,7 @@ def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", show_branding: b
             table.setStyle(style)
             
             table_width, table_height = table.wrapOn(c, width - 1 * inch, height)
-            table.drawOn(c, 0.5 * inch, y_pos - table_height)
+            table.drawOn(c, 0.25 * inch, y_pos - table_height)
 
         c.showPage()
 
@@ -430,6 +432,99 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
             c.setFont("SpaceMono", 6)
             c.drawRightString(equip_x_start + equip_width - 0.05 * inch, equip_bottom_y + equip_height - 0.1 * inch, equip_template.model_number)
 
+def draw_title_block(c: canvas.Canvas, title_block_info: dict, x: float, y: float, width: float, height: float, current_page_num: int, total_pages: int):
+    """
+    Draws the standardized title block onto the canvas.
+    
+    This function renders an SVG template for the main structure and text of the title block,
+    and then draws the show and company logos directly onto the canvas over the SVG.
+    This approach is used to ensure that logo transparency is handled correctly.
+    """
+    c.saveState()
+    
+    try:
+        # --- 1. Render the SVG without logos ---
+        with open("app/title_block.svg", "r") as f:
+            svg_template = f.read()
+
+        # Replace text placeholders
+        replacements = {
+            "{{SHOW_NAME}}": title_block_info.get('show_name', ''),
+            "{{SHOW_PM}}": title_block_info.get('production_manager', ''),
+            "{{SHOW_TD}}": title_block_info.get('technical_director', ''),
+            "{{SHOW_DESIGNER}}": title_block_info.get('designer', ''),
+            "{{USERS_FULL_NAME}}": title_block_info.get('drawn_by', ''),
+            "{{USERS_PRODUCTION_ROLE}}": title_block_info.get('drawn_role', ''),
+            "{{DATE_FILE_GENERATED}}": title_block_info.get('generated_at').strftime('%Y-%m-%d'),
+            "{{FILE_NAME}}": title_block_info.get('file_name', ''),
+            "{{SHEET_TITLE}}": title_block_info.get('sheet_title', ''),
+            "{{PAGE_NUM}}": str(current_page_num),
+            "{{TOTAL_PAGES}}": str(total_pages),
+        }
+
+        for placeholder, value in replacements.items():
+            str_value = str(value) if value is not None else ''
+            svg_template = svg_template.replace(placeholder, str_value)
+        
+        # Ensure logo placeholders are empty so they don't render as text
+        svg_template = svg_template.replace("{{SHOW_LOGO}}", "")
+        svg_template = svg_template.replace("{{COMPANY_LOGO}}", "")
+
+        # Render SVG
+        drawing = svg2rlg(io.StringIO(svg_template))
+        
+        # Calculate scale to fit the provided drawing area
+        svg_original_width = 1916
+        svg_original_height = 135
+        scale_x = width / svg_original_width
+        scale_y = height / svg_original_height
+        
+        drawing.scale(scale_x, scale_y)
+        drawing.drawOn(c, x, y)
+
+        # --- 2. Draw logos directly on the canvas ---
+        
+        def draw_logo_in_box(logo_bytes, box_x, box_y, box_width, box_height):
+            if not logo_bytes:
+                return
+            try:
+                logo_reader = ImageReader(io.BytesIO(logo_bytes))
+                img_width, img_height = logo_reader.getSize()
+                
+                ratio = min(box_width / img_width, box_height / img_height) if img_width > 0 and img_height > 0 else 1
+                new_width = img_width * ratio
+                new_height = img_height * ratio
+                
+                img_x = box_x + (box_width - new_width) / 2
+                img_y = box_y + (box_height - new_height) / 2
+                
+                c.drawImage(logo_reader, img_x, img_y, width=new_width, height=new_height, mask='auto')
+            except Exception as e:
+                print(f"Failed to draw logo: {e}")
+
+        # Show Logo
+        show_logo_bytes = title_block_info.get('show_logo')
+        show_logo_box_x = x + (0 * scale_x)
+        show_logo_box_y = y 
+        show_logo_box_width = 240 * scale_x
+        show_logo_box_height = 135 * scale_y
+        draw_logo_in_box(show_logo_bytes, show_logo_box_x, show_logo_box_y, show_logo_box_width, show_logo_box_height)
+        
+        # Company Logo
+        company_logo_bytes = title_block_info.get('company_logo')
+        company_logo_box_x = x + (1674.83651 * scale_x)
+        company_logo_box_y = y
+        company_logo_box_width = 240 * scale_x
+        company_logo_box_height = 135 * scale_y
+        draw_logo_in_box(company_logo_bytes, company_logo_box_x, company_logo_box_y, company_logo_box_width, company_logo_box_height)
+
+    except Exception as e:
+        print(f"Error drawing title block: {e}")
+        c.setFont("Helvetica-Bold", 12)
+        c.drawCentredString(x + width / 2, y + height / 2, "Error generating title block.")
+
+    c.restoreState()
+
 def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
     """Generates a PDF document from a list of racks."""
     buffer = io.BytesIO()
@@ -438,7 +533,7 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
     c = canvas.Canvas(buffer, pagesize=page_size)
     width, height = page_size
     
-    MARGIN = 0.5 * inch
+    MARGIN = 0.25 * inch
     
     for rack in payload.racks:
         title_x = MARGIN
@@ -498,13 +593,19 @@ def draw_port_symbol(c, x, y, port_type, scale):
         p.close()
         c.drawPath(p, fill=1, stroke=0)
 
-def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_data, all_nodes_map, show_name, current_page_num, total_pages, show_branding: bool = True):
+def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_data, all_nodes_map, show_name, current_page_num, total_pages, title_block_info: dict, show_branding: bool = True):
     width, height = c._pagesize
-    MARGIN = 0.5 * inch
-    TITLE_BLOCK_HEIGHT = 0.75 * inch
-    DRAW_AREA_WIDTH = width - (2 * MARGIN)
-    DRAW_AREA_HEIGHT = height - (2 * MARGIN) - TITLE_BLOCK_HEIGHT
+    MARGIN = 0.25 * inch
+    TITLE_BLOCK_HEIGHT = height / 8.0
     
+    # Draw the title block at the bottom, spanning the full width
+    draw_title_block(c, title_block_info, 0, 0, width, TITLE_BLOCK_HEIGHT, current_page_num, total_pages)
+    
+    # Define the drawing area for the diagram above the title block
+    DRAW_AREA_WIDTH = width - (2 * MARGIN)
+    DRAW_AREA_HEIGHT = height - MARGIN - TITLE_BLOCK_HEIGHT - MARGIN # Top and bottom margins
+    diagram_area_y_start = TITLE_BLOCK_HEIGHT + MARGIN
+
     # Pre-calculate node heights
     node_heights = {}
     for node in page_data.nodes:
@@ -518,17 +619,15 @@ def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_dat
         port_spacing = 25
         top_padding = 20
         bottom_padding = 10
-        # Add height for IO ports, which will be drawn separately
         calculated_height = header_h + top_padding + (port_rows * port_spacing) + (len(io_ports) * port_spacing) + bottom_padding
         node_heights[node.id] = calculated_height
 
     min_x = min((n.position.x for n in page_data.nodes), default=0)
     max_x = max((n.position.x + n.width for n in page_data.nodes), default=DRAW_AREA_WIDTH)
     min_y = min((n.position.y for n in page_data.nodes), default=0)
-    max_y = max((n.position.y + node_heights[n.id] for n in page_data.nodes), default=DRAW_AREA_HEIGHT)
+    max_y = max((n.position.y + node_heights[n.id] for n in page_data.nodes), default=0)
 
-    # Add padding to prevent text boxes from overlapping nodes at the edges
-    horizontal_padding = 150 
+    horizontal_padding = 200 
     content_width = (max_x - min_x) + (2 * horizontal_padding)
     content_height = max_y - min_y
 
@@ -542,48 +641,8 @@ def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_dat
     offset_y = (DRAW_AREA_HEIGHT - scaled_content_height) / 2
 
     c.saveState()
-    # Apply padding to the translation
-    c.translate(MARGIN + offset_x + (horizontal_padding * scale), height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
-    c.translate(-min_x * scale, min_y * scale)
-
-    c.restoreState()
-    c.saveState()
-    c.setStrokeColor(colors.black)
-    c.setLineWidth(1)
-    # Removed the full page border rectangle, keeping only the underline for the title block
-    c.line(MARGIN, MARGIN + DRAW_AREA_HEIGHT, width - MARGIN, MARGIN + DRAW_AREA_HEIGHT)
-    
-    # --- Title Block Content ---
-    title_block_bottom = MARGIN + DRAW_AREA_HEIGHT
-    
-    # Define vertical positions for two lines within the title block
-    line1_y = title_block_bottom + (TITLE_BLOCK_HEIGHT * 0.66)
-    line2_y = title_block_bottom + (TITLE_BLOCK_HEIGHT * 0.25)
-    
-    # Define horizontal positions
-    left_x = MARGIN + 0.1 * inch
-    center_x = width / 2
-    right_x = width - MARGIN - 0.1 * inch
-
-    # Line 1: Show Title (Centered)
-    c.setFont("SpaceMono-Bold", 14)
-    c.drawCentredString(center_x, line1_y, f"{show_name} - Wire Diagram")
-    
-    # Line 2: Page Number (Left), Branding (if enabled), Generated Date (Right)
-    c.setFont("SpaceMono", 10)
-    c.drawString(left_x, line2_y, f"Page {current_page_num} of {total_pages}")
-    
-    if show_branding:
-        c.setFont("SpaceMono", 8)
-        c.drawCentredString(center_x, line2_y, "Created using ShowReady")
-
-    c.setFont("SpaceMono", 10)
-    c.drawRightString(right_x, line2_y, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    c.restoreState()
-    
-    # Main drawing canvas transform
-    c.translate(MARGIN + offset_x + (horizontal_padding * scale), height - MARGIN - TITLE_BLOCK_HEIGHT - offset_y)
-    c.translate(-min_x * scale, min_y * scale)
+    c.translate(MARGIN + offset_x + (horizontal_padding * scale), diagram_area_y_start + offset_y)
+    c.translate(-min_x * scale, -min_y * scale)
 
     port_locations = {}
     current_page_node_ids = {node.id for node in page_data.nodes}
@@ -756,7 +815,7 @@ def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_dat
             c.drawCentredString(box_x + box_width / 2, box_y + box_height / 2 - (font_size / 2.5), text)
 
 
-def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, show_branding: bool = True) -> io.BytesIO:
+def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, title_block_info: dict, show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
     page_size_base = PAGE_SIZES.get(payload.page_size.lower(), letter)
     page_size = landscape(page_size_base)
@@ -775,7 +834,7 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, show_branding: boo
     
     total_pages = len(payload.pages)
     for i, page_data in enumerate(payload.pages):
-        draw_diagram_page(c, payload, page_data, all_nodes_map, payload.show_name, i + 1, total_pages, show_branding=show_branding)
+        draw_diagram_page(c, payload, page_data, all_nodes_map, payload.show_name, i + 1, total_pages, title_block_info, show_branding=show_branding)
         c.showPage()
 
     c.save()

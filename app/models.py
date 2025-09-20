@@ -40,6 +40,7 @@ class UserProfile(BaseModel):
     company_name: Optional[str] = None
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
+    company_logo_path: Optional[str] = None
     roles: List[str] = []
     permitted_features: List[str] = []
 
@@ -49,6 +50,7 @@ class UserProfileUpdate(BaseModel):
     company_name: Optional[str] = None
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
+    company_logo_path: Optional[str] = None
 
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):
@@ -61,8 +63,12 @@ class ShowInfo(BaseModel):
     show_name: Optional[str] = None
     logo_path: Optional[str] = None
     production_video: Optional[str] = None
-    production_manager: Optional[str] = None
-    pm_email: Optional[str] = None
+    show_pm_name: Optional[str] = None
+    show_pm_email: Optional[str] = None
+    show_td_name: Optional[str] = None
+    show_td_email: Optional[str] = None
+    show_designer_name: Optional[str] = None
+    show_designer_email: Optional[str] = None
 
 # --- Loom Label Models ---
 class LoomLabel(BaseModel):
@@ -365,6 +371,7 @@ class WireDiagramPDFPayload(BaseModel):
     pages: List[PDFPage]
     page_size: str = "letter"
     show_name: str
+    sheet_title: Optional[str] = None
 
 # --- Rack PDF Generation Models ---
 

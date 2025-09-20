@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, Response, Header
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
@@ -623,11 +624,43 @@ async def update_sso_config(sso_data: SSOConfig, user = Depends(get_user), supab
 async def create_or_update_show(show_name: str, show_data: ShowFile, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new show or updates an existing one for the authenticated user."""
     try:
-        response = supabase.table('shows').upsert({
+        cloned_show_data = show_data.model_copy(deep=True)
+        info_data = cloned_show_data.info
+
+        top_level_data = {
+            'show_pm_name': info_data.show_pm_name,
+            'show_pm_email': info_data.show_pm_email,
+            'show_td_name': info_data.show_td_name,
+            'show_td_email': info_data.show_td_email,
+            'show_designer_name': info_data.show_designer_name,
+            'show_designer_email': info_data.show_designer_email,
+        }
+
+        # Remove duplicated fields from the info object before saving to JSON
+        if hasattr(info_data, 'show_pm_name'):
+            delattr(info_data, 'show_pm_name')
+        if hasattr(info_data, 'show_pm_email'):
+            delattr(info_data, 'show_pm_email')
+        if hasattr(info_data, 'show_td_name'):
+            delattr(info_data, 'show_td_name')
+        if hasattr(info_data, 'show_td_email'):
+            delattr(info_data, 'show_td_email')
+        if hasattr(info_data, 'show_designer_name'):
+            delattr(info_data, 'show_designer_name')
+        if hasattr(info_data, 'show_designer_email'):
+            delattr(info_data, 'show_designer_email')
+        
+        upsert_data = {
             'name': show_name,
-            'data': show_data.model_dump(mode='json'),
-            'user_id': str(user.id)
-        }, on_conflict='name, user_id').execute()
+            'data': cloned_show_data.model_dump(mode='json'),
+            'user_id': str(user.id),
+            **top_level_data
+        }
+        
+        response = supabase.table('shows').upsert(
+            upsert_data, 
+            on_conflict='name, user_id'
+        ).execute()
         
         if response.data:
             return response.data[0]
@@ -639,11 +672,29 @@ async def create_or_update_show(show_name: str, show_data: ShowFile, user = Depe
 async def get_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves a specific show for the authenticated user."""
     try:
-        response = supabase.table('shows').select('data').eq('name', show_name).eq('user_id', user.id).single().execute()
+        response = supabase.table('shows').select('*').eq('name', show_name).eq('user_id', user.id).maybe_single().execute()
         if response.data:
-            return response.data['data']
+            show_record = response.data
+            show_data_json = show_record.get('data', {})
+            
+            info_from_columns = {
+                "show_pm_name": show_record.get("show_pm_name"),
+                "show_pm_email": show_record.get("show_pm_email"),
+                "show_td_name": show_record.get("show_td_name"),
+                "show_td_email": show_record.get("show_td_email"),
+                "show_designer_name": show_record.get("show_designer_name"),
+                "show_designer_email": show_record.get("show_designer_email"),
+            }
+
+            if 'info' in show_data_json:
+                show_data_json['info'].update(info_from_columns)
+            else:
+                show_data_json['info'] = info_from_columns
+
+            return show_data_json
         raise HTTPException(status_code=404, detail="Show not found")
-    except Exception:
+    except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=404, detail=f"Show '{show_name}' not found.")
 
 @router.get("/shows", tags=["Shows"])
@@ -1612,10 +1663,71 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
 @router.post("/pdf/wire-diagram", tags=["PDF Generation"], dependencies=[Depends(feature_check("wire_diagram"))])
-async def create_wire_diagram_pdf(payload: WireDiagramPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility)):
+async def create_wire_diagram_pdf(
+    payload: WireDiagramPDFPayload,
+    user = Depends(get_user),
+    show_branding: bool = Depends(get_branding_visibility),
+    supabase: Client = Depends(get_supabase_client)
+):
     """Generates a PDF for the wire diagram."""
     try:
-        pdf_buffer = generate_wire_diagram_pdf(payload, show_branding=show_branding)
+        show_res = supabase.table('shows').select('*').eq('name', payload.show_name).eq('user_id', str(user.id)).maybe_single().execute()
+        if not show_res.data:
+            raise HTTPException(status_code=404, detail="Show not found or access denied.")
+
+        show_record = show_res.data
+        
+        # Get logo from data json
+        show_data_json = show_record.get('data', {})
+        show_info = show_data_json.get('info', {})
+        logo_path = show_info.get('logo_path')
+
+        show_logo_bytes = None
+        if logo_path:
+            try:
+                show_logo_bytes = supabase.storage.from_(BUCKET_NAME).download(logo_path)
+            except Exception as download_error:
+                print(f"Could not download show logo: {download_error}")
+
+        profile_res = supabase.table('profiles').select('first_name, last_name, production_role, production_role_other, company_name, company_logo_path').eq('id', str(user.id)).maybe_single().execute()
+        profile = profile_res.data or {}
+
+        company_logo_bytes = None
+        company_logo_path = profile.get('company_logo_path')
+        if company_logo_path:
+            try:
+                company_logo_bytes = supabase.storage.from_(BUCKET_NAME).download(company_logo_path)
+            except Exception as download_error:
+                print(f"Could not download company logo: {download_error}")
+
+        first_name = profile.get('first_name') or ''
+        last_name = profile.get('last_name') or ''
+        full_name = " ".join(part for part in [first_name, last_name] if part).strip()
+        if not full_name:
+            full_name = getattr(user, 'email', None) or ""
+
+        drawn_role = profile.get('production_role') or profile.get('production_role_other')
+
+        generated_at = datetime.utcnow()
+        title_block_info = {
+            "show_name": show_record.get('name'),
+            "show_logo": show_logo_bytes,
+            "company_logo": company_logo_bytes,
+            "company_name": profile.get('company_name'),
+            "production_manager": show_record.get('show_pm_name'),
+            "pm_email": show_record.get('show_pm_email'),
+            "technical_director": show_record.get('show_td_name'),
+            "td_email": show_record.get('show_td_email'),
+            "designer": show_record.get('show_designer_name'),
+            "designer_email": show_record.get('show_designer_email'),
+            "drawn_by": full_name,
+            "drawn_role": drawn_role,
+            "generated_at": generated_at,
+            "file_name": f"{payload.show_name} - Wire Diagram.pdf",
+            "sheet_title": payload.sheet_title or 'Wire Diagram',
+        }
+
+        pdf_buffer = generate_wire_diagram_pdf(payload, title_block_info=title_block_info, show_branding=show_branding)
         return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
     except Exception as e:
         print(f"Error generating wire diagram PDF: {e}")
