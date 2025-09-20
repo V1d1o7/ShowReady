@@ -225,7 +225,7 @@ def build_pdf_bytes(graph: Graph) -> bytes:
 # Note: _generate_svg_page was omitted from this block for brevity, but it should be included in the actual file.
 # I will re-add it here to be safe.
 def _generate_svg_page(content: str) -> str:
-    return f\"\"\"
+    return f"""
 <svg width="{PAGE_W_PX}px" height="{PAGE_H_PX}px" viewBox="0 0 {PAGE_W_PX} {PAGE_H_PX}"
      xmlns="http://www.w3.org/2000/svg">
     <style>
