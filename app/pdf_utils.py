@@ -15,6 +15,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import base64
 from svglib.svglib import svg2rlg
+import xml.etree.ElementTree as ET
 
 from .models import LoomLabel, CaseLabel, WireDiagramPDFPayload, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables
 
@@ -574,6 +575,306 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
     buffer.seek(0)
     return buffer
 
+# --- Layout Algorithm ---
+TITLE_AREA_HEIGHT = 45  # For the title that sits above the main box
+NODE_WIDTH = 250
+HEADER_HEIGHT = 100 # Height of the info section *inside* the box
+PORT_ROW_HEIGHT = 30
+FOOTER_HEIGHT = 20
+VERTICAL_GAP = 50
+HORIZONTAL_GAP = 300
+COLUMN_THRESHOLD = NODE_WIDTH * 0.75
+
+def _calculate_node_height(node):
+    """Calculates the total height of a device SVG, including the title area."""
+    try:
+        num_ports = len(node.data.equipment_templates.ports)
+    except (AttributeError, TypeError):
+        num_ports = 0
+    
+    content_height = HEADER_HEIGHT + (num_ports * PORT_ROW_HEIGHT) + FOOTER_HEIGHT
+    return TITLE_AREA_HEIGHT + content_height
+
+def layout_diagram(nodes: List) -> (Dict, float, float):
+    """
+    Arranges nodes to prevent overlap based on their initial positions from the UI.
+    Returns a dictionary mapping node_id to its new position and dimensions,
+    and the total width and height of the layout.
+    """
+    if not nodes:
+        return {}, 0, 0
+
+    node_dims = {
+        node.id: {
+            "width": NODE_WIDTH,
+            "height": _calculate_node_height(node)
+        }
+        for node in nodes
+    }
+
+    sorted_nodes = sorted(nodes, key=lambda n: n.position.x)
+    
+    columns = []
+    if sorted_nodes:
+        current_column = []
+        column_x_start = -1
+        for node in sorted_nodes:
+            if not current_column:
+                current_column.append(node)
+                column_x_start = node.position.x
+            elif node.position.x < column_x_start + COLUMN_THRESHOLD:
+                current_column.append(node)
+            else:
+                columns.append(current_column)
+                current_column = [node]
+                column_x_start = node.position.x
+        columns.append(current_column)
+
+    layout = {}
+    current_x = 0
+    max_layout_height = 0
+
+    for column in columns:
+        sorted_column = sorted(column, key=lambda n: n.position.y)
+        
+        current_y = 0
+        column_width = 0
+        
+        for node in sorted_column:
+            node_id = node.id
+            dims = node_dims[node_id]
+            
+            layout[node_id] = {
+                "x": current_x,
+                "y": current_y,
+                "width": dims["width"],
+                "height": dims["height"]
+            }
+            
+            current_y += dims["height"] + VERTICAL_GAP
+            if dims["width"] > column_width:
+                column_width = dims["width"]
+        
+        column_height = current_y - VERTICAL_GAP if sorted_column else 0
+        if column_height > max_layout_height:
+            max_layout_height = column_height
+
+        current_x += column_width + HORIZONTAL_GAP
+
+    total_width = current_x - HORIZONTAL_GAP if columns else 0
+    total_height = max_layout_height
+
+    return layout, total_width, total_height
+
+
+# --- SVG Generation ---
+
+def create_equipment_svg_group(node, node_dims):
+    """Creates a detailed SVG <g> element for a single piece of equipment."""
+    group = ET.Element('g')
+    width = node_dims['width']
+    height = node_dims['height']
+    template = node.data.equipment_templates
+
+    # Device Nomenclature (centered, above the box)
+    title = ET.SubElement(group, 'text', {
+        'x': str(width / 2),
+        'y': str(TITLE_AREA_HEIGHT - 20), # Positioned in the middle of the title area
+        'font-size': '24', 'font-weight': 'bold', 'fill': '#f59e0b',
+        'text-anchor': 'middle'
+    })
+    title.text = node.data.label or ''
+
+    # Main rectangle (the border), shifted down to be below the title
+    box_y_start = TITLE_AREA_HEIGHT
+    box_height = height - TITLE_AREA_HEIGHT
+    ET.SubElement(group, 'rect', {
+        'x': '0', 'y': str(box_y_start), 'width': str(width), 'height': str(box_height),
+        'stroke': '#000000', 'stroke-width': '2', 'fill': 'none'
+    })
+
+    # Model Number, Rack Info, IP Address (shifted down)
+    info_y_start = box_y_start + 30 # Start 30px inside the box
+    info_line_height = 20
+    
+    model_text = f"({template.model_number})" if template and template.model_number else ''
+    model = ET.SubElement(group, 'text', {
+        'x': str(width / 2), 'y': str(info_y_start), 'font-size': '14', 'fill': '#000000',
+        'text-anchor': 'middle'
+    })
+    model.text = model_text
+
+    rack_name = node.data.rack_name or ''
+    ru_pos = node.data.ru_position or ''
+    rack_info_text = f"{rack_name}.RU{ru_pos}" if rack_name or ru_pos else ''
+    rack_info = ET.SubElement(group, 'text', {
+        'x': str(width / 2), 'y': str(info_y_start + info_line_height), 'font-size': '14', 'fill': '#666666',
+        'text-anchor': 'middle'
+    })
+    rack_info.text = rack_info_text
+
+    ip_addr_text = node.data.ip_address or ''
+    ip_addr = ET.SubElement(group, 'text', {'x': '15', 'y': str(info_y_start + 2 * info_line_height), 'font-size': '14', 'font-weight': 'bold', 'fill': '#3f007f'})
+    ip_addr.text = ip_addr_text
+
+    # Port rendering logic (shifted down)
+    port_locations = {}
+    if template and template.ports:
+        input_ports = sorted([p for p in template.ports if p.type == 'input'], key=lambda p: p.id)
+        output_ports = sorted([p for p in template.ports if p.type == 'output'], key=lambda p: p.id)
+        io_ports = sorted([p for p in template.ports if p.type == 'io'], key=lambda p: p.id)
+
+        port_y_start = box_y_start + HEADER_HEIGHT
+        y_in = port_y_start
+        y_out = port_y_start
+        
+        for port in input_ports:
+            ET.SubElement(group, 'path', {'d': f"M 5,{y_in-5} L 15,{y_in} L 5,{y_in+5} Z", 'fill': '#5fbf00'})
+            port_text = ET.SubElement(group, 'text', {'x': '25', 'y': str(y_in + 5), 'font-size': '14', 'fill': '#000000'})
+            port_text.text = port.label
+            port_locations[f"port-in-{port.id}"] = (0, y_in)
+            y_in += PORT_ROW_HEIGHT
+
+        for port in output_ports:
+            ET.SubElement(group, 'path', {'d': f"M {width-15},{y_out-5} L {width-5},{y_out} L {width-15},{y_out+5} Z", 'fill': '#bf0000'})
+            port_text = ET.SubElement(group, 'text', {'x': str(width - 25), 'y': str(y_out + 5), 'font-size': '14', 'fill': '#000000', 'text-anchor': 'end'})
+            port_text.text = port.label
+            port_locations[f"port-out-{port.id}"] = (width, y_out)
+            y_out += PORT_ROW_HEIGHT
+            
+        y_io = max(y_in, y_out)
+        if y_io == port_y_start: # If there were no in/out ports, start io ports from the beginning
+            y_io = port_y_start
+        
+        for port in io_ports:
+            ET.SubElement(group, 'path', {'d': f"M 5,{y_io-5} L 15,{y_io} L 5,{y_io+5} Z", 'fill': '#5fbf00'})
+            ET.SubElement(group, 'path', {'d': f"M {width-15},{y_io-5} L {width-5},{y_io} L {width-15},{y_io+5} Z", 'fill': '#bf0000'})
+            
+            # Add connecting lines for I/O ports
+            ET.SubElement(group, 'line', {
+                'x1': '20', 'y1': str(y_io), 'x2': str((width/2) - 40), 'y2': str(y_io),
+                'stroke': '#000000', 'stroke-width': '1'
+            })
+            ET.SubElement(group, 'line', {
+                'x1': str((width/2) + 40), 'y1': str(y_io), 'x2': str(width - 20), 'y2': str(y_io),
+                'stroke': '#000000', 'stroke-width': '1'
+            })
+
+            port_text = ET.SubElement(group, 'text', {'x': str(width / 2), 'y': str(y_io + 5), 'font-size': '14', 'fill': '#000000', 'text-anchor': 'middle'})
+            port_text.text = port.label
+            port_locations[f"port-in-{port.id}"] = (0, y_io)
+            port_locations[f"port-out-{port.id}"] = (width, y_io)
+            y_io += PORT_ROW_HEIGHT
+
+    return group, port_locations
+
+def create_connection_label_svg(text):
+    """Creates an SVG <g> element for a connection label."""
+    group = ET.Element('g')
+    ET.SubElement(group, 'rect', {
+        'width': '250', 'height': '56', 'stroke': '#000000', 'fill': '#f59e0b', 'stroke-width': '1'
+    })
+    text_element = ET.SubElement(group, 'text', {
+        'x': '125', 'y': '35', 'font-family': "Noto Sans JP, sans-serif",
+        'font-size': '18', 'fill': '#000000', 'text-anchor': 'middle'
+    })
+    text_element.text = text
+    return group
+
+def generate_page_svg(page_data, all_nodes_map, all_edges, page_layout, total_width, total_height):
+    """
+    Generates a complete SVG string for a single page of the wire diagram.
+    """
+    svg_width = str(total_width + HORIZONTAL_GAP)
+    svg_height = str(total_height + VERTICAL_GAP)
+    
+    root = ET.Element('svg', {
+        'width': svg_width, 'height': svg_height, 'xmlns': "http://www.w3.org/2000/svg",
+        'font-family': "Noto Sans JP, sans-serif"
+    })
+    
+    main_group = ET.SubElement(root, 'g', {'transform': f'translate({HORIZONTAL_GAP / 2}, {VERTICAL_GAP / 2})'})
+
+    port_positions = {}  # Stores {node_id: {port_handle: (abs_x, abs_y)}}
+
+    # 1. Draw Equipment Nodes and calculate absolute port positions
+    for node in page_data.nodes:
+        node_id = node.id
+        layout_info = page_layout[node_id]
+        
+        equipment_group, relative_ports = create_equipment_svg_group(node, layout_info)
+        equipment_group.set('transform', f"translate({layout_info['x']}, {layout_info['y']})")
+        main_group.append(equipment_group)
+
+        port_positions[node_id] = {}
+        for handle, (rel_x, rel_y) in relative_ports.items():
+            abs_x = layout_info['x'] + rel_x
+            abs_y = layout_info['y'] + rel_y
+            port_positions[node_id][handle] = (abs_x, abs_y)
+
+    # 2. Draw Connection Lines and Labels (with debugging)
+    debug_group = ET.SubElement(root, 'g', {'transform': 'translate(10, 20)'})
+    debug_y = 0
+    
+    current_page_node_ids = set(port_positions.keys())
+    for i, edge in enumerate(all_edges):
+        debug_y += 20
+        debug_text_element = ET.SubElement(debug_group, 'text', {'x': '0', 'y': str(debug_y), 'font-size': '10', 'fill': '#ff0000'})
+
+        source_node_id = edge.source
+        target_node_id = edge.target
+        source_on_page = source_node_id in current_page_node_ids
+        
+        debug_info = [f"Edge {i}: {source_node_id}->{target_node_id}", f"OnPage: {source_on_page}"]
+
+        if not source_on_page:
+            debug_text_element.text = " | ".join(debug_info)
+            continue
+
+        source_info = all_nodes_map.get(source_node_id)
+        target_info = all_nodes_map.get(target_node_id)
+        
+        def get_port_from_handle(node_info, handle):
+            try:
+                port_id_str = handle.split('-')[-1]
+                return next(p for p in node_info['node'].data.equipment_templates.ports if str(p.id) == port_id_str)
+            except (IndexError, StopIteration, AttributeError):
+                return None
+
+        start_pos = port_positions[source_node_id].get(edge.sourceHandle)
+        target_port = get_port_from_handle(target_info, edge.targetHandle)
+        
+        debug_info.append(f"Handle: {edge.sourceHandle}")
+        debug_info.append(f"StartPos: {'Found' if start_pos else 'NOT FOUND'}")
+        debug_info.append(f"TargetPort: {'Found' if target_port else 'NOT FOUND'}")
+        debug_text_element.text = " | ".join(debug_info)
+
+        if start_pos and target_port:
+            label_text = f"{target_info['node'].data.label}.{target_port.label}"
+            target_on_page = target_node_id in current_page_node_ids
+            if not target_on_page:
+                label_text += f" (P.{target_info['page']})"
+            
+            is_output_handle = 'port-out' in edge.sourceHandle
+            if is_output_handle:
+                label_x, line_end_x = start_pos[0] + 20, start_pos[0] + 20
+            else: # port-in
+                label_x, line_end_x = start_pos[0] - 250 - 20, start_pos[0] - 20
+            
+            label_y = start_pos[1] - 28
+            label_group = create_connection_label_svg(label_text)
+            label_group.set('transform', f'translate({label_x}, {label_y})')
+            main_group.append(label_group)
+            ET.SubElement(main_group, 'line', {
+                'x1': str(start_pos[0]), 'y1': str(start_pos[1]),
+                'x2': str(line_end_x), 'y2': str(start_pos[1]),
+                'stroke': '#333', 'stroke-width': '1'
+            })
+
+
+    return ET.tostring(root, encoding='unicode')
+
+
 def draw_port_symbol(c, x, y, port_type, scale):
     size = 4 * scale
     if port_type in ['input', 'io']:
@@ -593,226 +894,57 @@ def draw_port_symbol(c, x, y, port_type, scale):
         p.close()
         c.drawPath(p, fill=1, stroke=0)
 
-def draw_diagram_page(c: canvas.Canvas, payload: WireDiagramPDFPayload, page_data, all_nodes_map, show_name, current_page_num, total_pages, title_block_info: dict, show_branding: bool = True):
+def draw_diagram_page(c: canvas.Canvas, page_data, all_nodes_map, all_edges, show_name, current_page_num, total_pages, title_block_info: dict):
+    """
+    Generates a single page of the wire diagram PDF by creating an SVG,
+    converting it to a ReportLab drawing, and placing it on the canvas.
+    """
     width, height = c._pagesize
     MARGIN = 0.25 * inch
-    TITLE_BLOCK_HEIGHT = height / 8.0
     
-    # Draw the title block at the bottom, spanning the full width
-    draw_title_block(c, title_block_info, 0, 0, width, TITLE_BLOCK_HEIGHT, current_page_num, total_pages)
+    # 1. Define Title Block and Drawing Area
+    title_block_height = height / 8.0
+    draw_area_width = width - (2 * MARGIN)
+    draw_area_height = height - (2 * MARGIN) - title_block_height
+    draw_area_x = MARGIN
+    draw_area_y = MARGIN + title_block_height
+
+    # 2. Perform Layout and Generate SVG
+    page_nodes = page_data.nodes
+    page_layout, total_width, total_height = layout_diagram(page_nodes)
     
-    # Define the drawing area for the diagram above the title block
-    DRAW_AREA_WIDTH = width - (2 * MARGIN)
-    DRAW_AREA_HEIGHT = height - MARGIN - TITLE_BLOCK_HEIGHT - MARGIN # Top and bottom margins
-    diagram_area_y_start = TITLE_BLOCK_HEIGHT + MARGIN
+    if not page_layout: # If there are no nodes on the page, just draw title block and return
+        draw_title_block(c, title_block_info, 0, 0, width, title_block_height, current_page_num, total_pages)
+        return
 
-    # Pre-calculate node heights
-    node_heights = {}
-    for node in page_data.nodes:
-        all_ports = node.data.equipment_templates.ports
-        input_ports = [p for p in all_ports if p.type == 'input']
-        output_ports = [p for p in all_ports if p.type == 'output']
-        io_ports = [p for p in all_ports if p.type == 'io']
-        
-        port_rows = max(len(input_ports), len(output_ports))
-        header_h = 25
-        port_spacing = 25
-        top_padding = 20
-        bottom_padding = 10
-        calculated_height = header_h + top_padding + (port_rows * port_spacing) + (len(io_ports) * port_spacing) + bottom_padding
-        node_heights[node.id] = calculated_height
+    svg_string = generate_page_svg(page_data, all_nodes_map, all_edges, page_layout, total_width, total_height)
 
-    min_x = min((n.position.x for n in page_data.nodes), default=0)
-    max_x = max((n.position.x + n.width for n in page_data.nodes), default=DRAW_AREA_WIDTH)
-    min_y = min((n.position.y for n in page_data.nodes), default=0)
-    max_y = max((n.position.y + node_heights[n.id] for n in page_data.nodes), default=0)
+    # 3. Convert SVG to ReportLab Drawing
+    drawing = svg2rlg(io.StringIO(svg_string))
 
-    horizontal_padding = 200 
-    content_width = (max_x - min_x) + (2 * horizontal_padding)
-    content_height = max_y - min_y
+    # 4. Scale and Position Drawing
+    svg_native_width = drawing.width
+    svg_native_height = drawing.height
 
-    scale_x = DRAW_AREA_WIDTH / content_width if content_width > 0 else 1
-    scale_y = DRAW_AREA_HEIGHT / content_height if content_height > 0 else 1
-    scale = min(scale_x, scale_y, 1.0)
+    if svg_native_width <= 0 or svg_native_height <= 0:
+        scale = 1.0
+    else:
+        scale_x = draw_area_width / svg_native_width
+        scale_y = draw_area_height / svg_native_height
+        scale = min(scale_x, scale_y)
 
-    scaled_content_width = content_width * scale
-    scaled_content_height = content_height * scale
-    offset_x = (DRAW_AREA_WIDTH - scaled_content_width) / 2
-    offset_y = (DRAW_AREA_HEIGHT - scaled_content_height) / 2
+    scaled_width = svg_native_width * scale
+    scaled_height = svg_native_height * scale
 
-    c.saveState()
-    c.translate(MARGIN + offset_x + (horizontal_padding * scale), diagram_area_y_start + offset_y)
-    c.translate(-min_x * scale, -min_y * scale)
+    # Center the drawing in the drawing area
+    offset_x = (draw_area_width - scaled_width) / 2
+    offset_y = (draw_area_height - scaled_height) / 2
+    
+    drawing.scale(scale, scale)
+    drawing.drawOn(c, draw_area_x + offset_x, draw_area_y + offset_y)
 
-    port_locations = {}
-    current_page_node_ids = {node.id for node in page_data.nodes}
-
-    for node in page_data.nodes:
-        node_w = node.width * scale
-        node_h = node_heights[node.id] * scale
-        
-        node_x = node.position.x * scale
-        node_y = -node.position.y * scale - node_h
-        
-        header_h = 25 * scale
-        
-        c.saveState()
-        path = c.beginPath()
-        path.roundRect(node_x, node_y, node_w, node_h, 4 * scale)
-        c.clipPath(path, stroke=1, fill=0)
-        c.setFillColor(colors.white)
-        c.rect(node_x, node_y, node_w, node_h, fill=1, stroke=0)
-        c.setFillColorRGB(0.2, 0.2, 0.2)
-        c.rect(node_x, node_y + node_h - header_h, node_w, header_h, fill=1, stroke=0)
-        c.restoreState()
-        
-        c.setFont("SpaceMono-Bold", 8 * scale)
-        text_y = node_y + node_h - (15 * scale)
-        header_padding = 5 * scale
-        c.setFillColor(colors.white)
-        c.drawString(node_x + header_padding, text_y, node.data.label)
-        c.setFont("SpaceMono", 7 * scale)
-        c.drawRightString(node_x + node_w - header_padding, text_y, f"{node.data.rack_name or ''} RU{node.data.ru_position or ''}")
-
-        c.setFont("SpaceMono", 8 * scale)
-        port_spacing = 25 * scale
-        top_padding = 20 * scale
-        port_start_y = node_y + node_h - header_h - top_padding - (port_spacing / 2)
-        port_locations[node.id] = {}
-
-        all_ports = node.data.equipment_templates.ports
-        input_ports = sorted([p for p in all_ports if p.type == 'input'], key=lambda p: p.id)
-        output_ports = sorted([p for p in all_ports if p.type == 'output'], key=lambda p: p.id)
-        io_ports = sorted([p for p in all_ports if p.type == 'io'], key=lambda p: p.id)
-
-        for i, port in enumerate(input_ports):
-            y = port_start_y - (i * port_spacing)
-            c.setFillColor(colors.black)
-            c.drawString(node_x + (15 * scale), y - (3*scale), f"{port.label} ({port.connector_type})")
-            draw_port_symbol(c, node_x + (4*scale), y, port.type, scale)
-            port_locations[node.id][f"port-in-{port.id}"] = (node_x, y)
-            
-        for i, port in enumerate(output_ports):
-            y = port_start_y - (i * port_spacing)
-            c.setFillColor(colors.black)
-            c.drawRightString(node_x + node_w - (15 * scale), y - (3*scale), f"({port.connector_type}) {port.label}")
-            draw_port_symbol(c, node_x + node_w - (4*scale), y, port.type, scale)
-            port_locations[node.id][f"port-out-{port.id}"] = (node_x + node_w, y)
-
-        # Draw IO ports centered, below the dedicated inputs/outputs
-        io_start_y = port_start_y - (max(len(input_ports), len(output_ports)) * port_spacing)
-        for i, port in enumerate(io_ports):
-            y = io_start_y - (i * port_spacing)
-            c.setFillColor(colors.black)
-            c.drawCentredString(node_x + node_w / 2, y - (3 * scale), f"{port.label} ({port.connector_type})")
-            draw_port_symbol(c, node_x + (4*scale), y, port.type, scale)
-            draw_port_symbol(c, node_x + node_w - (4*scale), y, port.type, scale)
-            port_locations[node.id][f"port-in-{port.id}"] = (node_x, y)
-            port_locations[node.id][f"port-out-io-{port.id}"] = (node_x + node_w, y)
-
-    all_edges = [edge for p in payload.pages for edge in p.edges]
-
-    for edge in all_edges:
-        source_node_info = all_nodes_map.get(edge.source)
-        target_node_info = all_nodes_map.get(edge.target)
-        if not source_node_info or not target_node_info:
-            continue
-
-        source_node_data = source_node_info['node']
-        target_node_data = target_node_info['node']
-        
-        def get_port_id_from_handle(handle):
-            parts = handle.split('-')
-            if len(parts) > 2:
-                return '-'.join(parts[2:])
-            return None
-
-        source_port_id_str = get_port_id_from_handle(edge.sourceHandle)
-        target_port_id_str = get_port_id_from_handle(edge.targetHandle)
-
-        if not source_port_id_str or not target_port_id_str:
-            continue
-
-        source_port = next((p for p in source_node_data.data.equipment_templates.ports if str(p.id) == source_port_id_str), None)
-        target_port = next((p for p in target_node_data.data.equipment_templates.ports if str(p.id) == target_port_id_str), None)
-
-        if not source_port or not target_port:
-            continue
-        
-        source_handle = edge.sourceHandle if source_port.type != 'io' else f"port-out-io-{source_port.id}" if edge.sourceHandle.startswith('port-out') else edge.sourceHandle
-        target_handle = edge.targetHandle
-
-        # Draw source-side text box if the source node is on the current page
-        if edge.source in port_locations and source_handle in port_locations[edge.source]:
-            text = f"{target_node_data.data.label}.{target_port.label}"
-            is_off_page = edge.target not in current_page_node_ids
-            if is_off_page:
-                text += f" (P.{target_node_info['page']})"
-            
-            start_x, start_y = port_locations[edge.source][source_handle]
-            
-            box_width = 150 * scale 
-            box_height = 15 * scale # Made smaller
-            
-            is_output_side = source_port.type == 'output' or (source_port.type == 'io' and edge.sourceHandle.startswith('port-out'))
-            box_x = start_x + (5 * scale) if is_output_side else start_x - box_width - (5 * scale)
-            box_y = start_y - (box_height / 2)
-
-            c.setStrokeColor(colors.gray)
-            c.setLineWidth(0.5)
-            line_end_x = box_x if is_output_side else box_x + box_width
-            c.line(start_x, start_y, line_end_x, box_y + box_height/2)
-            
-            c.setFillColor(colors.HexColor('#f59e0b'))
-            c.setStrokeColor(colors.black)
-            c.setLineWidth(1)
-            c.rect(box_x, box_y, box_width, box_height, fill=1, stroke=1)
-            
-            c.setFillColor(colors.black)
-            font_size = 8 * scale # Made smaller
-            text_width = c.stringWidth(text, "SpaceMono", font_size)
-            while text_width > box_width * 0.95 and font_size > 6:
-                font_size -= 1
-                text_width = c.stringWidth(text, "SpaceMono", font_size)
-            
-            c.setFont("SpaceMono", font_size)
-            c.drawCentredString(box_x + box_width / 2, box_y + box_height / 2 - (font_size / 2.5), text)
-
-        # Draw target-side text box if the target node is on the current page
-        if edge.target in port_locations and target_handle in port_locations[edge.target]:
-            text = f"{source_node_data.data.label}.{source_port.label}"
-            is_off_page = edge.source not in current_page_node_ids
-            if is_off_page:
-                text += f" (P.{source_node_info['page']})"
-            
-            start_x, start_y = port_locations[edge.target][target_handle]
-            
-            box_width = 150 * scale 
-            box_height = 15 * scale # Made smaller
-            
-            is_input_side = target_port.type == 'input' or (target_port.type == 'io' and edge.targetHandle.startswith('port-in'))
-            box_x = start_x - box_width - (5 * scale) if is_input_side else start_x + (5 * scale)
-            box_y = start_y - (box_height / 2)
-            
-            c.setStrokeColor(colors.gray)
-            c.setLineWidth(0.5)
-            line_end_x = box_x + box_width if is_input_side else box_x
-            c.line(start_x, start_y, line_end_x, box_y + box_height / 2)
-
-            c.setFillColor(colors.HexColor('#f59e0b'))
-            c.setStrokeColor(colors.black)
-            c.setLineWidth(1)
-            c.rect(box_x, box_y, box_width, box_height, fill=1, stroke=1)
-            
-            c.setFillColor(colors.black)
-            font_size = 8 * scale # Made smaller
-            text_width = c.stringWidth(text, "SpaceMono", font_size)
-            while text_width > box_width * 0.95 and font_size > 6:
-                font_size -= 1
-                text_width = c.stringWidth(text, "SpaceMono", font_size)
-            
-            c.setFont("SpaceMono", font_size)
-            c.drawCentredString(box_x + box_width / 2, box_y + box_height / 2 - (font_size / 2.5), text)
+    # 5. Draw Title Block
+    draw_title_block(c, title_block_info, 0, 0, width, title_block_height, current_page_num, total_pages)
 
 
 def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, title_block_info: dict, show_branding: bool = True) -> io.BytesIO:
@@ -828,13 +960,16 @@ def generate_wire_diagram_pdf(payload: WireDiagramPDFPayload, title_block_info: 
         return buffer
 
     all_nodes_map = {}
+    all_edges = []
     for page_data in payload.pages:
         for node in page_data.nodes:
             all_nodes_map[node.id] = {"node": node, "page": page_data.page_number}
+        if page_data.edges:
+            all_edges.extend(page_data.edges)
     
     total_pages = len(payload.pages)
     for i, page_data in enumerate(payload.pages):
-        draw_diagram_page(c, payload, page_data, all_nodes_map, payload.show_name, i + 1, total_pages, title_block_info, show_branding=show_branding)
+        draw_diagram_page(c, page_data, all_nodes_map, all_edges, payload.show_name, i + 1, total_pages, title_block_info)
         c.showPage()
 
     c.save()
