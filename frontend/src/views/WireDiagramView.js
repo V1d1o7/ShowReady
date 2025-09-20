@@ -525,7 +525,7 @@ const WireDiagramView = () => {
                             <Download size={16} />
                             Generate PDF
                         </button>
-                        <ExportWirePdfButton backendBaseUrl={process.env.REACT_APP_API_URL} getNodes={getNodes} getEdges={getEdges} />
+                        <ExportWirePdfButton getNodes={getNodes} getEdges={getEdges} />
                     </div>
                 </div>
                 <WireDiagramPdfModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} onGenerate={handleGeneratePdf} />

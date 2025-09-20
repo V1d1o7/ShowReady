@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { exportWirePdf } from '../../api/exportWirePdf';
+import { api } from '../../api/api'; // Correct import
 
-const ExportWirePdfButton = ({ backendBaseUrl, getNodes, getEdges }) => {
+const ExportWirePdfButton = ({ getNodes, getEdges }) => { // Removed backendBaseUrl prop
   const [isLoading, setIsLoading] = useState(false);
 
   const handleExport = async () => {
@@ -10,7 +10,6 @@ const ExportWirePdfButton = ({ backendBaseUrl, getNodes, getEdges }) => {
       if (!getNodes || !getEdges) {
         console.error("ExportWirePdfButton is missing required props: getNodes or getEdges.");
         alert("Error: Export function is not configured correctly.");
-        setIsLoading(false);
         return;
       }
 
@@ -35,7 +34,20 @@ const ExportWirePdfButton = ({ backendBaseUrl, getNodes, getEdges }) => {
         })),
       };
 
-      await exportWirePdf(apiGraph, { baseUrl: backendBaseUrl });
+      // Call the central api object and handle the blob for download
+      const blob = await api.exportWirePdf(apiGraph);
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      a.download = 'wire-export.pdf';
+
+      document.body.appendChild(a);
+      a.click();
+
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
 
     } catch (error) {
       console.error('Failed to export wire PDF:', error);

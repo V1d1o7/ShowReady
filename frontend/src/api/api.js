@@ -192,6 +192,12 @@ export const api = {
         body: JSON.stringify(payload),
     }).then(handleResponse),
 
+    exportWirePdf: async (graphData) => fetch('/api/export/wire.pdf', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(graphData),
+    }).then(handleResponse),
+
     // --- Loom Builder Endpoints ---
     // Loom (Container) Endpoints
     getLoomsForShow: async (showName) => fetch(`/api/shows/${showName}/looms`, { headers: await getAuthHeader() }).then(handleResponse),

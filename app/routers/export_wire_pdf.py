@@ -5,7 +5,10 @@ from fastapi.responses import Response
 from app.schemas.wire_export import Graph
 from app.services.wire_export_svg import build_pdf_bytes
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/api",
+    tags=["export"],
+)
 
 @router.post("/export/wire.pdf")
 async def export_wire_pdf(graph: Graph):
