@@ -19,6 +19,7 @@ import CustomDragLayer from '../components/CustomDragLayer';
 import { ReactFlowProvider } from 'reactflow';
 import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
+import ExportWirePdfButton from '../components/wire/ExportWirePdfButton';
 
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -524,6 +525,7 @@ const WireDiagramView = () => {
                             <Download size={16} />
                             Generate PDF
                         </button>
+                        <ExportWirePdfButton backendBaseUrl={process.env.REACT_APP_API_URL} />
                     </div>
                 </div>
                 <WireDiagramPdfModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} onGenerate={handleGeneratePdf} />

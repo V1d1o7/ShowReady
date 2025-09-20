@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from .api import router as api_router
+from .routers import export_wire_pdf as wire_export_router
 
 
 app = FastAPI(
@@ -43,6 +44,7 @@ app.add_middleware(
 
 # Include the API router BEFORE mounting the static files
 app.include_router(api_router, prefix="/api")
+app.include_router(wire_export_router)
 
 # --- Static Files Configuration ---
 # This will serve the index.html for any path that is not an api call
