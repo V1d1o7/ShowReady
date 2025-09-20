@@ -812,28 +812,22 @@ def generate_page_svg(page_data, all_nodes_map, all_edges, page_layout, total_wi
             abs_y = layout_info['y'] + rel_y
             port_positions[node_id][handle] = (abs_x, abs_y)
 
-    # 2. Draw Connection Lines and Labels (with debugging)
-    debug_group = ET.SubElement(root, 'g', {'transform': 'translate(10, 20)'})
-    debug_y = 0
-    
+    # 2. Draw Connection Lines and Labels
     current_page_node_ids = set(port_positions.keys())
-    for i, edge in enumerate(all_edges):
-        debug_y += 20
-        debug_text_element = ET.SubElement(debug_group, 'text', {'x': '0', 'y': str(debug_y), 'font-size': '10', 'fill': '#ff0000'})
-
+    for edge in all_edges:
         source_node_id = edge.source
         target_node_id = edge.target
         source_on_page = source_node_id in current_page_node_ids
-        
-        debug_info = [f"Edge {i}: {source_node_id}->{target_node_id}", f"OnPage: {source_on_page}"]
+        target_on_page = target_node_id in current_page_node_ids
 
-        if not source_on_page:
-            debug_text_element.text = " | ".join(debug_info)
+        if not source_on_page and not target_on_page:
             continue
 
         source_info = all_nodes_map.get(source_node_id)
         target_info = all_nodes_map.get(target_node_id)
-        
+        if not source_info or not target_info:
+            continue
+
         def get_port_from_handle(node_info, handle):
             try:
                 port_id_str = handle.split('-')[-1]
@@ -841,35 +835,30 @@ def generate_page_svg(page_data, all_nodes_map, all_edges, page_layout, total_wi
             except (IndexError, StopIteration, AttributeError):
                 return None
 
-        start_pos = port_positions[source_node_id].get(edge.sourceHandle)
-        target_port = get_port_from_handle(target_info, edge.targetHandle)
-        
-        debug_info.append(f"Handle: {edge.sourceHandle}")
-        debug_info.append(f"StartPos: {'Found' if start_pos else 'NOT FOUND'}")
-        debug_info.append(f"TargetPort: {'Found' if target_port else 'NOT FOUND'}")
-        debug_text_element.text = " | ".join(debug_info)
-
-        if start_pos and target_port:
-            label_text = f"{target_info['node'].data.label}.{target_port.label}"
-            target_on_page = target_node_id in current_page_node_ids
-            if not target_on_page:
-                label_text += f" (P.{target_info['page']})"
-            
-            is_output_handle = 'port-out' in edge.sourceHandle
-            if is_output_handle:
-                label_x, line_end_x = start_pos[0] + 20, start_pos[0] + 20
-            else: # port-in
-                label_x, line_end_x = start_pos[0] - 250 - 20, start_pos[0] - 20
-            
-            label_y = start_pos[1] - 28
-            label_group = create_connection_label_svg(label_text)
-            label_group.set('transform', f'translate({label_x}, {label_y})')
-            main_group.append(label_group)
-            ET.SubElement(main_group, 'line', {
-                'x1': str(start_pos[0]), 'y1': str(start_pos[1]),
-                'x2': str(line_end_x), 'y2': str(start_pos[1]),
-                'stroke': '#333', 'stroke-width': '1'
-            })
+        # Draw source-side label
+        if source_on_page:
+            start_pos = port_positions[source_node_id].get(edge.sourceHandle)
+            target_port = get_port_from_handle(target_info, edge.targetHandle)
+            if start_pos and target_port:
+                label_text = f"{target_info['node'].data.label}.{target_port.label}"
+                if not target_on_page:
+                    label_text += f" (P.{target_info['page']})"
+                
+                is_output_handle = 'port-out' in edge.sourceHandle
+                if is_output_handle:
+                    label_x, line_end_x = start_pos[0] + 20, start_pos[0] + 20
+                else: # port-in
+                    label_x, line_end_x = start_pos[0] - 250 - 20, start_pos[0] - 20
+                
+                label_y = start_pos[1] - 28
+                label_group = create_connection_label_svg(label_text)
+                label_group.set('transform', f'translate({label_x}, {label_y})')
+                main_group.append(label_group)
+                ET.SubElement(main_group, 'line', {
+                    'x1': str(start_pos[0]), 'y1': str(start_pos[1]),
+                    'x2': str(line_end_x), 'y2': str(start_pos[1]),
+                    'stroke': '#333', 'stroke-width': '1'
+                })
 
 
     return ET.tostring(root, encoding='unicode')
