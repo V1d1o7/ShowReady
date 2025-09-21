@@ -5,7 +5,9 @@
     <!-- Borders -->
     <rect x="0" y="0" width="1916" height="135" stroke="#000" fill="#fff"/>
     <rect x="240" y="0" width="1435" height="135" stroke="#000" fill="none"/>
+    <image href="{{SHOW_LOGO_HREF}}" x="5" y="5" width="230" height="125"/>
     <rect x="1675" y="0" width="241" height="135" stroke="#000" fill="#fff"/>
+    <image href="{{COMPANY_LOGO_HREF}}" x="1680" y="5" width="230" height="125"/>
     
     <!-- Main Grid -->
     <rect x="240" y="0" width="450" height="45" stroke="#000" fill="none"/>
