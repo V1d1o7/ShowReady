@@ -22,7 +22,7 @@ from .models import (
     Loom, LoomCreate, LoomUpdate, LoomWithCables,
     Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_wire_diagram_pdf, generate_racks_pdf, generate_loom_builder_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_racks_pdf, generate_loom_builder_pdf
 from .email_utils import create_email_html, send_email
 from typing import List, Dict, Optional
 
@@ -1662,77 +1662,6 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
     pdf_buffer = generate_case_label_pdf(payload.labels, logo_bytes, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
-@router.post("/pdf/wire-diagram", tags=["PDF Generation"], dependencies=[Depends(feature_check("wire_diagram"))])
-async def create_wire_diagram_pdf(
-    payload: WireDiagramPDFPayload,
-    user = Depends(get_user),
-    show_branding: bool = Depends(get_branding_visibility),
-    supabase: Client = Depends(get_supabase_client)
-):
-    """Generates a PDF for the wire diagram."""
-    try:
-        show_res = supabase.table('shows').select('*').eq('name', payload.show_name).eq('user_id', str(user.id)).maybe_single().execute()
-        if not show_res.data:
-            raise HTTPException(status_code=404, detail="Show not found or access denied.")
-
-        show_record = show_res.data
-        
-        # Get logo from data json
-        show_data_json = show_record.get('data', {})
-        show_info = show_data_json.get('info', {})
-        logo_path = show_info.get('logo_path')
-
-        show_logo_bytes = None
-        if logo_path:
-            try:
-                show_logo_bytes = supabase.storage.from_(BUCKET_NAME).download(logo_path)
-            except Exception as download_error:
-                print(f"Could not download show logo: {download_error}")
-
-        profile_res = supabase.table('profiles').select('first_name, last_name, production_role, production_role_other, company_name, company_logo_path').eq('id', str(user.id)).maybe_single().execute()
-        profile = profile_res.data or {}
-
-        company_logo_bytes = None
-        company_logo_path = profile.get('company_logo_path')
-        if company_logo_path:
-            try:
-                company_logo_bytes = supabase.storage.from_(BUCKET_NAME).download(company_logo_path)
-            except Exception as download_error:
-                print(f"Could not download company logo: {download_error}")
-
-        first_name = profile.get('first_name') or ''
-        last_name = profile.get('last_name') or ''
-        full_name = " ".join(part for part in [first_name, last_name] if part).strip()
-        if not full_name:
-            full_name = getattr(user, 'email', None) or ""
-
-        drawn_role = profile.get('production_role') or profile.get('production_role_other')
-
-        generated_at = datetime.utcnow()
-        title_block_info = {
-            "show_name": show_record.get('name'),
-            "show_logo": show_logo_bytes,
-            "company_logo": company_logo_bytes,
-            "company_name": profile.get('company_name'),
-            "production_manager": show_record.get('show_pm_name'),
-            "pm_email": show_record.get('show_pm_email'),
-            "technical_director": show_record.get('show_td_name'),
-            "td_email": show_record.get('show_td_email'),
-            "designer": show_record.get('show_designer_name'),
-            "designer_email": show_record.get('show_designer_email'),
-            "drawn_by": full_name,
-            "drawn_role": drawn_role,
-            "generated_at": generated_at,
-            "file_name": f"{payload.show_name} - Wire Diagram.pdf",
-            "sheet_title": payload.sheet_title or 'Wire Diagram',
-        }
-
-        pdf_buffer = generate_wire_diagram_pdf(payload, title_block_info=title_block_info, show_branding=show_branding)
-        return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
-    except Exception as e:
-        print(f"Error generating wire diagram PDF: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
 @router.post("/pdf/racks", tags=["PDF Generation"], dependencies=[Depends(feature_check("rack_builder"))])
 async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility)):

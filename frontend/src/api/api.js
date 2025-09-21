@@ -181,15 +181,16 @@ export const api = {
         body: JSON.stringify({ template_rack_id: rackId, show_name: showName, new_rack_name: newRackName }),
     }).then(handleResponse),
     getUnassignedEquipment: async (showName) => fetch(`/api/shows/${showName}/unassigned_equipment`, { headers: await getAuthHeader() }).then(handleResponse),
-    generateWireDiagramPdf: async (payload) => fetch('/api/pdf/wire-diagram', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(payload),
-    }).then(handleResponse),
     generateRacksPdf: async (payload) => fetch('/api/pdf/racks', {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify(payload),
+    }).then(handleResponse),
+
+    exportWirePdf: async (graphData, showName, titleBlockData) => fetch(`/api/export/wire.pdf?show_name=${encodeURIComponent(showName)}`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({graph: graphData, title_block: titleBlockData}),
     }).then(handleResponse),
 
     // --- Loom Builder Endpoints ---
@@ -296,10 +297,4 @@ export const api = {
 
     // --- Permissions Versioning ---
     getPermissionsVersion: async () => fetch('/api/permissions/version', { headers: await getAuthHeader() }).then(handleResponse),
-
-    exportSimplifiedPdf: async (graphData) => fetch('/api/export/wire.pdf', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(graphData),
-    }).then(handleResponse),
 };

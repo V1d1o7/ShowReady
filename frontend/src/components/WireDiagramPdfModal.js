@@ -3,16 +3,17 @@ import Modal from './Modal';
 
 const WireDiagramPdfModal = ({ isOpen, onClose, onGenerate }) => {
     const [pageSize, setPageSize] = useState('Letter');
+
+    // Note: The backend expects "Letter", "A4", etc. The old list was different.
     const availableSizes = ['Letter', 'A4', 'Legal', 'Tabloid'];
 
     const handleGenerateClick = () => {
-        // The modal now only cares about page size
-        onGenerate({ pageSize });
+        onGenerate({ pageSize, exportType: 'simplified' });
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Generate Wire Diagram PDF" maxWidth="max-w-md">
-            <div className="space-y-4">
+            <div className="space-y-6">
                 <div>
                     <label htmlFor="page-size" className="block text-sm font-medium text-gray-300">
                         Page Size
