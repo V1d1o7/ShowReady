@@ -25,12 +25,11 @@ PRINT_W_PX = PAGE_W_PX - (2 * MARGIN_PX)
 PRINT_H_PX = PAGE_H_PX - (2 * MARGIN_PX)
 
 # --- Template-based constants ---
-# Scaled down to increase density
-SCALE_FACTOR = 0.7
+SCALE_FACTOR = 0.65
 DEV_W_PX = 240.564 * SCALE_FACTOR
-LAB_H_MM = 3.5 # Narrower
+LAB_H_MM = 3.5
 LINE_LEN_MM = 8
-GAP_MM = 2 # Closer
+GAP_MM = 1.5
 BLOCK_V_SP_MM = 15
 
 LAB_H_PX = mm_to_px(LAB_H_MM)
@@ -50,27 +49,48 @@ CONNECTION_LABEL_COLOR = "#f59e0b"
 # Fonts & Layout
 FONT_FAMILY = "'Space Mono', 'Ubuntu Mono', monospace"
 TITLE_FONT_SIZE = 12 * SCALE_FACTOR
-META_FONT_SIZE = 9 * SCALE_FACTOR
-PORT_FONT_SIZE = 9 * SCALE_FACTOR
-PORT_LINE_HEIGHT = 18 * SCALE_FACTOR # Increased spacing between ports
-TITLE_AREA_HEIGHT = 15 * SCALE_FACTOR # Title closer to box
-HEADER_INTERNAL_HEIGHT = 45 * SCALE_FACTOR # Reduced internal header
-PORT_LIST_PADDING = 8 * SCALE_FACTOR # Reduced padding
+META_FONT_SIZE = 8 * SCALE_FACTOR
+PORT_FONT_SIZE = 8 * SCALE_FACTOR
+PORT_LINE_HEIGHT = 18 * SCALE_FACTOR
+TITLE_AREA_HEIGHT = 12 * SCALE_FACTOR
+HEADER_INTERNAL_HEIGHT = 45 * SCALE_FACTOR
+PORT_LIST_PADDING = 12 * SCALE_FACTOR
 
 # --- Helper Functions ---
-def _get_port_label(node: Node, handle_id: str) -> str:
-    port_name = handle_id or "Port"
-    if handle_id and node.ports and handle_id in node.ports and node.ports[handle_id].name:
-        port_name = node.ports[handle_id].name
-    return f"{escape(node.deviceNomenclature)}.{escape(port_name)}"
+def _get_connection_label(edge: Edge, is_for_source: bool, graph: Graph) -> str:
+    nodes_by_id = {node.id: node for node in graph.nodes}
+
+    if is_for_source:
+        remote_node_id = edge.target
+        remote_handle_id = edge.targetHandle
+    else:
+        remote_node_id = edge.source
+        remote_handle_id = edge.sourceHandle
+
+    remote_node = nodes_by_id.get(remote_node_id)
+    if not remote_node:
+        return "Unknown.Device"
+
+    port_name = remote_handle_id
+    if remote_handle_id and remote_node.ports and remote_handle_id in remote_node.ports:
+        port_name = remote_node.ports[remote_handle_id].name or port_name
+
+    return f"{escape(remote_node.deviceNomenclature)}.{escape(port_name)}"
 
 def _estimate_text_width(text: str, font_size: float) -> float:
-    return len(text) * font_size * 0.6 + 15 # Increased padding
+    return len(text) * font_size * 0.55 + 15
 
-def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_outputs: List[Edge], y_offset: float) -> Tuple[str, float]:
+def _generate_device_svg(node: Node, graph: Graph, y_offset: float) -> Tuple[str, float]:
+    connected_inputs = [edge for edge in graph.edges if edge.target == node.id]
+    connected_outputs = [edge for edge in graph.edges if edge.source == node.id]
+
     all_input_ports = sorted([p for p in node.ports.items() if 'in' in p[0]], key=lambda p: p[1].name or '')
     all_output_ports = sorted([p for p in node.ports.items() if 'out' in p[0]], key=lambda p: p[1].name or '')
-    max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
+    all_io_ports = sorted([p for p in node.ports.items() if 'io' in p[0]], key=lambda p: p[1].name or '')
+
+    input_ports_with_io = all_input_ports + all_io_ports
+    output_ports_with_io = all_output_ports + all_io_ports
+    max_ports_on_a_side = max(len(input_ports_with_io), len(output_ports_with_io))
 
     ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
     dynamic_dev_h = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING)
@@ -93,13 +113,13 @@ def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_out
     ports_y_start = box_y_offset + HEADER_INTERNAL_HEIGHT + PORT_LIST_PADDING
     port_y_positions = {}
 
-    for i, (handle_id, port) in enumerate(all_input_ports):
+    for i, (handle_id, port) in enumerate(input_ports_with_io):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[handle_id] = y_offset + y_pos
         svg += f'<polygon class="arrow-in" points="{2},{y_pos} {7},{y_pos-4} {7},{y_pos+4}"/>'
         svg += f'<text class="t-port" x="12" y="{y_pos}" dominant-baseline="middle">{escape(port.name or "")}</text>'
 
-    for i, (handle_id, port) in enumerate(all_output_ports):
+    for i, (handle_id, port) in enumerate(output_ports_with_io):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[handle_id] = y_offset + y_pos
         svg += f'<polygon class="arrow-out" points="{DEV_W_PX-2},{y_pos} {DEV_W_PX-7},{y_pos-4} {DEV_W_PX-7},{y_pos+4}"/>'
@@ -111,7 +131,7 @@ def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_out
     for edge in connected_inputs:
         y_mid = port_y_positions.get(edge.targetHandle)
         if y_mid:
-            label_text = _get_port_label(node, edge.targetHandle)
+            label_text = _get_connection_label(edge, False, graph)
             text_width = _estimate_text_width(label_text, PORT_FONT_SIZE)
             rect_x = left_label_x_base - text_width - LINE_LEN_PX
             svg += f'<line class="connector" x1="{left_label_x_base - LINE_LEN_PX}" y1="{y_mid}" x2="{center_x}" y2="{y_mid}"/>'
@@ -122,7 +142,7 @@ def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_out
     for edge in connected_outputs:
         y_mid = port_y_positions.get(edge.sourceHandle)
         if y_mid:
-            label_text = _get_port_label(node, edge.sourceHandle)
+            label_text = _get_connection_label(edge, True, graph)
             text_width = _estimate_text_width(label_text, PORT_FONT_SIZE)
             svg += f'<line class="connector" x1="{center_x + DEV_W_PX}" y1="{y_mid}" x2="{right_label_x_base + LINE_LEN_PX}" y2="{y_mid}"/>'
             svg += f'<rect class="label-box" x="{right_label_x_base + LINE_LEN_PX}" y="{y_mid - LAB_H_PX/2}" width="{text_width}" height="{LAB_H_PX}"/>'
@@ -141,12 +161,12 @@ def _generate_svg_page(content: str) -> str:
           .label-box {{ fill: {CONNECTION_LABEL_COLOR}; stroke: none; }}
           .arrow-in {{ fill: {INPUT_ARROW_COLOR}; }}
           .arrow-out {{ fill: {OUTPUT_ARROW_COLOR}; }}
-          .t-title {{ font: 700 {TITLE_FONT_SIZE}pt '{FONT_FAMILY}',monospace; fill: {TITLE_COLOR}; text-anchor: middle; }}
-          .t-meta  {{ font: 400 {META_FONT_SIZE}pt  '{FONT_FAMILY}',monospace; fill: #000; text-anchor: middle; }}
+          .t-title {{ font: 700 {TITLE_FONT_SIZE}pt {FONT_FAMILY},monospace; fill: {TITLE_COLOR}; text-anchor: middle; }}
+          .t-meta  {{ font: 400 {META_FONT_SIZE}pt  {FONT_FAMILY},monospace; fill: #000; text-anchor: middle; }}
           .t-dim   {{ fill: {GREY_COLOR}; }}
-          .t-ip    {{ font: 700 {META_FONT_SIZE}pt  '{FONT_FAMILY}',monospace; fill: {IP_ADDRESS_COLOR}; text-anchor: middle; }}
-          .t-port  {{ font: 400 {PORT_FONT_SIZE}pt  '{FONT_FAMILY}',monospace; fill: #000; }}
-          .label-text {{ font: 400 {PORT_FONT_SIZE-1}pt  '{FONT_FAMILY}',monospace; fill: #000; text-anchor: middle; dominant-baseline: middle; }}
+          .t-ip    {{ font: 700 {META_FONT_SIZE}pt  {FONT_FAMILY},monospace; fill: {IP_ADDRESS_COLOR}; text-anchor: middle; }}
+          .t-port  {{ font: 400 {PORT_FONT_SIZE}pt  {FONT_FAMILY},monospace; fill: #000; }}
+          .label-text {{ font: 400 {PORT_FONT_SIZE-1}pt  {FONT_FAMILY},monospace; fill: #000; text-anchor: middle; dominant-baseline: middle; }}
         </style>
     </defs>
     <g transform="translate({MARGIN_PX}, {MARGIN_PX})">
@@ -159,14 +179,6 @@ def build_pdf_bytes(graph: Graph) -> bytes:
     if not graph.nodes:
         return b""
 
-    node_to_inputs: Dict[str, List[Edge]] = {node.id: [] for node in graph.nodes}
-    node_to_outputs: Dict[str, List[Edge]] = {node.id: [] for node in graph.nodes}
-    for edge in graph.edges:
-        if edge.target in node_to_inputs:
-            node_to_inputs[edge.target].append(edge)
-        if edge.source in node_to_outputs:
-            node_to_outputs[edge.source].append(edge)
-
     pages_content = []
     current_page_svg = ""
     y_cursor = 0
@@ -174,7 +186,8 @@ def build_pdf_bytes(graph: Graph) -> bytes:
     for node in graph.nodes:
         all_input_ports = [p for p in node.ports.items() if 'in' in p[0]]
         all_output_ports = [p for p in node.ports.items() if 'out' in p[0]]
-        max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
+        all_io_ports = [p for p in node.ports.items() if 'io' in p[0]]
+        max_ports_on_a_side = max(len(all_input_ports) + len(all_io_ports), len(all_output_ports) + len(all_io_ports))
         ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
         total_block_height = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING) + TITLE_AREA_HEIGHT
 
@@ -183,10 +196,7 @@ def build_pdf_bytes(graph: Graph) -> bytes:
             current_page_svg = ""
             y_cursor = 0
 
-        inputs = node_to_inputs.get(node.id, [])
-        outputs = node_to_outputs.get(node.id, [])
-
-        device_svg, actual_height = _generate_device_svg(node, inputs, outputs, y_cursor)
+        device_svg, actual_height = _generate_device_svg(node, graph, y_cursor)
         current_page_svg += device_svg
 
         y_cursor += actual_height + BLOCK_V_SP_PX
