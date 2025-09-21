@@ -8,8 +8,8 @@ router = APIRouter(
     tags=["Simplified PDF Export"],
 )
 
-@router.post("/export/simplified_wire.pdf")
-async def export_simplified_wire_pdf(graph: Graph):
+@router.post("/export/wire.pdf")
+async def export_wire_pdf(graph: Graph):
     if not graph.nodes:
         raise HTTPException(status_code=400, detail="Cannot export an empty graph.")
     try:

@@ -25,31 +25,40 @@ PORT_LINE_HEIGHT, TITLE_AREA_HEIGHT, HEADER_INTERNAL_HEIGHT, PORT_LIST_PADDING =
 
 def _get_connection_label(edge, is_source, graph):
     nodes_by_id = {node.id: node for node in graph.nodes}
-    remote_node_id = edge.target if is_for_source else edge.source
-    remote_handle_id = edge.targetHandle if is_for_source else edge.sourceHandle
+    # Correctly determine the remote node and handle based on the connection direction
+    remote_node_id = edge.target if is_source else edge.source
+    remote_handle_id = edge.targetHandle if is_source else edge.sourceHandle
+
     remote_node = nodes_by_id.get(remote_node_id)
-    if not remote_node: return "Unknown.Device"
-    port_name = next((p.name for h, p in remote_node.ports.items() if h == remote_handle_id), remote_handle_id)
+    if not remote_node:
+        return "Unknown.Device"
+
+    # Find the port name/label from the remote node's port definitions
+    port_info = remote_node.ports.get(remote_handle_id)
+    port_name = port_info.name if port_info and port_info.name else remote_handle_id
+
     return f"{escape(remote_node.deviceNomenclature)}.{escape(port_name or '')}"
 
 def _estimate_text_width(text, font_size): return len(text) * font_size * 0.6 + 20
 
 def _generate_device_svg(node, graph, x_offset, y_offset):
     all_ports = node.ports.items()
-    input_ports = sorted([p for p in all_ports if 'in' in p[0]], key=lambda p: p[1].name or '')
-    output_ports = sorted([p for p in all_ports if 'out' in p[0]], key=lambda p: p[1].name or '')
-    io_ports = sorted([p for p in all_ports if 'io' in p[0]], key=lambda p: p[1].name or '')
+    # Separate ports by type
+    input_ports = sorted([p for p in all_ports if 'in' in p[0].lower()], key=lambda p: p[1].name or p[0])
+    output_ports = sorted([p for p in all_ports if 'out' in p[0].lower()], key=lambda p: p[1].name or p[0])
+    io_ports = sorted([p for p in all_ports if 'io' in p[0].lower()], key=lambda p: p[1].name or p[0])
 
-    ports_on_left = input_ports + io_ports
-    ports_on_right = output_ports + io_ports
-    max_ports = max(len(ports_on_left), len(ports_on_right))
-
-    ports_list_height = max_ports * PORT_LINE_HEIGHT
-    dynamic_dev_h = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING)
+    # Calculate layout metrics
+    num_in_out_rows = max(len(input_ports), len(output_ports))
+    total_port_rows = num_in_out_rows + len(io_ports)
+    ports_list_height = total_port_rows * PORT_LINE_HEIGHT if total_port_rows > 0 else 0
+    dynamic_dev_h = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING if total_port_rows > 0 else 0)
     total_block_height = dynamic_dev_h + TITLE_AREA_HEIGHT
     dev_cx = x_offset + DEV_W_PX / 2
 
+    # Start SVG group
     svg = f'<g>'
+    # Device Header
     svg += f'<text class="t-title" x="{dev_cx}" y="{y_offset}">{escape(node.deviceNomenclature)}</text>'
     box_y = y_offset + TITLE_AREA_HEIGHT
     svg += f'<rect class="device" x="{x_offset}" y="{box_y}" width="{DEV_W_PX}" height="{dynamic_dev_h}"/>'
@@ -59,18 +68,34 @@ def _generate_device_svg(node, graph, x_offset, y_offset):
 
     ports_y_start = box_y + HEADER_INTERNAL_HEIGHT + PORT_LIST_PADDING
     port_y_positions = {}
-    for i, (h, p) in enumerate(ports_on_left):
+
+    # 1. Draw Input Ports (Left)
+    for i, (h, p) in enumerate(input_ports):
         y = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[h] = y
         svg += f'<polygon class="arrow-in" points="{x_offset+2},{y} {x_offset+8},{y-4} {x_offset+8},{y+4}"/>'
         svg += f'<text class="t-port" x="{x_offset+14}" y="{y}">{escape(p.name or "")}</text>'
-    for i, (h, p) in enumerate(ports_on_right):
+
+    # 2. Draw Output Ports (Right)
+    for i, (h, p) in enumerate(output_ports):
         y = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[h] = y
         svg += f'<polygon class="arrow-out" points="{x_offset+DEV_W_PX-2},{y} {x_offset+DEV_W_PX-8},{y-4} {x_offset+DEV_W_PX-8},{y+4}"/>'
         svg += f'<text class="t-port" x="{x_offset+DEV_W_PX-14}" y="{y}" text-anchor="end">{escape(p.name or "")}</text>'
 
-    for edge in [e for e in graph.edges if e.target == node.id]:
+    # 3. Draw IO Ports (Center)
+    io_y_start = ports_y_start + (num_in_out_rows * PORT_LINE_HEIGHT)
+    for i, (h, p) in enumerate(io_ports):
+        y = io_y_start + (i * PORT_LINE_HEIGHT)
+        port_y_positions[h] = y
+        # Centered text
+        svg += f'<text class="t-port" x="{dev_cx}" y="{y}" text-anchor="middle">{escape(p.name or "")}</text>'
+        # Arrows on both sides
+        svg += f'<polygon class="arrow-in" points="{x_offset+2},{y} {x_offset+8},{y-4} {x_offset+8},{y+4}"/>'
+        svg += f'<polygon class="arrow-out" points="{x_offset+DEV_W_PX-2},{y} {x_offset+DEV_W_PX-8},{y-4} {x_offset+DEV_W_PX-8},{y+4}"/>'
+
+    # 4. Draw Connection Labels
+    for edge in [e for e in graph.edges if e.target == node.id]: # Incoming connections
         y_mid = port_y_positions.get(edge.targetHandle)
         if y_mid:
             label_text = _get_connection_label(edge, False, graph)
@@ -79,7 +104,8 @@ def _generate_device_svg(node, graph, x_offset, y_offset):
             svg += f'<line class="connector" x1="{rect_x + text_w}" y1="{y_mid}" x2="{x_offset}" y2="{y_mid}"/>'
             svg += f'<rect class="label-box" x="{rect_x}" y="{y_mid - LAB_H_PX/2}" width="{text_w}" height="{LAB_H_PX}"/>'
             svg += f'<text class="label-text" x="{rect_x + text_w/2}" y="{y_mid}">{label_text}</text>'
-    for edge in [e for e in graph.edges if e.source == node.id]:
+
+    for edge in [e for e in graph.edges if e.source == node.id]: # Outgoing connections
         y_mid = port_y_positions.get(edge.sourceHandle)
         if y_mid:
             label_text = _get_connection_label(edge, True, graph)

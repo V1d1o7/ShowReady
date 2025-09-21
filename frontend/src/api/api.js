@@ -297,7 +297,7 @@ export const api = {
     // --- Permissions Versioning ---
     getPermissionsVersion: async () => fetch('/api/permissions/version', { headers: await getAuthHeader() }).then(handleResponse),
 
-    exportSimplifiedPdf: async (graphData) => fetch('/api/export/simplified_wire.pdf', {
+    exportSimplifiedPdf: async (graphData) => fetch('/api/export/wire.pdf', {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify(graphData),
