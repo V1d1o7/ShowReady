@@ -10,6 +10,3 @@ google-auth-oauthlib
 cryptography
 reportlab
 python-multipart
-cairosvg
-pypdf
-pytest

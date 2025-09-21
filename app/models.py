@@ -372,7 +372,6 @@ class WireDiagramPDFPayload(BaseModel):
     page_size: str = "letter"
     show_name: str
     sheet_title: Optional[str] = None
-    layout_type: Optional[str] = 'full'
 
 # --- Rack PDF Generation Models ---
 

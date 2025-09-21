@@ -398,11 +398,10 @@ const WireDiagramView = () => {
     }, [getNodes, getEdges, setNodes, setEdges]);
 
     const handleGeneratePdf = async ({ pageSize, exportType }) => {
-        const nodes = getNodes();
-        const edges = getEdges();
-
         let payload;
         if (exportType === 'simplified') {
+            const nodes = getNodes();
+            const edges = getEdges();
             payload = {
                 nodes: nodes.map(node => ({
                     id: node.id,
@@ -414,55 +413,50 @@ const WireDiagramView = () => {
                     ports: (node.data.equipment_templates?.ports || []).reduce((acc, port) => {
                         if (port.type === 'input') acc[`port-in-${port.id}`] = { name: port.label };
                         else if (port.type === 'output') acc[`port-out-${port.id}`] = { name: port.label };
-                        else if (port.type === 'io') {
-                            acc[`port-in-${port.id}`] = { name: port.label };
-                            acc[`port-out-${port.id}`] = { name: port.label };
-                        }
+                        else if (port.type === 'io') acc[`port-io-${port.id}`] = { name: port.label };
                         return acc;
                     }, {}),
                 })),
                 edges: edges,
-                page_size: pageSize,
-                show_name: showName,
-                sheet_title: 'Simplified Wire Diagram',
-                layout_type: 'simplified',
-                 //... other title block info
             };
         } else {
-            const nodesOnPages = Array.from({ length: numTabs }, (_, i) =>
-                nodes.filter(n => n.data.page_number === i + 1)
-            );
+            const nodes = getNodes();
+            const edges = getEdges();
             payload = {
-                pages: nodesOnPages.map((pageNodes, i) => ({
-                    page_number: i + 1,
-                    nodes: pageNodes,
-                    edges: edges.filter(e => new Set(pageNodes.map(n => n.id)).has(e.source) || new Set(pageNodes.map(n => n.id)).has(e.target)),
-                })),
-                page_size: pageSize,
-                show_name: showName,
-                sheet_title: 'Wire Diagram',
-                layout_type: 'full',
-                //... other title block info
+                pages: Array.from({ length: numTabs }, (_, i) => {
+                    const pageNodes = nodes.filter(n => n.data.page_number === i + 1);
+                    const nodeIds = new Set(pageNodes.map(n => n.id));
+                    const pageEdges = edges.filter(e => nodeIds.has(e.source) || nodeIds.has(e.target));
+                    return {
+                        page_number: i + 1,
+                        nodes: pageNodes,
+                        edges: pageEdges,
+                    };
+                }),
             };
         }
 
-        // Add common title block info
+        // Add common metadata to the payload
+        payload.page_size = pageSize;
+        payload.show_name = showName;
+        payload.sheet_title = exportType === 'simplified' ? 'Simplified Wire Diagram' : 'Wire Diagram';
+        payload.layout_type = exportType;
         payload.show_pm_name = showData.info.show_pm_name;
         payload.show_td_name = showData.info.show_td_name;
         payload.show_designer_name = showData.info.show_designer_name;
         payload.date_file_generated = new Date().toLocaleDateString();
-        payload.file_name = `${showName}-wire-diagram.pdf`;
         payload.users_full_name = profile ? `${profile.first_name} ${profile.last_name}` : '';
         payload.users_production_role = profile ? profile.production_role : '';
         payload.company_logo_path = profile ? profile.company_logo_path : null;
         payload.show_logo_path = showData.info.logo_path;
+        payload.file_name = `${showName}-${exportType}-wire-diagram.pdf`;
 
         try {
             const pdfBlob = await api.generateWireDiagramPdf(payload);
             const url = window.URL.createObjectURL(pdfBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${showName}-${exportType}-wire-diagram.pdf`;
+            a.download = payload.file_name;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);

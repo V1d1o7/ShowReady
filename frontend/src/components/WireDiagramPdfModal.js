@@ -5,7 +5,6 @@ const WireDiagramPdfModal = ({ isOpen, onClose, onGenerate }) => {
     const [pageSize, setPageSize] = useState('Letter');
     const [exportType, setExportType] = useState('full'); // 'full' or 'simplified'
 
-    // Note: The backend expects "Letter", "A4", etc. The old list was different.
     const availableSizes = ['Letter', 'A4', 'Legal', 'Tabloid'];
 
     const handleGenerateClick = () => {
@@ -18,7 +17,7 @@ const WireDiagramPdfModal = ({ isOpen, onClose, onGenerate }) => {
                 <div>
                     <label className="block text-sm font-medium text-gray-300">Export Type</label>
                     <fieldset className="mt-2">
-                        <legend className="sr-only">Notification method</legend>
+                        <legend className="sr-only">Export Type</legend>
                         <div className="space-y-2">
                             <div className="flex items-center">
                                 <input id="export-full" name="export-type" type="radio" value="full" checked={exportType === 'full'} onChange={() => setExportType('full')} className="h-4 w-4 text-amber-600 border-gray-500 focus:ring-amber-500"/>
