@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, List
+import uuid
 
 class PortDef(BaseModel):
     name: Optional[str] = None
@@ -23,7 +24,6 @@ class Graph(BaseModel):
     nodes: List[Node]
     edges: List[Edge]
     page_size: Optional[str] = "Letter"
-    layout_type: Optional[str] = 'simplified' # To distinguish from the other payload
     # Add title block fields
     show_name: str
     sheet_title: Optional[str] = None

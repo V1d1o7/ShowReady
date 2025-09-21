@@ -3,34 +3,16 @@ import Modal from './Modal';
 
 const WireDiagramPdfModal = ({ isOpen, onClose, onGenerate }) => {
     const [pageSize, setPageSize] = useState('Letter');
-    const [exportType, setExportType] = useState('full'); // 'full' or 'simplified'
-
     const availableSizes = ['Letter', 'A4', 'Legal', 'Tabloid'];
 
     const handleGenerateClick = () => {
-        onGenerate({ pageSize, exportType });
+        // The modal now only cares about page size
+        onGenerate({ pageSize });
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Generate Wire Diagram PDF" maxWidth="max-w-md">
-            <div className="space-y-6">
-                <div>
-                    <label className="block text-sm font-medium text-gray-300">Export Type</label>
-                    <fieldset className="mt-2">
-                        <legend className="sr-only">Export Type</legend>
-                        <div className="space-y-2">
-                            <div className="flex items-center">
-                                <input id="export-full" name="export-type" type="radio" value="full" checked={exportType === 'full'} onChange={() => setExportType('full')} className="h-4 w-4 text-amber-600 border-gray-500 focus:ring-amber-500"/>
-                                <label htmlFor="export-full" className="ml-3 block text-sm font-medium text-gray-300">Full Diagram (Original)</label>
-                            </div>
-                            <div className="flex items-center">
-                                <input id="export-simplified" name="export-type" type="radio" value="simplified" checked={exportType === 'simplified'} onChange={() => setExportType('simplified')} className="h-4 w-4 text-amber-600 border-gray-500 focus:ring-amber-500"/>
-                                <label htmlFor="export-simplified" className="ml-3 block text-sm font-medium text-gray-300">Simplified Port List</label>
-                            </div>
-                        </div>
-                    </fieldset>
-                </div>
-
+            <div className="space-y-4">
                 <div>
                     <label htmlFor="page-size" className="block text-sm font-medium text-gray-300">
                         Page Size

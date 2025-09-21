@@ -397,66 +397,44 @@ const WireDiagramView = () => {
         });
     }, [getNodes, getEdges, setNodes, setEdges]);
 
-    const handleGeneratePdf = async ({ pageSize, exportType }) => {
-        let payload;
-        if (exportType === 'simplified') {
-            const nodes = getNodes();
-            const edges = getEdges();
-            payload = {
-                nodes: nodes.map(node => ({
-                    id: node.id,
-                    deviceNomenclature: node.data.instance_name || 'N/A',
-                    modelNumber: node.data.equipment_templates?.model_number || 'N/A',
-                    rackName: node.data.rack_name || 'Unracked',
-                    deviceRu: node.data.ru_position || 0,
-                    ipAddress: node.data.ip_address || '',
-                    ports: (node.data.equipment_templates?.ports || []).reduce((acc, port) => {
-                        if (port.type === 'input') acc[`port-in-${port.id}`] = { name: port.label };
-                        else if (port.type === 'output') acc[`port-out-${port.id}`] = { name: port.label };
-                        else if (port.type === 'io') acc[`port-io-${port.id}`] = { name: port.label };
-                        return acc;
-                    }, {}),
-                })),
-                edges: edges,
-            };
-        } else {
-            const nodes = getNodes();
-            const edges = getEdges();
-            payload = {
-                pages: Array.from({ length: numTabs }, (_, i) => {
-                    const pageNodes = nodes.filter(n => n.data.page_number === i + 1);
-                    const nodeIds = new Set(pageNodes.map(n => n.id));
-                    const pageEdges = edges.filter(e => nodeIds.has(e.source) || nodeIds.has(e.target));
-                    return {
-                        page_number: i + 1,
-                        nodes: pageNodes,
-                        edges: pageEdges,
-                    };
-                }),
-            };
-        }
-
-        // Add common metadata to the payload
-        payload.page_size = pageSize;
-        payload.show_name = showName;
-        payload.sheet_title = exportType === 'simplified' ? 'Simplified Wire Diagram' : 'Wire Diagram';
-        payload.layout_type = exportType;
-        payload.show_pm_name = showData.info.show_pm_name;
-        payload.show_td_name = showData.info.show_td_name;
-        payload.show_designer_name = showData.info.show_designer_name;
-        payload.date_file_generated = new Date().toLocaleDateString();
-        payload.users_full_name = profile ? `${profile.first_name} ${profile.last_name}` : '';
-        payload.users_production_role = profile ? profile.production_role : '';
-        payload.company_logo_path = profile ? profile.company_logo_path : null;
-        payload.show_logo_path = showData.info.logo_path;
-        payload.file_name = `${showName}-${exportType}-wire-diagram.pdf`;
+    const handleGeneratePdf = async ({ pageSize }) => {
+        const nodes = getNodes();
+        const edges = getEdges();
+        const payload = {
+            nodes: nodes.map(node => ({
+                id: node.id,
+                deviceNomenclature: node.data.instance_name || 'N/A',
+                modelNumber: node.data.equipment_templates?.model_number || 'N/A',
+                rackName: node.data.rack_name || 'Unracked',
+                deviceRu: node.data.ru_position || 0,
+                ipAddress: node.data.ip_address || '',
+                ports: (node.data.equipment_templates?.ports || []).reduce((acc, port) => {
+                    if (port.type === 'input') acc[`port-in-${port.id}`] = { name: port.label };
+                    else if (port.type === 'output') acc[`port-out-${port.id}`] = { name: port.label };
+                    else if (port.type === 'io') acc[`port-io-${port.id}`] = { name: port.label };
+                    return acc;
+                }, {}),
+            })),
+            edges: edges,
+            page_size: pageSize,
+            show_name: showName,
+            sheet_title: 'Simplified Wire Diagram',
+            show_pm_name: showData.info.show_pm_name,
+            show_td_name: showData.info.show_td_name,
+            show_designer_name: showData.info.show_designer_name,
+            date_file_generated: new Date().toLocaleDateString(),
+            users_full_name: profile ? `${profile.first_name} ${profile.last_name}` : '',
+            users_production_role: profile ? profile.production_role : '',
+            company_logo_path: profile ? profile.company_logo_path : null,
+            show_logo_path: showData.info.logo_path,
+        };
 
         try {
-            const pdfBlob = await api.generateWireDiagramPdf(payload);
+            const pdfBlob = await api.exportSimplifiedPdf(payload);
             const url = window.URL.createObjectURL(pdfBlob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = payload.file_name;
+            a.download = `${showName}-simplified-wire-diagram.pdf`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
