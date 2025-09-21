@@ -176,7 +176,7 @@ def build_pdf_bytes(graph: Graph) -> bytes:
         all_output_ports = [p for p in node.ports.items() if 'out' in p[0]]
         max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
         ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
-        total_block_height = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING) + TITLE_HEIGHT
+        total_block_height = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING) + TITLE_AREA_HEIGHT
 
         if y_cursor > 0 and y_cursor + total_block_height > PRINT_H_PX:
             pages_content.append(current_page_svg)
