@@ -19,7 +19,6 @@ import CustomDragLayer from '../components/CustomDragLayer';
 import { ReactFlowProvider } from 'reactflow';
 import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
-import ExportWirePdfButton from '../components/wire/ExportWirePdfButton';
 
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
@@ -112,7 +111,6 @@ const WireDiagramView = () => {
                 type: 'device',
                 position: { x: item.x_pos || 0, y: item.y_pos || 0 },
                 data: { ...item, label: item.instance_name },
-                // The visibility is now controlled by a separate useEffect
             }));
             
             setNodes(initialNodes);
@@ -152,7 +150,6 @@ const WireDiagramView = () => {
             setIsLoading(false);
         }
 
-        // Fit the view to the loaded nodes after a short delay to allow for rendering.
         setTimeout(() => {
             fitView({ padding: 0.1 });
         }, 100);
@@ -166,7 +163,6 @@ const WireDiagramView = () => {
             setUnassignedEquipment(data);
         } catch (err) {
             console.error("Failed to fetch unassigned equipment:", err);
-            // Optionally set an error state here
         }
     }, [showName]);
 
@@ -209,7 +205,6 @@ const WireDiagramView = () => {
                         const targetPage = nodePageMap.get(conn.destination_device_id.toString());
                         
                         if (sourcePage === undefined || targetPage === undefined) {
-                            console.log(`Skipping edge for connection ${conn.id} because one of its nodes is not on the canvas.`);
                             return null;
                         }
 
@@ -354,7 +349,6 @@ const WireDiagramView = () => {
             page_number: activeTab,
         }).catch(err => {
             console.error("Failed to save placed equipment:", err);
-            // Simple rollback for now
             setNodes((nds) => nds.filter(n => n.id !== newNode.id));
             setUnassignedEquipment(current => [...current, equipmentData]);
             alert("Failed to save equipment position. It has been returned to the library.");
@@ -368,17 +362,13 @@ const WireDiagramView = () => {
         for (const change of changes) {
             if (change.type === 'remove') {
                 const nodeId = change.id;
-
-                // Fire and forget background API calls
                 const connectedEdges = currentEdges.filter(e => e.source === nodeId || e.target === nodeId);
                 if (connectedEdges.length > 0) {
                     const deletionPromises = connectedEdges.map(edge => api.deleteConnection(edge.data.db_id));
                     Promise.all(deletionPromises).catch(err => {
                         console.error("Failed to delete one or more connections for node:", nodeId, err);
-                        // No rollback, as it's complex. Just log the error.
                     });
                 }
-                
                 api.updateEquipmentInstance(nodeId, {
                     page_number: null,
                     x_pos: null,
@@ -386,16 +376,12 @@ const WireDiagramView = () => {
                 }).catch(err => {
                     console.error("Failed to unassign equipment:", nodeId, err);
                 });
-
-                // Optimistic UI update for unassigned equipment list
                 const nodeToRemove = currentNodes.find(n => n.id === nodeId);
                 if (nodeToRemove) {
                     setUnassignedEquipment(current => [...current, nodeToRemove.data]);
                 }
             }
         }
-        
-        // Let React Flow handle the node removal from the canvas
         onNodesChange(changes);
     }, [onNodesChange, getEdges, getNodes, setUnassignedEquipment]);
 
@@ -412,123 +398,80 @@ const WireDiagramView = () => {
     }, [getNodes, getEdges, setNodes, setEdges]);
 
     const handleGeneratePdf = async ({ pageSize, exportType }) => {
+        const nodes = getNodes();
+        const edges = getEdges();
+
+        let payload;
         if (exportType === 'simplified') {
-            try {
-                const nodes = getNodes();
-                const edges = getEdges();
-                const apiGraph = {
-                    nodes: nodes.map(node => {
-                        const portsData = node.data?.equipment_templates?.ports || [];
-                        const portsDict = portsData.reduce((acc, port) => {
-                            if (port.type === 'input') {
-                                acc[`port-in-${port.id}`] = { name: port.label };
-                            } else if (port.type === 'output') {
-                                acc[`port-out-${port.id}`] = { name: port.label };
-                            } else if (port.type === 'io') {
-                                acc[`port-in-${port.id}`] = { name: port.label };
-                                acc[`port-out-${port.id}`] = { name: port.label };
-                            }
-                            return acc;
-                        }, {});
-                        return {
-                            id: node.id,
-                            deviceNomenclature: node.data.instance_name || 'N/A',
-                            modelNumber: node.data.equipment_templates?.model_number || 'N/A',
-                            rackName: node.data.rack_name || 'Unracked',
-                            deviceRu: node.data.ru_position || 0,
-                            ipAddress: node.data.ip_address || '',
-                            ports: portsDict,
-                        };
-                    }),
-                    edges: edges.map(edge => ({
-                        source: edge.source,
-                        sourceHandle: edge.sourceHandle,
-                        target: edge.target,
-                        targetHandle: edge.targetHandle,
-                    })),
-                    page_size: pageSize,
-                };
-                const blob = await api.exportWirePdf(apiGraph);
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${showName}-simplified-wire-export.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
-            } catch (err) {
-                console.error("Failed to generate simplified PDF:", err);
-                alert("Failed to generate simplified PDF. See console for details.");
-            } finally {
-                setIsPdfModalOpen(false);
-            }
+            payload = {
+                nodes: nodes.map(node => ({
+                    id: node.id,
+                    deviceNomenclature: node.data.instance_name || 'N/A',
+                    modelNumber: node.data.equipment_templates?.model_number || 'N/A',
+                    rackName: node.data.rack_name || 'Unracked',
+                    deviceRu: node.data.ru_position || 0,
+                    ipAddress: node.data.ip_address || '',
+                    ports: (node.data.equipment_templates?.ports || []).reduce((acc, port) => {
+                        if (port.type === 'input') acc[`port-in-${port.id}`] = { name: port.label };
+                        else if (port.type === 'output') acc[`port-out-${port.id}`] = { name: port.label };
+                        else if (port.type === 'io') {
+                            acc[`port-in-${port.id}`] = { name: port.label };
+                            acc[`port-out-${port.id}`] = { name: port.label };
+                        }
+                        return acc;
+                    }, {}),
+                })),
+                edges: edges,
+                page_size: pageSize,
+                show_name: showName,
+                sheet_title: 'Simplified Wire Diagram',
+                layout_type: 'simplified',
+                 //... other title block info
+            };
         } else {
-            // Existing 'full' diagram logic
-            const nodes = getNodes();
-            const edges = getEdges();
             const nodesOnPages = Array.from({ length: numTabs }, (_, i) =>
                 nodes.filter(n => n.data.page_number === i + 1)
             );
-            const payload = {
-                pages: nodesOnPages.map((pageNodes, i) => {
-                    const nodeIds = new Set(pageNodes.map(n => n.id));
-                    const pageEdges = edges.filter(e => nodeIds.has(e.source) || nodeIds.has(e.target));
-                    return {
-                        page_number: i + 1,
-                        nodes: pageNodes.map(n => ({
-                            id: n.id,
-                            position: n.position,
-                            width: n.width,
-                            height: n.height,
-                            data: {
-                                label: n.data.label,
-                                ip_address: n.data.ip_address,
-                                rack_name: n.data.rack_name,
-                                ru_position: n.data.ru_position,
-                                equipment_templates: n.data.equipment_templates,
-                            }
-                        })),
-                        edges: pageEdges.map(e => ({
-                            id: e.id,
-                            source: e.source,
-                            target: e.target,
-                            sourceHandle: e.sourceHandle,
-                            targetHandle: e.targetHandle,
-                            label: e.data.label,
-                            data: e.data,
-                        })),
-                    };
-                }),
+            payload = {
+                pages: nodesOnPages.map((pageNodes, i) => ({
+                    page_number: i + 1,
+                    nodes: pageNodes,
+                    edges: edges.filter(e => new Set(pageNodes.map(n => n.id)).has(e.source) || new Set(pageNodes.map(n => n.id)).has(e.target)),
+                })),
                 page_size: pageSize,
                 show_name: showName,
-                show_pm_name: showData.info.show_pm_name,
-                show_td_name: showData.info.show_td_name,
-                show_designer_name: showData.info.show_designer_name,
-                date_file_generated: new Date().toLocaleDateString(),
-                file_name: `${showName}-wire-diagram.pdf`,
-                users_full_name: profile ? `${profile.first_name} ${profile.last_name}` : '',
-                users_production_role: profile ? profile.production_role : '',
                 sheet_title: 'Wire Diagram',
-                company_logo_path: profile ? profile.company_logo_path : null,
-                show_logo_path: showData.info.logo_path,
+                layout_type: 'full',
+                //... other title block info
             };
-            try {
-                const pdfBlob = await api.generateWireDiagramPdf(payload);
-                const url = window.URL.createObjectURL(pdfBlob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${showName}-wire-diagram.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                a.remove();
-            } catch (err) {
-                console.error("Failed to generate PDF:", err);
-                alert("Failed to generate PDF. See console for details.");
-            } finally {
-                setIsPdfModalOpen(false);
-            }
+        }
+
+        // Add common title block info
+        payload.show_pm_name = showData.info.show_pm_name;
+        payload.show_td_name = showData.info.show_td_name;
+        payload.show_designer_name = showData.info.show_designer_name;
+        payload.date_file_generated = new Date().toLocaleDateString();
+        payload.file_name = `${showName}-wire-diagram.pdf`;
+        payload.users_full_name = profile ? `${profile.first_name} ${profile.last_name}` : '';
+        payload.users_production_role = profile ? profile.production_role : '';
+        payload.company_logo_path = profile ? profile.company_logo_path : null;
+        payload.show_logo_path = showData.info.logo_path;
+
+        try {
+            const pdfBlob = await api.generateWireDiagramPdf(payload);
+            const url = window.URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${showName}-${exportType}-wire-diagram.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+        } catch (err) {
+            console.error("Failed to generate PDF:", err);
+            alert("Failed to generate PDF. See console for details.");
+        } finally {
+            setIsPdfModalOpen(false);
         }
     };
 
