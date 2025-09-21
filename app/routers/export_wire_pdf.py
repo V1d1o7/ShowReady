@@ -19,7 +19,7 @@ async def export_wire_pdf(graph: Graph):
         raise HTTPException(status_code=400, detail="Cannot export an empty graph.")
 
     try:
-        pdf_bytes = build_pdf_bytes(graph)
+        pdf_bytes = build_pdf_bytes(graph, graph.page_size)
         if not pdf_bytes:
             # This case can happen if the graph has nodes but generation still results in empty bytes.
             # It's better to return a 500 than a potentially corrupted file.

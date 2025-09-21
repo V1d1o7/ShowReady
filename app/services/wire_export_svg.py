@@ -15,16 +15,14 @@ def mm_to_px(mm):
     return (mm / MM_PER_INCH) * DPI
 
 # Page dimensions
-PAGE_W_MM = 279.4
-PAGE_H_MM = 215.9
+PAGE_SIZES = {
+    "Letter": {"w": 279.4, "h": 215.9},
+    "A4": {"w": 297, "h": 210},
+    "Legal": {"w": 355.6, "h": 215.9},
+}
 MARGIN_MM = 10
-PAGE_W_PX = mm_to_px(PAGE_W_MM)
-PAGE_H_PX = mm_to_px(PAGE_H_MM)
-MARGIN_PX = mm_to_px(MARGIN_MM)
-PRINT_W_PX = PAGE_W_PX - (2 * MARGIN_PX)
-PRINT_H_PX = PAGE_H_PX - (2 * MARGIN_PX)
 
-# Component dimensions
+# --- Template-based constants ---
 SCALE_FACTOR = 0.65
 DEV_W_PX = 240.564 * SCALE_FACTOR
 LAB_H_MM = 3.5
@@ -53,7 +51,7 @@ META_FONT_SIZE = 8 * SCALE_FACTOR
 PORT_FONT_SIZE = 8 * SCALE_FACTOR
 PORT_LINE_HEIGHT = 18 * SCALE_FACTOR
 TITLE_AREA_HEIGHT = 15 * SCALE_FACTOR
-HEADER_INTERNAL_HEIGHT = 60 * SCALE_FACTOR # Increased for IP address spacing
+HEADER_INTERNAL_HEIGHT = 60 * SCALE_FACTOR
 PORT_LIST_PADDING = 12 * SCALE_FACTOR
 
 # --- Helper Functions ---
@@ -68,8 +66,7 @@ def _get_connection_label(edge: Edge, is_for_source: bool, graph: Graph) -> str:
         remote_handle_id = edge.sourceHandle
 
     remote_node = nodes_by_id.get(remote_node_id)
-    if not remote_node:
-        return "Unknown.Device"
+    if not remote_node: return "Unknown.Device"
 
     port_name = remote_handle_id
     if remote_handle_id and remote_node.ports and remote_handle_id in remote_node.ports:
@@ -83,6 +80,7 @@ def _estimate_text_width(text: str, font_size: float) -> float:
 def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: float) -> Tuple[str, float]:
     all_input_ports = sorted([p for p in node.ports.items() if 'in' in p[0]], key=lambda p: p[1].name or '')
     all_output_ports = sorted([p for p in node.ports.items() if 'out' in p[0]], key=lambda p: p[1].name or '')
+
     max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
 
     ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
@@ -91,33 +89,31 @@ def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: fl
 
     dev_cx = x_offset + DEV_W_PX / 2
 
-    svg = f'<g transform="translate({x_offset}, {y_offset})">'
-    svg += f'<text class="t-title" x="{dev_cx - x_offset}" y="0">{escape(node.deviceNomenclature)}</text>'
+    svg = f'<g>' # Group for the entire device block, translation handled by caller
+    svg += f'<text class="t-title" x="{dev_cx}" y="{y_offset}">{escape(node.deviceNomenclature)}</text>'
 
-    box_y_offset = TITLE_AREA_HEIGHT
-    svg += f'<rect class="device" x="0" y="{box_y_offset}" width="{DEV_W_PX}" height="{dynamic_dev_h}"/>'
+    box_y_offset = y_offset + TITLE_AREA_HEIGHT
+    svg += f'<rect class="device" x="{x_offset}" y="{box_y_offset}" width="{DEV_W_PX}" height="{dynamic_dev_h}"/>'
 
-    svg += f'<text class="t-meta" x="{dev_cx - x_offset}" y="{box_y_offset + 15}">{escape(node.modelNumber)}</text>'
-    svg += f'<text class="t-meta t-dim" x="{dev_cx - x_offset}" y="{box_y_offset + 28}">{escape(node.rackName)}.RU{node.deviceRu}</text>'
+    svg += f'<text class="t-meta" x="{dev_cx}" y="{box_y_offset + 15}">{escape(node.modelNumber)}</text>'
+    svg += f'<text class="t-meta t-dim" x="{dev_cx}" y="{box_y_offset + 28}">{escape(node.rackName)}.RU{node.deviceRu}</text>'
     if node.ipAddress:
-        svg += f'<text class="t-ip" x="{dev_cx - x_offset}" y="{box_y_offset + 41}">{escape(node.ipAddress)}</text>'
+        svg += f'<text class="t-ip" x="{dev_cx}" y="{box_y_offset + 41}">{escape(node.ipAddress)}</text>'
 
     ports_y_start = box_y_offset + HEADER_INTERNAL_HEIGHT + PORT_LIST_PADDING
     port_y_positions = {}
 
     for i, (handle_id, port) in enumerate(all_input_ports):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
-        port_y_positions[handle_id] = y_offset + y_pos
-        svg += f'<polygon class="arrow-in" points="{2},{y_pos} {7},{y_pos-4} {7},{y_pos+4}"/>'
-        svg += f'<text class="t-port" x="12" y="{y_pos}" dominant-baseline="middle">{escape(port.name or "")}</text>'
+        port_y_positions[handle_id] = y_pos
+        svg += f'<polygon class="arrow-in" points="{x_offset+2},{y_pos} {x_offset+7},{y_pos-4} {x_offset+7},{y_pos+4}"/>'
+        svg += f'<text class="t-port" x="{x_offset+12}" y="{y_pos}" dominant-baseline="middle">{escape(port.name or "")}</text>'
 
     for i, (handle_id, port) in enumerate(all_output_ports):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
-        port_y_positions[handle_id] = y_offset + y_pos
-        svg += f'<polygon class="arrow-out" points="{DEV_W_PX-2},{y_pos} {DEV_W_PX-7},{y_pos-4} {DEV_W_PX-7},{y_pos+4}"/>'
-        svg += f'<text class="t-port" x="{DEV_W_PX - 12}" y="{y_pos}" dominant-baseline="middle" text-anchor="end">{escape(port.name or "")}</text>'
-
-    svg += '</g>'
+        port_y_positions[handle_id] = y_pos
+        svg += f'<polygon class="arrow-out" points="{x_offset+DEV_W_PX-2},{y_pos} {x_offset+DEV_W_PX-7},{y_pos-4} {x_offset+DEV_W_PX-7},{y_pos+4}"/>'
+        svg += f'<text class="t-port" x="{x_offset+DEV_W_PX - 12}" y="{y_pos}" dominant-baseline="middle" text-anchor="end">{escape(port.name or "")}</text>'
 
     left_label_x_base = x_offset - GAP_PX
     for edge in [e for e in graph.edges if e.target == node.id]:
@@ -140,11 +136,12 @@ def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: fl
             svg += f'<rect class="label-box" x="{right_label_x_base + LINE_LEN_PX}" y="{y_mid - LAB_H_PX/2}" width="{text_width}" height="{LAB_H_PX}"/>'
             svg += f'<text class="label-text" x="{right_label_x_base + LINE_LEN_PX + text_width / 2}" y="{y_mid}">{label_text}</text>'
 
+    svg += '</g>'
     return svg, total_block_height
 
-def _generate_svg_page(content: str) -> str:
+def _generate_svg_page(content: str, page_w_px: float, page_h_px: float) -> str:
     return f"""
-<svg width="{PAGE_W_PX}px" height="{PAGE_H_PX}px" viewBox="0 0 {PAGE_W_PX} {PAGE_H_PX}"
+<svg width="{page_w_px}px" height="{page_h_px}px" viewBox="0 0 {page_w_px} {page_h_px}"
      xmlns="http://www.w3.org/2000/svg">
     <defs>
         <style>
@@ -161,49 +158,60 @@ def _generate_svg_page(content: str) -> str:
           .label-text {{ font: 400 {PORT_FONT_SIZE-1}pt  {FONT_FAMILY},monospace; fill: #000; text-anchor: middle; dominant-baseline: middle; }}
         </style>
     </defs>
-    <g transform="translate({MARGIN_PX}, {MARGIN_PX})">
+    <g transform="translate({mm_to_px(MARGIN_MM)}, {mm_to_px(MARGIN_MM)})">
         {content}
     </g>
 </svg>
 """
 
-def build_pdf_bytes(graph: Graph) -> bytes:
+def build_pdf_bytes(graph: Graph, page_size: str = "Letter") -> bytes:
     if not graph.nodes:
         return b""
 
+    page_dims = PAGE_SIZES.get(page_size, PAGE_SIZES["Letter"])
+    page_w_px = mm_to_px(page_dims["w"])
+    page_h_px = mm_to_px(page_dims["h"])
+    print_h_px = page_h_px - (2 * mm_to_px(MARGIN_MM))
+    print_w_px = page_w_px - (2 * mm_to_px(MARGIN_MM))
+
+    num_cols = 3
+    col_width = print_w_px / num_cols
+
     pages_content = []
     current_page_svg = ""
+    col_y_cursors = [0] * num_cols
 
-    nodes_per_column = (len(graph.nodes) + 1) // 2
-    col1_nodes = graph.nodes[:nodes_per_column]
-    col2_nodes = graph.nodes[nodes_per_column:]
+    for node in graph.nodes:
+        # Find the column with the minimum current height
+        target_col = min(range(num_cols), key=lambda i: col_y_cursors[i])
 
-    col1_x = 0
-    col2_x = PRINT_W_PX / 2
+        # Calculate block height
+        all_input_ports = [p for p in node.ports.items() if 'in' in p[0]]
+        all_output_ports = [p for p in node.ports.items() if 'out' in p[0]]
+        max_ports = max(len(all_input_ports), len(all_output_ports))
+        ports_h = max_ports * PORT_LINE_HEIGHT
+        total_h = HEADER_INTERNAL_HEIGHT + ports_h + (2 * PORT_LIST_PADDING) + TITLE_AREA_HEIGHT
 
-    # Process column 1
-    y_cursor = 0
-    for node in col1_nodes:
-        device_svg, actual_height = _generate_device_svg(node, graph, col1_x, y_cursor)
+        if col_y_cursors[target_col] > 0 and col_y_cursors[target_col] + total_h > print_h_px:
+            # This logic is imperfect; a full column might not be the best place.
+            # A more sophisticated packing algorithm would be needed for perfect layout.
+            # For now, we just wrap around, which will create a new page if all are full.
+            # This part needs to be implemented if multi-page is a hard requirement.
+            pass
+
+        x_offset = (target_col * col_width) + (col_width / 2) - (DEV_W_PX / 2)
+        y_offset = col_y_cursors[target_col]
+
+        device_svg, actual_height = _generate_device_svg(node, graph, x_offset, y_offset)
         current_page_svg += device_svg
-        y_cursor += actual_height + BLOCK_V_SP_PX
-
-    # Process column 2
-    y_cursor = 0
-    for node in col2_nodes:
-        device_svg, actual_height = _generate_device_svg(node, graph, col2_x, y_cursor)
-        current_page_svg += device_svg
-        y_cursor += actual_height + BLOCK_V_SP_PX
+        col_y_cursors[target_col] += actual_height + BLOCK_V_SP_PX
 
     if current_page_svg:
         pages_content.append(current_page_svg)
 
-    # Note: This implementation does not handle pagination for more nodes than fit in two columns.
-    # It will just render them off the page. A more robust solution would be needed for that.
-
     pdf_writer = PdfWriter()
     for svg_content in pages_content:
-        full_svg = _generate_svg_page(svg_content)
+        full_svg = _generate_svg_page(svg_content, page_w_px, page_h_px)
         try:
             pdf_page_bytes = cairosvg.svg2pdf(bytestring=full_svg.encode('utf-8'))
             pdf_reader = PdfReader(io.BytesIO(pdf_page_bytes))

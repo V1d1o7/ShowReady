@@ -22,3 +22,4 @@ class Edge(BaseModel):
 class Graph(BaseModel):
     nodes: List[Node]
     edges: List[Edge]
+    page_size: Optional[str] = "Letter"
