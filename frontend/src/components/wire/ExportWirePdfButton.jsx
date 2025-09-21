@@ -16,10 +16,6 @@ const ExportWirePdfButton = ({ getNodes, getEdges }) => {
       const nodes = getNodes();
       const edges = getEdges();
 
-      console.log("--- DEBUG: React Flow Nodes ---");
-      console.log(JSON.stringify(nodes, null, 2));
-      console.log("-------------------------------");
-
       const apiGraph = {
         nodes: nodes.map(node => {
           // FINAL FIX: Use the correct properties (port.type, port.label) from the node data

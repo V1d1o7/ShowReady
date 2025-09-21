@@ -4,7 +4,6 @@ import cairosvg
 from pypdf import PdfWriter, PdfReader
 from typing import List, Tuple, Dict
 from xml.sax.saxutils import escape
-import json
 
 from app.schemas.wire_export import Graph, Node, Edge
 
@@ -15,26 +14,23 @@ MM_PER_INCH = 25.4
 def mm_to_px(mm):
     return (mm / MM_PER_INCH) * DPI
 
-# Page dimensions (US Letter Landscape)
+# Page dimensions
 PAGE_W_MM = 279.4
 PAGE_H_MM = 215.9
 MARGIN_MM = 10
-
 PAGE_W_PX = mm_to_px(PAGE_W_MM)
 PAGE_H_PX = mm_to_px(PAGE_H_MM)
 MARGIN_PX = mm_to_px(MARGIN_MM)
-
-# Printable area
 PRINT_W_PX = PAGE_W_PX - (2 * MARGIN_PX)
 PRINT_H_PX = PAGE_H_PX - (2 * MARGIN_PX)
 
 # Component dimensions
 DEV_W_MM = 63.7
 LAB_W_MM = 66.1
-LAB_H_MM = 10 # Reduced from 14.8
+LAB_H_MM = 10
 LINE_LEN_MM = 8
 GAP_MM = 4
-BLOCK_V_SP_MM = 25 # Increased for space between blocks
+BLOCK_V_SP_MM = 25
 
 DEV_W_PX = mm_to_px(DEV_W_MM)
 LAB_W_PX = mm_to_px(LAB_W_MM)
@@ -56,9 +52,9 @@ OUTPUT_ARROW_COLOR = "#bf0000"
 FONT_FAMILY = "Noto Sans JP, Arial, Helvetica, sans-serif"
 PORT_FONT_SIZE = 8
 PORT_LINE_HEIGHT = 12
-HEADER_TEXT_HEIGHT = 20 # Space for the title above the box
-HEADER_INTERNAL_HEIGHT = 55 # Estimated height for the top part of the device card content
-PORT_LIST_PADDING = 10 # Padding above and below the list of ports
+TITLE_HEIGHT = 20
+HEADER_INTERNAL_HEIGHT = 55
+PORT_LIST_PADDING = 10
 
 # SVG paths for arrows
 ARROW_RIGHT_PATH = "m0,3.5l5,-3.5l-5,-3.5l0,7z"
@@ -72,23 +68,19 @@ def _get_port_label(node: Node, handle_id: str) -> str:
     return f"{escape(node.deviceNomenclature)}.{escape(port_name)}"
 
 def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_outputs: List[Edge], y_offset: float) -> Tuple[str, float]:
-    print(f"\n[DEBUG] Generating SVG for node: {node.id} ({node.deviceNomenclature}) at y_offset: {y_offset:.2f}")
-
     all_input_ports = sorted([p for p in node.ports.items() if p[0].startswith('port-in-')], key=lambda p: p[1].name or '')
     all_output_ports = sorted([p for p in node.ports.items() if p[0].startswith('port-out-')], key=lambda p: p[1].name or '')
     max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
 
     ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
     dynamic_dev_h = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING)
-    total_block_height = dynamic_dev_h + HEADER_TEXT_HEIGHT
-
-    print(f"[DEBUG]   Max ports: {max_ports_on_a_side}, calculated device height: {dynamic_dev_h:.2f}px, total block height: {total_block_height:.2f}")
+    total_block_height = dynamic_dev_h + TITLE_HEIGHT
 
     center_x = (PRINT_W_PX - DEV_W_PX) / 2
 
     svg = f'<text x="{center_x}" y="{y_offset}" class="device-title">{escape(node.deviceNomenclature)}</text>'
 
-    box_y_offset = y_offset + HEADER_TEXT_HEIGHT
+    box_y_offset = y_offset + TITLE_HEIGHT
     svg += f'<rect x="{center_x}" y="{box_y_offset}" width="{DEV_W_PX}" height="{dynamic_dev_h}" fill="{WHITE_COLOR}" stroke="{BLACK_COLOR}" stroke-width="2"/>'
 
     svg += f'<text x="{center_x + 10}" y="{box_y_offset + 20}" class="device-text">{escape(node.modelNumber)}</text>'
@@ -108,7 +100,7 @@ def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_out
     for i, (handle_id, port) in enumerate(all_output_ports):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[handle_id] = y_pos
-        svg += f'<path transform="translate({center_x + DEV_W_PX - 13}, {y_pos - 3.5})" d="{ARROW_RIGHT_PATH}" fill="{OUTPUT_ARROW_COLOR}"/>'
+        svg += f'<path transform="translate({center_x + DEV_W_PX - 8}, {y_pos - 3.5}) rotate(180)" d="{ARROW_RIGHT_PATH}" fill="{OUTPUT_ARROW_COLOR}"/>'
         svg += f'<text x="{center_x + DEV_W_PX - 20}" y="{y_pos}" text-anchor="end" class="port-text">{escape(port.name or "")}</text>'
 
     left_label_x = center_x - GAP_PX - LINE_LEN_PX - LAB_W_PX
@@ -142,7 +134,7 @@ def _generate_svg_page(content: str) -> str:
 <svg width="{PAGE_W_PX}px" height="{PAGE_H_PX}px" viewBox="0 0 {PAGE_W_PX} {PAGE_H_PX}"
      xmlns="http://www.w3.org/2000/svg">
     <style>
-        .device-title {{ font-family: {FONT_FAMILY}; font-size: 16px; font-weight: bold; fill: {BLACK_COLOR}; }}
+        .device-title {{ font-family: {FONT_FAMILY}; font-size: 14px; font-weight: bold; fill: {BLACK_COLOR}; }}
         .device-text {{ font-family: {FONT_FAMILY}; font-size: 10px; fill: {BLACK_COLOR}; }}
         .device-text-grey {{ font-family: {FONT_FAMILY}; font-size: 10px; fill: {GREY_COLOR}; }}
         .device-ip {{ font-family: {FONT_FAMILY}; font-size: 10px; font-weight: bold; fill: {DARK_PURPLE_COLOR}; }}
@@ -156,16 +148,6 @@ def _generate_svg_page(content: str) -> str:
 """
 
 def build_pdf_bytes(graph: Graph) -> bytes:
-    print("\n" + "="*50)
-    print("[DEBUG] Starting build_pdf_bytes")
-    print("="*50)
-    print(f"[DEBUG] Received graph with {len(graph.nodes)} nodes and {len(graph.edges)} edges.")
-    try:
-        graph_dict = graph.dict()
-        print(f"[DEBUG] Full graph data:\n{json.dumps(graph_dict, indent=2)}")
-    except Exception as e:
-        print(f"[DEBUG] Could not serialize graph object: {e}")
-
     if not graph.nodes:
         return b""
 
@@ -180,20 +162,18 @@ def build_pdf_bytes(graph: Graph) -> bytes:
     pages_content = []
     current_page_svg = ""
     y_cursor = 0
-    page_num = 1
 
-    for i, node in enumerate(graph.nodes):
+    for node in graph.nodes:
         all_input_ports = [p for p in node.ports.items() if p[0].startswith('port-in-')]
         all_output_ports = [p for p in node.ports.items() if p[0].startswith('port-out-')]
         max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
         ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
-        total_block_height = HEADER_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING) + HEADER_TEXT_HEIGHT
+        total_block_height = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING) + TITLE_HEIGHT
 
         if y_cursor > 0 and y_cursor + total_block_height > PRINT_H_PX:
             pages_content.append(current_page_svg)
             current_page_svg = ""
             y_cursor = 0
-            page_num += 1
 
         inputs = node_to_inputs.get(node.id, [])
         outputs = node_to_outputs.get(node.id, [])
@@ -223,7 +203,4 @@ def build_pdf_bytes(graph: Graph) -> bytes:
     with io.BytesIO() as pdf_buffer:
         pdf_writer.write(pdf_buffer)
         pdf_writer.close()
-        final_bytes = pdf_buffer.getvalue()
-        print(f"[DEBUG] Final PDF size: {len(final_bytes)} bytes. build_pdf_bytes finished.")
-        print("="*50 + "\n")
-        return final_bytes
+        return pdf_buffer.getvalue()
