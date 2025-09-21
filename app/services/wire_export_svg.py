@@ -4,7 +4,6 @@ import cairosvg
 from pypdf import PdfWriter, PdfReader
 from typing import List, Tuple, Dict
 from xml.sax.saxutils import escape
-import json
 
 from app.schemas.wire_export import Graph, Node, Edge
 
@@ -26,12 +25,13 @@ PRINT_W_PX = PAGE_W_PX - (2 * MARGIN_PX)
 PRINT_H_PX = PAGE_H_PX - (2 * MARGIN_PX)
 
 # --- Template-based constants ---
-SCALE_FACTOR = 0.8
+# Scaled down to increase density
+SCALE_FACTOR = 0.7
 DEV_W_PX = 240.564 * SCALE_FACTOR
-LAB_H_MM = 4
+LAB_H_MM = 3.5 # Narrower
 LINE_LEN_MM = 8
-GAP_MM = 4
-BLOCK_V_SP_MM = 35
+GAP_MM = 2 # Closer
+BLOCK_V_SP_MM = 15
 
 LAB_H_PX = mm_to_px(LAB_H_MM)
 LINE_LEN_PX = mm_to_px(LINE_LEN_MM)
@@ -49,11 +49,13 @@ CONNECTION_LABEL_COLOR = "#f59e0b"
 
 # Fonts & Layout
 FONT_FAMILY = "'Space Mono', 'Ubuntu Mono', monospace"
-PORT_FONT_SIZE = 9
-PORT_LINE_HEIGHT = 15
-TITLE_HEIGHT = 25
-HEADER_INTERNAL_HEIGHT = 60
-PORT_LIST_PADDING = 15
+TITLE_FONT_SIZE = 12 * SCALE_FACTOR
+META_FONT_SIZE = 9 * SCALE_FACTOR
+PORT_FONT_SIZE = 9 * SCALE_FACTOR
+PORT_LINE_HEIGHT = 18 * SCALE_FACTOR # Increased spacing between ports
+TITLE_AREA_HEIGHT = 15 * SCALE_FACTOR # Title closer to box
+HEADER_INTERNAL_HEIGHT = 45 * SCALE_FACTOR # Reduced internal header
+PORT_LIST_PADDING = 8 * SCALE_FACTOR # Reduced padding
 
 # --- Helper Functions ---
 def _get_port_label(node: Node, handle_id: str) -> str:
@@ -63,17 +65,16 @@ def _get_port_label(node: Node, handle_id: str) -> str:
     return f"{escape(node.deviceNomenclature)}.{escape(port_name)}"
 
 def _estimate_text_width(text: str, font_size: float) -> float:
-    return len(text) * font_size * 0.6 + 10
+    return len(text) * font_size * 0.6 + 15 # Increased padding
 
 def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_outputs: List[Edge], y_offset: float) -> Tuple[str, float]:
     all_input_ports = sorted([p for p in node.ports.items() if 'in' in p[0]], key=lambda p: p[1].name or '')
     all_output_ports = sorted([p for p in node.ports.items() if 'out' in p[0]], key=lambda p: p[1].name or '')
-
     max_ports_on_a_side = max(len(all_input_ports), len(all_output_ports))
 
     ports_list_height = max_ports_on_a_side * PORT_LINE_HEIGHT
     dynamic_dev_h = HEADER_INTERNAL_HEIGHT + ports_list_height + (2 * PORT_LIST_PADDING)
-    total_block_height = dynamic_dev_h + TITLE_HEIGHT
+    total_block_height = dynamic_dev_h + TITLE_AREA_HEIGHT
 
     center_x = (PRINT_W_PX - DEV_W_PX) / 2
     dev_cx = DEV_W_PX / 2
@@ -81,13 +82,13 @@ def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_out
     svg = f'<g transform="translate({center_x}, {y_offset})">'
     svg += f'<text class="t-title" x="{dev_cx}" y="0">{escape(node.deviceNomenclature)}</text>'
 
-    box_y_offset = TITLE_HEIGHT
+    box_y_offset = TITLE_AREA_HEIGHT
     svg += f'<rect class="device" x="0" y="{box_y_offset}" width="{DEV_W_PX}" height="{dynamic_dev_h}"/>'
 
-    svg += f'<text class="t-meta" x="{dev_cx}" y="{box_y_offset + 20}">{escape(node.modelNumber)}</text>'
-    svg += f'<text class="t-meta t-dim" x="{dev_cx}" y="{box_y_offset + 35}">{escape(node.rackName)}.RU{node.deviceRu}</text>'
+    svg += f'<text class="t-meta" x="{dev_cx}" y="{box_y_offset + 15}">{escape(node.modelNumber)}</text>'
+    svg += f'<text class="t-meta t-dim" x="{dev_cx}" y="{box_y_offset + 28}">{escape(node.rackName)}.RU{node.deviceRu}</text>'
     if node.ipAddress:
-        svg += f'<text class="t-ip" x="{dev_cx}" y="{box_y_offset + 50}">{escape(node.ipAddress)}</text>'
+        svg += f'<text class="t-ip" x="{dev_cx}" y="{box_y_offset + 41}">{escape(node.ipAddress)}</text>'
 
     ports_y_start = box_y_offset + HEADER_INTERNAL_HEIGHT + PORT_LIST_PADDING
     port_y_positions = {}
@@ -95,25 +96,25 @@ def _generate_device_svg(node: Node, connected_inputs: List[Edge], connected_out
     for i, (handle_id, port) in enumerate(all_input_ports):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[handle_id] = y_offset + y_pos
-        svg += f'<polygon class="arrow-in" points="{0},{y_pos} {5},{y_pos-5} {5},{y_pos+5}"/>'
+        svg += f'<polygon class="arrow-in" points="{2},{y_pos} {7},{y_pos-4} {7},{y_pos+4}"/>'
         svg += f'<text class="t-port" x="12" y="{y_pos}" dominant-baseline="middle">{escape(port.name or "")}</text>'
 
     for i, (handle_id, port) in enumerate(all_output_ports):
         y_pos = ports_y_start + (i * PORT_LINE_HEIGHT)
         port_y_positions[handle_id] = y_offset + y_pos
-        svg += f'<polygon class="arrow-out" points="{DEV_W_PX},{y_pos} {DEV_W_PX-5},{y_pos-5} {DEV_W_PX-5},{y_pos+5}"/>'
+        svg += f'<polygon class="arrow-out" points="{DEV_W_PX-2},{y_pos} {DEV_W_PX-7},{y_pos-4} {DEV_W_PX-7},{y_pos+4}"/>'
         svg += f'<text class="t-port" x="{DEV_W_PX - 12}" y="{y_pos}" dominant-baseline="middle" text-anchor="end">{escape(port.name or "")}</text>'
 
     svg += '</g>'
 
-    left_label_x_base = center_x - GAP_PX - LINE_LEN_PX
+    left_label_x_base = center_x - GAP_PX
     for edge in connected_inputs:
         y_mid = port_y_positions.get(edge.targetHandle)
         if y_mid:
             label_text = _get_port_label(node, edge.targetHandle)
             text_width = _estimate_text_width(label_text, PORT_FONT_SIZE)
-            rect_x = left_label_x_base - text_width
-            svg += f'<line class="connector" x1="{left_label_x_base}" y1="{y_mid}" x2="{center_x}" y2="{y_mid}"/>'
+            rect_x = left_label_x_base - text_width - LINE_LEN_PX
+            svg += f'<line class="connector" x1="{left_label_x_base - LINE_LEN_PX}" y1="{y_mid}" x2="{center_x}" y2="{y_mid}"/>'
             svg += f'<rect class="label-box" x="{rect_x}" y="{y_mid - LAB_H_PX/2}" width="{text_width}" height="{LAB_H_PX}"/>'
             svg += f'<text class="label-text" x="{rect_x + text_width / 2}" y="{y_mid}">{label_text}</text>'
 
@@ -140,10 +141,10 @@ def _generate_svg_page(content: str) -> str:
           .label-box {{ fill: {CONNECTION_LABEL_COLOR}; stroke: none; }}
           .arrow-in {{ fill: {INPUT_ARROW_COLOR}; }}
           .arrow-out {{ fill: {OUTPUT_ARROW_COLOR}; }}
-          .t-title {{ font: 700 12pt '{FONT_FAMILY}',monospace; fill: {TITLE_COLOR}; text-anchor: middle; }}
-          .t-meta  {{ font: 400 8pt  '{FONT_FAMILY}',monospace; fill: #000; text-anchor: middle; }}
+          .t-title {{ font: 700 {TITLE_FONT_SIZE}pt '{FONT_FAMILY}',monospace; fill: {TITLE_COLOR}; text-anchor: middle; }}
+          .t-meta  {{ font: 400 {META_FONT_SIZE}pt  '{FONT_FAMILY}',monospace; fill: #000; text-anchor: middle; }}
           .t-dim   {{ fill: {GREY_COLOR}; }}
-          .t-ip    {{ font: 700 8pt  '{FONT_FAMILY}',monospace; fill: {IP_ADDRESS_COLOR}; text-anchor: middle; }}
+          .t-ip    {{ font: 700 {META_FONT_SIZE}pt  '{FONT_FAMILY}',monospace; fill: {IP_ADDRESS_COLOR}; text-anchor: middle; }}
           .t-port  {{ font: 400 {PORT_FONT_SIZE}pt  '{FONT_FAMILY}',monospace; fill: #000; }}
           .label-text {{ font: 400 {PORT_FONT_SIZE-1}pt  '{FONT_FAMILY}',monospace; fill: #000; text-anchor: middle; dominant-baseline: middle; }}
         </style>
