@@ -37,10 +37,11 @@ import NewShowModal from './components/NewShowModal';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
 import ConfirmationModal from './components/ConfirmationModal';
+import ImpersonationBanner from './components/ImpersonationBanner';
 
 
 const MainLayout = ({ session }) => {
-    const { profile } = useAuth();
+    const { profile, isImpersonating } = useAuth();
     const [shows, setShows] = useState([]);
     const [isLoadingShows, setIsLoadingShows] = useState(true);
     const [isNewShowModalOpen, setIsNewShowModalOpen] = useState(false);
@@ -104,7 +105,8 @@ const MainLayout = ({ session }) => {
         <ShowsContext.Provider value={{ shows, isLoadingShows }}>
             <ModalProvider>
                 <LayoutContext.Provider value={layoutContextValue}>
-                    <div className="flex flex-col h-full">
+                    <div className={`flex flex-col h-full ${isImpersonating ? 'pt-10' : ''}`}>
+                        <ImpersonationBanner />
                         <Navbar />
                         <main className={`flex-grow min-h-0 ${shouldScroll ? 'overflow-y-auto' : ''}`}>
                             <Routes>

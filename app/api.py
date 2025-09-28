@@ -9,6 +9,8 @@ import traceback
 from pydantic import BaseModel
 import uuid
 from html import escape
+import jwt
+from datetime import datetime, timedelta, timezone
 
 # Import all necessary models
 from .models import (
@@ -20,7 +22,8 @@ from .models import (
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
     SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
     Loom, LoomCreate, LoomUpdate, LoomWithCables,
-    Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload
+    Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload,
+    ImpersonateRequest, Token
 )
 from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_racks_pdf, generate_loom_builder_pdf
 from .email_utils import create_email_html, send_email
@@ -299,6 +302,7 @@ async def get_admin_library(admin_user = Depends(get_admin_user), supabase: Clie
 # --- Admin User Management ---
 class UserWithProfile(UserProfile):
     email: str
+    status: str
     
 @router.get("/admin/users", tags=["Admin"], response_model=List[UserWithProfile])
 async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
@@ -321,10 +325,17 @@ async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = D
             user_id = profile['id']
             auth_user = auth_users_map.get(user_id)
             if auth_user:
+                # Determine user status safely
+                status = "active"
+                banned_until = getattr(auth_user, 'banned_until', None)
+                if banned_until and banned_until > datetime.now(timezone.utc):
+                    status = "suspended"
+                
                 user_data = {
                     **profile,
                     "email": auth_user.email,
-                    "roles": roles_map.get(user_id, [])
+                    "roles": roles_map.get(user_id, []),
+                    "status": status
                 }
                 users_with_profiles.append(UserWithProfile(**user_data))
                 
@@ -363,6 +374,105 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to update user roles: {str(e)}")
+
+
+@router.post("/admin/impersonate", tags=["Admin"], response_model=Token)
+async def impersonate_user(
+    impersonate_request: ImpersonateRequest,
+    admin_user=Depends(get_admin_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Admin: Impersonates another user by generating a temporary JWT for them."""
+    SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
+    if not SUPABASE_JWT_SECRET:
+        raise HTTPException(status_code=500, detail="JWT secret is not configured on the server.")
+
+    target_user_id = str(impersonate_request.user_id)
+    admin_user_id = str(admin_user.id)
+
+    if target_user_id == admin_user_id:
+        raise HTTPException(status_code=400, detail="Admin cannot impersonate themselves.")
+
+    try:
+        # Verify the target user exists in profiles and auth
+        target_user_profile_res = supabase.table('profiles').select('id').eq('id', target_user_id).single().execute()
+        if not target_user_profile_res.data:
+            raise HTTPException(status_code=404, detail="User to impersonate not found.")
+        
+        target_user_auth_res = supabase.auth.admin.get_user_by_id(target_user_id)
+        target_user = target_user_auth_res.user
+    except Exception:
+        raise HTTPException(status_code=404, detail="User to impersonate not found.")
+
+    # Create the custom JWT
+    issue_time = datetime.utcnow()
+    expiration_time = issue_time + timedelta(hours=2) # Short-lived token
+
+    # Standard Supabase claims
+    payload = {
+        "sub": target_user_id,
+        "aud": "authenticated",
+        "role": "authenticated",
+        "email": target_user.email,
+        "phone": target_user.phone or "",
+        "iat": int(issue_time.timestamp()),
+        "exp": int(expiration_time.timestamp()),
+        "iss": f"https://{SUPABASE_URL.split('//')[1]}/auth/v1",
+        # Custom claims for impersonation
+        "user_metadata": target_user.user_metadata,
+        "app_metadata": {
+            **target_user.app_metadata,
+            "impersonator_id": admin_user_id,
+            "impersonator_email": admin_user.email
+        }
+    }
+
+    impersonation_token = jwt.encode(payload, SUPABASE_JWT_SECRET, algorithm="HS256")
+
+    # Auditing
+    try:
+        supabase.table('audit_log').insert({
+            'actor_id': admin_user_id,
+            'target_id': target_user_id,
+            'action': 'impersonation_start',
+            'details': f"Admin {admin_user.email} started impersonating user {target_user.email}."
+        }).execute()
+    except Exception as e:
+        print(f"Failed to create audit log for impersonation start: {e}")
+
+    return Token(access_token=impersonation_token)
+
+
+@router.post("/admin/impersonate/stop", tags=["Admin"], status_code=200)
+async def stop_impersonation(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """
+    Signals the end of an impersonation session. The actual token reversion happens on the client-side.
+    This endpoint is for logging and potential future server-side state management.
+    """
+    try:
+        impersonator_id = user.app_metadata.get('impersonator_id')
+        impersonator_email = user.app_metadata.get('impersonator_email')
+
+        # Only log if this is a valid impersonation session token
+        if impersonator_id and impersonator_email:
+            impersonated_user_id = str(user.id)
+            impersonated_user_email = user.email
+            
+            supabase.table('audit_log').insert({
+                'actor_id': impersonator_id,
+                'target_id': impersonated_user_id,
+                'action': 'impersonation_stop',
+                'details': f"Admin {impersonator_email} stopped impersonating user {impersonated_user_email}."
+            }).execute()
+        else:
+            # This case handles if a non-impersonation token is used to call this endpoint.
+            # We can log this as an anomaly if desired, but for now, we just won't create a confusing audit log.
+            print(f"User {user.email} called stop_impersonation without a valid impersonation token.")
+
+    except Exception as e:
+        print(f"Failed to create audit log for impersonation stop: {e}")
+
+    return {"message": "Impersonation stopped"}
 
 # --- Feature Restriction Dependencies ---
 

@@ -266,6 +266,17 @@ export const api = {
         method: 'POST',
         headers: await getAuthHeader(),
     }).then(handleResponse),
+
+    startImpersonation: async (userId) => fetch('/api/admin/impersonate', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ user_id: userId }),
+    }).then(handleResponse),
+
+    stopImpersonation: async () => fetch('/api/admin/impersonate/stop', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
     
     // --- Admin Email Endpoints ---
     getAdminUserRoles: async () => fetch('/api/admin/user-roles', { headers: await getAuthHeader() }).then(handleResponse),

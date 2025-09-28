@@ -3,6 +3,8 @@ import { api } from '../../api/api';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
 import toast, { Toaster } from 'react-hot-toast';
+import { useAuth } from '../../contexts/AuthContext';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 const EditRolesModal = ({ isOpen, onClose, user, allRoles, onSave }) => {
     const [selectedRoles, setSelectedRoles] = useState(user?.roles || []);
@@ -93,6 +95,8 @@ const UserManagementView = () => {
     const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const { profile, startImpersonation } = useAuth();
+    const [impersonationModal, setImpersonationModal] = useState({ isOpen: false, user: null });
 
     const fetchUsers = useCallback(() => {
         setIsLoading(true);
@@ -177,6 +181,25 @@ const UserManagementView = () => {
         }
     };
 
+    const handleImpersonate = (user) => {
+        setImpersonationModal({ isOpen: true, user });
+    };
+
+    const confirmImpersonation = async () => {
+        const user = impersonationModal.user;
+        if (!user) return;
+
+        const toastId = toast.loading(`Starting impersonation...`);
+        try {
+            await startImpersonation(user.id);
+            toast.success(`Now impersonating ${user.first_name} ${user.last_name}`, { id: toastId });
+        } catch (error) {
+            toast.error(`Failed to impersonate: ${error.message}`, { id: toastId });
+        } finally {
+            setImpersonationModal({ isOpen: false, user: null });
+        }
+    };
+
     if (isLoading) {
         return <div className="p-8 text-center text-gray-400">Loading User Management...</div>;
     }
@@ -229,8 +252,20 @@ const UserManagementView = () => {
                                             {user.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4">
-                                        <button onClick={() => handleOpenRolesModal(user)} className="font-medium text-amber-500 hover:underline mr-4">Edit Roles</button>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <button 
+                                            onClick={() => handleOpenRolesModal(user)} 
+                                            className="font-medium text-amber-500 hover:underline mr-4"
+                                        >
+                                            Edit Roles
+                                        </button>
+                                        <button 
+                                            onClick={() => handleImpersonate(user)} 
+                                            className="font-medium text-cyan-500 hover:underline mr-4 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                            disabled={user.id === profile.id}
+                                        >
+                                            Impersonate
+                                        </button>
                                         {user.status === 'active' ? (
                                             <button onClick={() => handleOpenSuspendModal(user)} className="font-medium text-red-500 hover:underline">Suspend</button>
                                         ) : (
@@ -258,6 +293,15 @@ const UserManagementView = () => {
                     onClose={handleCloseSuspendModal}
                     user={editingUser}
                     onSubmit={handleSuspendSubmit}
+                />
+            )}
+            {impersonationModal.isOpen && (
+                <ConfirmationModal
+                    message={`Are you sure you want to impersonate ${impersonationModal.user?.first_name} ${impersonationModal.user?.last_name}?`}
+                    onConfirm={confirmImpersonation}
+                    onCancel={() => setImpersonationModal({ isOpen: false, user: null })}
+                    confirmText="Impersonate"
+                    confirmButtonVariant="danger"
                 />
             )}
         </>

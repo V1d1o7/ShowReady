@@ -386,3 +386,11 @@ class LoomWithCables(Loom):
 class LoomBuilderPDFPayload(BaseModel):
     looms: List[LoomWithCables]
     show_name: str
+
+# --- Impersonation Models ---
+class ImpersonateRequest(BaseModel):
+    user_id: uuid.UUID
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"

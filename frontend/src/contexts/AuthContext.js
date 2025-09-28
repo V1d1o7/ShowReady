@@ -9,6 +9,74 @@ export const AuthProvider = ({ children }) => {
     const [profile, setProfile] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [permissionsVersion, setPermissionsVersion] = useState(null);
+    const [isImpersonating, setIsImpersonating] = useState(() => !!sessionStorage.getItem('impersonation_active'));
+
+    const startImpersonation = useCallback(async (userId) => {
+        try {
+            // 1. Get the admin's current session to store it
+            const { data: { session: adminSession } } = await supabase.auth.getSession();
+            if (!adminSession) {
+                throw new Error("No active admin session found.");
+            }
+            sessionStorage.setItem('admin_session', JSON.stringify(adminSession));
+
+            // 2. Request the impersonation token from the backend
+            const impersonationToken = await api.startImpersonation(userId);
+
+            // 3. Set the new session on the Supabase client
+            await supabase.auth.setSession({
+                access_token: impersonationToken.access_token,
+                refresh_token: adminSession.refresh_token, // Can reuse the admin's refresh token
+            });
+            
+            // 4. Update state and mark that we are impersonating
+            sessionStorage.setItem('impersonation_active', 'true');
+            setIsImpersonating(true);
+
+            // 5. The onAuthStateChange listener will automatically trigger a profile refetch
+            // Force a page reload to ensure all components reset their state correctly.
+            window.location.reload();
+        } catch (error) {
+            console.error("Failed to start impersonation:", error);
+            // Clean up in case of failure
+            sessionStorage.removeItem('admin_session');
+            sessionStorage.removeItem('impersonation_active');
+            setIsImpersonating(false);
+            throw error; // Re-throw to be caught by the calling component
+        }
+    }, []);
+
+    const stopImpersonation = useCallback(async () => {
+        try {
+            // 1. Retrieve the original admin session
+            const adminSessionString = sessionStorage.getItem('admin_session');
+            if (!adminSessionString) {
+                // If no session, sign out to be safe
+                await supabase.auth.signOut();
+                return;
+            }
+            const adminSession = JSON.parse(adminSessionString);
+
+            // 2. Call the backend endpoint for auditing
+            await api.stopImpersonation();
+
+            // 3. Restore the original session
+            await supabase.auth.setSession(adminSession);
+            
+            // 4. Clean up storage and state
+            sessionStorage.removeItem('admin_session');
+            sessionStorage.removeItem('impersonation_active');
+            setIsImpersonating(false);
+
+            // 5. Force a reload to return to the admin state
+            window.location.reload();
+        } catch (error) {
+            console.error("Failed to stop impersonation:", error);
+            // Force a sign out as a fallback to prevent being stuck
+            await supabase.auth.signOut();
+            window.location.reload();
+        }
+    }, []);
 
     const fetchProfile = useCallback(async () => {
         try {
@@ -91,8 +159,11 @@ export const AuthProvider = ({ children }) => {
         session,
         profile,
         isLoading,
+        isImpersonating,
+        startImpersonation,
+        stopImpersonation,
         refetchProfile: fetchProfile,
-    }), [session, profile, isLoading, fetchProfile]);
+    }), [session, profile, isLoading, fetchProfile, isImpersonating, startImpersonation, stopImpersonation]);
 
     return (
         <AuthContext.Provider value={value}>

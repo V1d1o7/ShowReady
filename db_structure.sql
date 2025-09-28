@@ -2995,7 +2995,8 @@ CREATE TABLE public.profiles (
     production_role text,
     production_role_other text,
     updated_at timestamp with time zone DEFAULT now(),
-    status text DEFAULT 'active'::text NOT NULL
+    status text DEFAULT 'active'::text NOT NULL,
+    feedback_button_text text
 );
 
 

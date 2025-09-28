@@ -136,6 +136,110 @@ def create_email_html(user_profile: dict, body_text: str) -> str:
     """
     return html_template
 
+def create_feedback_email_html(feedback_type: str, feedback: str, user_profile: dict) -> str:
+    """
+    Generates a specific HTML email for feedback submissions.
+    """
+    user_name = user_profile.get('full_name', 'A user')
+    user_email = user_profile.get('email', 'Not provided')
+    escaped_and_formatted_feedback = escape(feedback).replace('\n', '<br>')
+
+    # This is the full HTML template, adapted to the ShowReady theme.
+    html_template = f"""
+    <html>
+      <head>
+        <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+          body {{
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+          }}
+          .container {{
+            font-size: 16px;
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 30px;
+            border-radius: 15px;
+          }}
+          p {{
+            font-size: 16px;
+            line-height: 1.8;
+            color: #d4d4d8; /* Zinc 300 */
+            text-align: left;
+            margin: 0;
+          }}
+          .footer {{
+            margin-top: 30px;
+            font-size: 14px;
+            color: #a1a1aa; /* Zinc 400 */
+          }}
+          .logo-container {{
+            text-align: center;
+            margin-bottom: 20px;
+          }}
+          .logo {{
+            max-width: 140px;
+            margin-bottom: 10px;
+          }}
+          .mainHeader {{
+            font-family: 'Space Mono', monospace;
+            font-size: 32px;
+            color: #f59e0b; /* Amber 500 */
+            font-weight: bold;
+            text-align: center;
+            letter-spacing: 1px;
+            margin-top: 10px;
+          }}
+          .section {{
+            margin-top: 20px;
+            text-align: left;
+            background-color: #1F2937; /* Gray 800 */
+            padding: 20px;
+            border-radius: 10px;
+          }}
+          .section p + p {{
+            margin-top: 1em; /* Add space between paragraphs within a section */
+          }}
+          strong {{
+            color: #f59e0b;
+          }}
+        </style>
+      </head>
+      <body>
+        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td bgcolor="#111827" align="center" style="padding: 20px 0;">
+              <div class="container" style="background-color: #111827; border: 1px solid #374151;">
+                <div class="logo-container">
+                  <img src="https://showready.k-p.video/logo.png" alt="ShowReady Logo" class="logo" />
+                </div>
+                <div class="mainHeader">New Feedback Received</div>
+                
+                <div class="section">
+                    <p><strong>From:</strong> {escape(user_name)}</p>
+                    <p><strong>Type:</strong> {escape(feedback_type)}</p>
+                </div>
+                <div class="section">
+                    <p><strong>Message:</strong></p>
+                    <p>{escaped_and_formatted_feedback}</p>
+                </div>
+
+                <p class="footer">
+                  This feedback was submitted through the global feedback button.
+                </p>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    return html_template
+
 def create_general_email_html(body: str) -> str:
     """
     Creates a standardized HTML email template for users without a profile.
@@ -174,7 +278,7 @@ def create_general_email_html(body: str) -> str:
     """
     return html_content
 
-def send_email(recipient_email: str, subject: str, html_content: str, sender: SenderIdentity):
+def send_email(recipient_email: str, subject: str, html_content: str, sender: SenderIdentity, reply_to_email: str = None):
     """
     Sends an email using the Gmail API with a service account.
     """
@@ -188,7 +292,7 @@ def send_email(recipient_email: str, subject: str, html_content: str, sender: Se
         message = MIMEMultipart("alternative")
         message["To"] = recipient_email
         message["From"] = f"{sender.name} <{sender.email}>"
-        message["Reply-To"] = sender.email
+        message["Reply-To"] = reply_to_email if reply_to_email else sender.email
         message["Subject"] = subject
 
         part = MIMEText(html_content, "html")
@@ -212,4 +316,3 @@ def send_email(recipient_email: str, subject: str, html_content: str, sender: Se
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         raise
-
