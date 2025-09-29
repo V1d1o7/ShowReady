@@ -13,6 +13,7 @@ import dagre from 'dagre';
 import { api } from '../api/api';
 import DeviceNode from '../components/DeviceNode';
 import CustomEdge from '../components/CustomEdge';
+import EditInstanceModal from '../components/EditInstanceModal';
 import WireDiagramPdfModal from '../components/WireDiagramPdfModal';
 import LibrarySidebar from '../components/LibrarySidebar';
 import CustomDragLayer from '../components/CustomDragLayer';
@@ -110,8 +111,11 @@ const WireDiagramView = () => {
     const [activeTab, setActiveTab] = useState(1);
     const [numTabs, setNumTabs] = useState(1);
     const [unassignedEquipment, setUnassignedEquipment] = useState([]);
+    const [libraryData, setLibraryData] = useState({ folders: [], equipment: [] });
     const [justDroppedNode, setJustDroppedNode] = useState(null);
     const [draggingItem, setDraggingItem] = useState(null);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingNode, setEditingNode] = useState(null);
 
     const onDragStart = (event, equipment) => {
         const { zoom } = getViewport();
@@ -150,7 +154,6 @@ const WireDiagramView = () => {
                 type: 'device',
                 position: { x: item.x_pos || 0, y: item.y_pos || 0 },
                 data: { ...item, label: item.instance_name },
-                // The visibility is now controlled by a separate useEffect
             }));
             
             setNodes(initialNodes);
@@ -190,7 +193,6 @@ const WireDiagramView = () => {
             setIsLoading(false);
         }
 
-        // Fit the view to the loaded nodes after a short delay to allow for rendering.
         setTimeout(() => {
             fitView({ padding: 0.1 });
         }, 100);
@@ -204,16 +206,25 @@ const WireDiagramView = () => {
             setUnassignedEquipment(data);
         } catch (err) {
             console.error("Failed to fetch unassigned equipment:", err);
-            // Optionally set an error state here
         }
     }, [showName]);
+
+    const fetchLibraryData = useCallback(async () => {
+        try {
+            const data = await api.getLibrary();
+            setLibraryData(data || { folders: [], equipment: [] });
+        } catch (err) {
+            console.error("Failed to fetch library data:", err);
+        }
+    }, []);
 
     useEffect(() => {
         if (showName) {
             fetchData();
             fetchUnassignedEquipment();
+            fetchLibraryData();
         }
-    }, [showName, fetchData, fetchUnassignedEquipment]);
+    }, [showName, fetchData, fetchUnassignedEquipment, fetchLibraryData]);
 
     useEffect(() => {
         setNodes(nds =>
@@ -247,7 +258,6 @@ const WireDiagramView = () => {
                         const targetPage = nodePageMap.get(conn.destination_device_id.toString());
                         
                         if (sourcePage === undefined || targetPage === undefined) {
-                            console.log(`Skipping edge for connection ${conn.id} because one of its nodes is not on the canvas.`);
                             return null;
                         }
 
@@ -348,56 +358,116 @@ const WireDiagramView = () => {
         }
     }, []);
 
+    const handleNodeDoubleClick = useCallback((event, node) => {
+        setEditingNode(node);
+        setIsEditModalOpen(true);
+    }, []);
+
+    const handleCloseEditModal = () => {
+        setIsEditModalOpen(false);
+        setEditingNode(null);
+    };
+
+    const handleUpdateNode = async (updatedData) => {
+        if (!editingNode) return;
+        
+        try {
+            const updatedInstance = await api.updateEquipmentInstance(editingNode.id, updatedData);
+            setNodes((nds) =>
+                nds.map((n) => {
+                    if (n.id === editingNode.id) {
+                        const newLabel = updatedInstance.instance_name || n.data.label;
+                        const newIpAddress = updatedInstance.ip_address || n.data.ip_address;
+                        return {
+                            ...n,
+                            data: {
+                                ...n.data,
+                                label: newLabel,
+                                instance_name: newLabel,
+                                ip_address: newIpAddress,
+                            },
+                        };
+                    }
+                    return n;
+                })
+            );
+            handleCloseEditModal();
+        } catch (err) {
+            console.error('Failed to update equipment instance:', err);
+            alert(`Error: ${err.message}`);
+        }
+    };
+
     const onDragOver = useCallback((event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
     }, []);
 
-    const onDrop = useCallback((event) => {
+    const onDrop = useCallback(async (event) => {
         setDraggingItem(null);
         event.preventDefault();
 
         const reactFlowBounds = reactFlowWrapper.current.getBoundingClientRect();
         const equipmentData = JSON.parse(event.dataTransfer.getData('application/reactflow'));
 
-        if (typeof equipmentData === 'undefined' || !equipmentData) {
-            return;
-        }
+        if (typeof equipmentData === 'undefined' || !equipmentData) return;
 
-        const panePosition = {
+        const position = screenToFlowPosition({
             x: event.clientX - reactFlowBounds.left,
             y: event.clientY - reactFlowBounds.top,
-        };
-        const viewport = getViewport();
-        const position = {
-            x: (panePosition.x - viewport.x) / viewport.zoom,
-            y: (panePosition.y - viewport.y) / viewport.zoom,
-        };
-
-        const newNode = {
-            id: equipmentData.id.toString(),
-            type: 'device',
-            position,
-            data: { ...equipmentData, label: equipmentData.instance_name, page_number: activeTab },
-            hidden: false,
-        };
-
-        setNodes((nds) => nds.concat(newNode));
-        setUnassignedEquipment(current => current.filter(eq => eq.id !== equipmentData.id));
-        setJustDroppedNode(newNode);
-
-        api.updateEquipmentInstance(equipmentData.id, {
-            x_pos: Math.round(position.x),
-            y_pos: Math.round(position.y),
-            page_number: activeTab,
-        }).catch(err => {
-            console.error("Failed to save placed equipment:", err);
-            // Simple rollback for now
-            setNodes((nds) => nds.filter(n => n.id !== newNode.id));
-            setUnassignedEquipment(current => [...current, equipmentData]);
-            alert("Failed to save equipment position. It has been returned to the library.");
         });
-    }, [activeTab, getViewport, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
+
+        if (equipmentData.isTemplate) {
+            try {
+                const newInstanceData = {
+                    show_id: showData.info.id,
+                    equipment_template_id: equipmentData.id,
+                    instance_name: `${equipmentData.model_number} (New)`,
+                    x_pos: Math.round(position.x),
+                    y_pos: Math.round(position.y),
+                    page_number: activeTab,
+                };
+                const newInstance = await api.createEquipmentInstance(newInstanceData);
+                
+                const newNode = {
+                    id: newInstance.id.toString(),
+                    type: 'device',
+                    position,
+                    data: { ...newInstance, label: newInstance.instance_name, page_number: activeTab },
+                    hidden: false,
+                };
+                
+                setNodes((nds) => nds.concat(newNode));
+                setJustDroppedNode(newNode);
+            } catch (err) {
+                console.error("Failed to create new equipment instance:", err);
+                alert("Failed to create and place new equipment.");
+            }
+        } else {
+            const newNode = {
+                id: equipmentData.id.toString(),
+                type: 'device',
+                position,
+                data: { ...equipmentData, label: equipmentData.instance_name, page_number: activeTab },
+                hidden: false,
+            };
+
+            setNodes((nds) => nds.concat(newNode));
+            setUnassignedEquipment(current => current.filter(eq => eq.id !== equipmentData.id));
+            setJustDroppedNode(newNode);
+
+            api.updateEquipmentInstance(equipmentData.id, {
+                x_pos: Math.round(position.x),
+                y_pos: Math.round(position.y),
+                page_number: activeTab,
+            }).catch(err => {
+                console.error("Failed to save placed equipment:", err);
+                setNodes((nds) => nds.filter(n => n.id !== newNode.id));
+                setUnassignedEquipment(current => [...current, equipmentData]);
+                alert("Failed to save equipment position. It has been returned to the library.");
+            });
+        }
+    }, [activeTab, screenToFlowPosition, showData?.info?.id, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
 
     const onNodesChangeCustom = useCallback((changes) => {
         const currentEdges = getEdges();
@@ -406,17 +476,13 @@ const WireDiagramView = () => {
         for (const change of changes) {
             if (change.type === 'remove') {
                 const nodeId = change.id;
-
-                // Fire and forget background API calls
                 const connectedEdges = currentEdges.filter(e => e.source === nodeId || e.target === nodeId);
                 if (connectedEdges.length > 0) {
                     const deletionPromises = connectedEdges.map(edge => api.deleteConnection(edge.data.db_id));
                     Promise.all(deletionPromises).catch(err => {
                         console.error("Failed to delete one or more connections for node:", nodeId, err);
-                        // No rollback, as it's complex. Just log the error.
                     });
                 }
-                
                 api.updateEquipmentInstance(nodeId, {
                     page_number: null,
                     x_pos: null,
@@ -424,16 +490,12 @@ const WireDiagramView = () => {
                 }).catch(err => {
                     console.error("Failed to unassign equipment:", nodeId, err);
                 });
-
-                // Optimistic UI update for unassigned equipment list
                 const nodeToRemove = currentNodes.find(n => n.id === nodeId);
                 if (nodeToRemove) {
                     setUnassignedEquipment(current => [...current, nodeToRemove.data]);
                 }
             }
         }
-        
-        // Let React Flow handle the node removal from the canvas
         onNodesChange(changes);
     }, [onNodesChange, getEdges, getNodes, setUnassignedEquipment]);
 
@@ -490,6 +552,7 @@ const WireDiagramView = () => {
             <CustomDragLayer draggingItem={draggingItem} />
             <LibrarySidebar
                 unassignedEquipment={unassignedEquipment}
+                library={libraryData}
                 onDragStart={onDragStart}
                 setDraggingItem={setDraggingItem}
             />
@@ -528,6 +591,12 @@ const WireDiagramView = () => {
                     </div>
                 </div>
                 <WireDiagramPdfModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} onGenerate={handleGeneratePdf} />
+                <EditInstanceModal
+                    isOpen={isEditModalOpen}
+                    onClose={handleCloseEditModal}
+                    onSubmit={handleUpdateNode}
+                    item={editingNode?.data}
+                />
                 <div className="flex-grow relative" ref={reactFlowWrapper}>
                     <ReactFlow
                         nodes={nodes}
@@ -536,6 +605,7 @@ const WireDiagramView = () => {
                         onEdgesChange={onEdgesChange}
                         onConnect={onConnect}
                         onNodeDragStop={onNodeDragStop}
+                        onNodeDoubleClick={handleNodeDoubleClick}
                         onDrop={onDrop}
                         onDragOver={onDragOver}
                         nodeTypes={nodeTypes}

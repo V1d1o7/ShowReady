@@ -6,7 +6,7 @@ const EditInstanceModal = ({ isOpen, onClose, onSubmit, item }) => {
     const [name, setName] = useState('');
     const [ipAddress, setIpAddress] = useState('');
 
-    const template = item.equipment_templates || {};
+    const template = item?.equipment_templates || {};
 
     useEffect(() => {
         if (item) {
@@ -24,7 +24,7 @@ const EditInstanceModal = ({ isOpen, onClose, onSubmit, item }) => {
         onSubmit(dataToSubmit);
     };
 
-    if (!item) return null;
+    if (!isOpen || !item) return null;
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Edit: ${item.instance_name}`}>

@@ -48,7 +48,7 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
                     <InputField label="Model Number" name="model_number" value={formData.model_number} onChange={handleChange} required autoFocus />
                     <InputField label="Manufacturer" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
                     <div className="grid grid-cols-2 gap-4">
-                        <InputField label="RU Height" name="ru_height" type="number" min="1" value={formData.ru_height} onChange={handleChange} required />
+                        <InputField label="RU Height" name="ru_height" type="number" min="0" value={formData.ru_height} onChange={handleChange} required />
                         <div>
                             <label className="block text-sm font-medium text-gray-300 mb-1.5">Width</label>
                             <select name="width" value={formData.width} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
