@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse
 from .api import router as api_router
 from app.routers.export_wire_pdf import router as wire_export_router
 from app.routers.feedback import router as feedback_router
+from app.routers.vlan import router as vlan_router
+from app.routers.vlan_script import router as vlan_script_router
 
 
 app = FastAPI(
@@ -47,6 +49,8 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api")
 app.include_router(wire_export_router)
 app.include_router(feedback_router, prefix="/api")
+app.include_router(vlan_router)
+app.include_router(vlan_script_router)
 
 # --- Static Files Configuration ---
 # This will serve the index.html for any path that is not an api call

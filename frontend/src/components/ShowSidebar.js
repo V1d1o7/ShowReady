@@ -3,7 +3,7 @@ import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network } from 'lucide-react';
 
 const ShowSidebar = () => {
     const { profile } = useAuth();
@@ -33,6 +33,7 @@ const ShowSidebar = () => {
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
         { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },
         { path: 'loombuilder', label: 'Loom Builder', icon: Combine, feature: 'loom_builder' },
+        { path: 'vlan', label: 'VLAN', icon: Network, feature: 'vlan_management' },
     ];
 
     const visibleTabs = profile?.permitted_features 

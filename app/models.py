@@ -145,6 +145,19 @@ class Loom(LoomBase):
     user_id: uuid.UUID
     created_at: datetime
 
+# --- VLAN Models ---
+class VLANBase(BaseModel):
+    name: str
+    tag: int
+
+class VLANCreate(VLANBase):
+    pass
+
+class VLAN(VLANBase):
+    id: uuid.UUID
+    show_id: int
+    created_at: datetime
+
 # --- AV Rack Builder Models ---
 
 class ConnectorTemplate(BaseModel):

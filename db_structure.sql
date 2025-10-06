@@ -3155,6 +3155,22 @@ CREATE TABLE public.user_roles (
 
 ALTER TABLE public.user_roles OWNER TO postgres;
 
+
+--
+-- Name: vlans; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.vlans (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_id bigint NOT NULL,
+    name text NOT NULL,
+    tag integer NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.vlans OWNER TO postgres;
+
 --
 -- Name: messages; Type: TABLE; Schema: realtime; Owner: supabase_realtime_admin
 --
@@ -3772,6 +3788,14 @@ ALTER TABLE ONLY public.sso_configs
 
 ALTER TABLE ONLY public.user_roles
     ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role_id);
+
+
+--
+-- Name: vlans vlans_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.vlans
+    ADD CONSTRAINT vlans_pkey PRIMARY KEY (id);
 
 
 --
@@ -4573,6 +4597,14 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
+-- Name: vlans vlans_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.vlans
+    ADD CONSTRAINT vlans_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
 -- Name: objects objects_bucketId_fkey; Type: FK CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
 --
 
@@ -4956,6 +4988,26 @@ CREATE POLICY "Users can view their own SSO config" ON public.sso_configs FOR SE
 
 
 --
+-- Name: vlans Allow collaborative read access; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow collaborative read access on VLANs" ON public.vlans FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM public.show_collaborators
+  WHERE ((show_collaborators.show_id = vlans.show_id) AND (show_collaborators.user_id = auth.uid())))));
+
+
+--
+-- Name: vlans Allow collaborative write access; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow collaborative write access on VLANs" ON public.vlans FOR ALL USING ((EXISTS ( SELECT 1
+   FROM public.show_collaborators
+  WHERE ((show_collaborators.show_id = vlans.show_id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text)))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM public.show_collaborators
+  WHERE ((show_collaborators.show_id = vlans.show_id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text))))));
+
+
+--
 -- Name: cables; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -5056,6 +5108,12 @@ ALTER TABLE public.sso_configs ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: vlans; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.vlans ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: messages; Type: ROW SECURITY; Schema: realtime; Owner: supabase_realtime_admin

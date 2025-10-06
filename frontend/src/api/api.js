@@ -38,7 +38,7 @@ const handleResponse = async (res) => {
     if (res.headers.get('Content-Type')?.includes('application/json')) {
         return res.json();
     }
-    if (res.headers.get('Content-Type')?.includes('application/pdf')) {
+    if (res.headers.get('Content-Type')?.includes('application/pdf') || res.headers.get('Content-Type')?.includes('text/plain')) {
         return res.blob();
     }
     return res;
@@ -235,6 +235,23 @@ export const api = {
         method: 'PUT',
         headers: await getAuthHeader(),
         body: JSON.stringify(updateData),
+    }).then(handleResponse),
+
+    // --- VLAN Endpoints ---
+    getVlans: async (showName) => fetch(`/api/shows/${showName}/vlans`, { headers: await getAuthHeader() }).then(handleResponse),
+    createVlan: async (showName, vlanData) => fetch(`/api/shows/${showName}/vlans`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(vlanData),
+    }).then(handleResponse),
+    deleteVlan: async (vlanId) => fetch(`/api/vlans/${vlanId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }),
+    generateVlanScript: async (showName, payload) => fetch(`/api/shows/${showName}/generate-vlan-script`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(payload),
     }).then(handleResponse),
 
     sendNewUserListEmail: async (payload) => fetch('/api/admin/send-new-user-list-email', {
