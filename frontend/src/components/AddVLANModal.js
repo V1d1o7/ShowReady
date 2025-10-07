@@ -2,19 +2,25 @@ import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import InputField from './InputField';
 
-const AddVLANModal = ({ isOpen, onClose, onSubmit }) => {
+const AddVLANModal = ({ isOpen, onClose, onSubmit, vlan }) => {
     const [name, setName] = useState('');
     const [tag, setTag] = useState('');
     const [error, setError] = useState('');
 
+    const isEditMode = vlan != null;
+
     useEffect(() => {
-        // Reset state when modal opens
         if (isOpen) {
-            setName('');
-            setTag('');
+            if (isEditMode) {
+                setName(vlan.name);
+                setTag(vlan.tag.toString());
+            } else {
+                setName('');
+                setTag('');
+            }
             setError('');
         }
-    }, [isOpen]);
+    }, [isOpen, vlan, isEditMode]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -22,15 +28,16 @@ const AddVLANModal = ({ isOpen, onClose, onSubmit }) => {
             setError('Both VLAN Name and Tag are required.');
             return;
         }
-        if (isNaN(tag) || parseInt(tag, 10) <= 0) {
+        const tagAsInt = parseInt(tag, 10);
+        if (isNaN(tagAsInt) || tagAsInt <= 0) {
             setError('VLAN Tag must be a positive number.');
             return;
         }
-        onSubmit({ name, tag: parseInt(tag, 10) });
+        onSubmit({ name, tag: tagAsInt });
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Add New VLAN">
+        <Modal isOpen={isOpen} onClose={onClose} title={isEditMode ? 'Edit VLAN' : 'Add New VLAN'}>
             <form onSubmit={handleSubmit}>
                 <div className="space-y-4">
                     <InputField
@@ -63,7 +70,7 @@ const AddVLANModal = ({ isOpen, onClose, onSubmit }) => {
                         type="submit"
                         className="px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors"
                     >
-                        Add VLAN
+                        {isEditMode ? 'Save Changes' : 'Add VLAN'}
                     </button>
                 </div>
             </form>

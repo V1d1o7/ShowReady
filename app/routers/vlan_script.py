@@ -38,7 +38,7 @@ async def get_user(request: Request, supabase: Client = Depends(get_supabase_cli
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-@router.post("/api/shows/{show_name}/generate-vlan-script", tags=["VLANs"])
+@router.post("/shows/{show_name}/generate-vlan-script", tags=["VLANs"])
 async def generate_vlan_script(show_name: str, payload: VlanScriptRequest, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
     Generates a PowerShell script for creating a virtual switch and adding VLANs.
@@ -72,7 +72,7 @@ async def generate_vlan_script(show_name: str, payload: VlanScriptRequest, user 
     ]
 
     for vlan in vlans_res.data:
-        script_lines.append(f'Add-VMNetworkAdapter -ManagementOS -Name "MGMT 1" -SwitchName "{vlan["name"]}" -Passthru | Set-VMNetworkAdapterVlan -Access -VlanId {vlan["tag"]}')
+        script_lines.append(f'Add-VMNetworkAdapter -ManagementOS -Name "{vlan["name"]}" -SwitchName "{payload.virtual_switch_name}" -Passthru | Set-VMNetworkAdapterVlan -Access -VlanId {vlan["tag"]}')
 
     script_content = "\n".join(script_lines)
 

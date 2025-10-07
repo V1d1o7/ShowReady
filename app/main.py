@@ -45,12 +45,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include the API router BEFORE mounting the static files
-app.include_router(api_router, prefix="/api")
-app.include_router(wire_export_router)
+# Include the API router BEFORE mounting the static files.
+# Routers with more specific paths should be included before
+# routers with more general paths.
+app.include_router(vlan_router, prefix="/api")
+app.include_router(vlan_script_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")
-app.include_router(vlan_router)
-app.include_router(vlan_script_router)
+app.include_router(wire_export_router)
+app.include_router(api_router, prefix="/api")
 
 # --- Static Files Configuration ---
 # This will serve the index.html for any path that is not an api call

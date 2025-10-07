@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShow } from '../contexts/ShowContext';
 import { useModal } from '../contexts/ModalContext';
-import { useToast } from '../contexts/ToastContext'; // Import useToast
+import { useToast } from '../contexts/ToastContext';
 import { api } from '../api/api';
-import { Plus, Info, Download, Trash2 } from 'lucide-react';
+import { Plus, Info, Download, Trash2, Edit } from 'lucide-react';
 import AddVLANModal from '../components/AddVLANModal';
 import GenerateScriptModal from '../components/GenerateScriptModal';
 import VlanInstructionsModal from '../components/VlanInstructionsModal';
@@ -11,12 +11,13 @@ import VlanInstructionsModal from '../components/VlanInstructionsModal';
 const VLANView = () => {
     const { showName } = useShow();
     const { showConfirmationModal } = useModal();
-    const { addToast } = useToast(); // Use the toast context
+    const { addToast } = useToast();
     const [vlans, setVlans] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [selectedVlans, setSelectedVlans] = useState(new Set());
-    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [isVlanModalOpen, setIsVlanModalOpen] = useState(false);
+    const [editingVlan, setEditingVlan] = useState(null);
     const [isScriptModalOpen, setIsScriptModalOpen] = useState(false);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
@@ -26,7 +27,7 @@ const VLANView = () => {
         setError(null);
         try {
             const data = await api.getVlans(showName);
-            setVlans(data.sort((a, b) => a.tag - b.tag));
+            setVlans(data);
         } catch (err) {
             setError(err.message);
             addToast(`Failed to fetch VLANs: ${err.message}`, 'error');
@@ -39,6 +40,28 @@ const VLANView = () => {
     useEffect(() => {
         fetchVlans();
     }, [fetchVlans]);
+
+    const handleOpenModal = useCallback((vlan = null) => {
+        setEditingVlan(vlan);
+        setIsVlanModalOpen(true);
+    }, []);
+
+    useEffect(() => {
+        const handleKeyDown = (event) => {
+            if (event.key === 'n' && !isVlanModalOpen && !isScriptModalOpen && !isInfoModalOpen) {
+                if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) {
+                    return;
+                }
+                event.preventDefault();
+                handleOpenModal();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [isVlanModalOpen, isScriptModalOpen, isInfoModalOpen, handleOpenModal]);
 
     const handleSelectVlan = (vlanId) => {
         setSelectedVlans(prev => {
@@ -68,30 +91,36 @@ const VLANView = () => {
                 fetchVlans();
             } catch (err) {
                 const errorMessage = `Failed to delete VLAN: ${err.message}`;
-                setError(errorMessage);
                 addToast(errorMessage, 'error');
-                console.error(errorMessage);
             }
         });
     };
 
-    const handleCreateVlan = async (vlanData) => {
+    const handleModalSubmit = async (vlanData) => {
         try {
-            await api.createVlan(showName, vlanData);
-            addToast('VLAN created successfully', 'success');
+            if (editingVlan) {
+                await api.updateVlan(editingVlan.id, vlanData);
+                addToast('VLAN updated successfully', 'success');
+            } else {
+                await api.createVlan(showName, vlanData);
+                addToast('VLAN created successfully', 'success');
+            }
             fetchVlans();
-            setIsAddModalOpen(false);
+            setIsVlanModalOpen(false);
+            setEditingVlan(null);
         } catch (err) {
-            const errorMessage = `Failed to create VLAN: ${err.message}`;
-            setError(errorMessage);
-            addToast(errorMessage, 'error');
-            console.error(errorMessage);
+            const action = editingVlan ? 'update' : 'create';
+            addToast(`Failed to ${action} VLAN: ${err.message}`, 'error');
         }
     };
-
+    
     const handleGenerateScript = async ({ interfaceName, virtualSwitchName }) => {
-        if (selectedVlans.size === 0) {
-            addToast("Please select at least one VLAN to include in the script.", 'error');
+        const vlanIdsToGenerate = selectedVlans.size === 0
+            ? vlans.map(v => v.id)
+            : Array.from(selectedVlans);
+
+        if (vlanIdsToGenerate.length === 0) {
+            addToast("No VLANs available to generate a script.", 'info');
             return;
         }
 
@@ -99,7 +128,7 @@ const VLANView = () => {
             const payload = {
                 interface_name: interfaceName,
                 virtual_switch_name: virtualSwitchName,
-                vlan_ids: Array.from(selectedVlans),
+                vlan_ids: vlanIdsToGenerate,
             };
             const blob = await api.generateVlanScript(showName, payload);
             
@@ -117,10 +146,7 @@ const VLANView = () => {
             setIsInfoModalOpen(true); 
             
         } catch (err) {
-            const errorMessage = `Failed to generate script: ${err.message}`;
-            setError(errorMessage);
-            addToast(errorMessage, 'error');
-            console.error(errorMessage);
+            addToast(`Failed to generate script: ${err.message}`, 'error');
         }
     };
 
@@ -143,7 +169,7 @@ const VLANView = () => {
                         <Download size={18} /> WIN VLAN Script
                     </button>
                     <button 
-                        onClick={() => setIsAddModalOpen(true)}
+                        onClick={() => handleOpenModal()}
                         className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors"
                     >
                         <Plus size={18} /> New VLAN
@@ -176,7 +202,7 @@ const VLANView = () => {
                                     VLAN Tag
                                 </th>
                                 <th scope="col" className="relative px-6 py-3 w-20">
-                                    <span className="sr-only">Delete</span>
+                                    <span className="sr-only">Actions</span>
                                 </th>
                             </tr>
                         </thead>
@@ -193,7 +219,10 @@ const VLANView = () => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{vlan.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{vlan.tag}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex items-center gap-4">
+                                        <button onClick={() => handleOpenModal(vlan)} className="text-gray-400 hover:text-white" aria-label={`Edit VLAN ${vlan.name}`}>
+                                            <Edit size={18} />
+                                        </button>
                                         <button onClick={() => handleDeleteVlan(vlan.id)} className="text-red-500 hover:text-red-400" aria-label={`Delete VLAN ${vlan.name}`}>
                                             <Trash2 size={18} />
                                         </button>
@@ -211,9 +240,13 @@ const VLANView = () => {
                 )}
             </div>
             <AddVLANModal 
-                isOpen={isAddModalOpen}
-                onClose={() => setIsAddModalOpen(false)}
-                onSubmit={handleCreateVlan}
+                isOpen={isVlanModalOpen}
+                onClose={() => {
+                    setIsVlanModalOpen(false);
+                    setEditingVlan(null);
+                }}
+                onSubmit={handleModalSubmit}
+                vlan={editingVlan}
             />
             <GenerateScriptModal
                 isOpen={isScriptModalOpen}

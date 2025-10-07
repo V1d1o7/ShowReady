@@ -244,6 +244,11 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(vlanData),
     }).then(handleResponse),
+    updateVlan: async (vlanId, vlanData) => fetch(`/api/vlans/${vlanId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(vlanData),
+    }).then(handleResponse),
     deleteVlan: async (vlanId) => fetch(`/api/vlans/${vlanId}`, {
         method: 'DELETE',
         headers: await getAuthHeader(),

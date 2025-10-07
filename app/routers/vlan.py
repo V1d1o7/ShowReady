@@ -1,40 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import List
 import uuid
-from .. import models
-from supabase import create_client, Client
-from gotrue.errors import AuthApiError
-import os
+from fastapi import APIRouter, Depends, HTTPException
+from supabase import Client
+from typing import List
 
-router = APIRouter()
+from ..api import get_supabase_client, get_user, feature_check
+from ..models import VLAN, VLANCreate, VLANUpdate
 
-# --- Supabase Client Dependency ---
-def get_supabase_client():
-    """Dependency to create a Supabase client."""
-    return create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
+router = APIRouter(
+    tags=["VLANs"],
+    dependencies=[Depends(feature_check("vlan_management"))]
+)
 
-# --- User Authentication Dependency ---
-async def get_user(request: Request, supabase: Client = Depends(get_supabase_client)):
-    """Dependency to get user from Supabase JWT in Authorization header."""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Authorization header missing")
-    
-    token = auth_header.replace("Bearer ", "")
-    
-    try:
-        user_response = supabase.auth.get_user(token)
-        return user_response.user
-    except AuthApiError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-@router.get("/api/shows/{show_name}/vlans", response_model=List[models.VLAN], tags=["VLANs"])
-async def get_vlans_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.get("/shows/{show_name}/vlans", response_model=List[VLAN])
+async def get_vlans_for_show(show_name: str, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
-    Get all VLANs for a specific show.
-    The user must be a collaborator on the show to access this endpoint.
+    Retrieves all VLANs for a specific show.
     """
     show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
     if not show_res.data:
@@ -42,20 +22,29 @@ async def get_vlans_for_show(show_name: str, user = Depends(get_user), supabase:
     
     show_id = show_res.data['id']
     
-    vlan_res = supabase.table('vlans').select('*').eq('show_id', show_id).execute()
-    return vlan_res.data
+    response = supabase.table('vlans').select('*').eq('show_id', show_id).order('tag', desc=False).execute()
+    return response.data
 
-@router.post("/api/shows/{show_name}/vlans", response_model=models.VLAN, tags=["VLANs"])
-async def create_vlan_for_show(show_name: str, vlan: models.VLANCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.post("/shows/{show_name}/vlans", response_model=VLAN)
+async def create_vlan_for_show(show_name: str, vlan: VLANCreate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
-    Create a new VLAN for a specific show.
-    The user must have 'owner' or 'editor' role on the show.
+    Creates a new VLAN for a specific show.
     """
     show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
         
     show_id = show_res.data['id']
+
+    # Check for duplicate VLAN name
+    name_check_res = supabase.table('vlans').select('id', count='exact').eq('show_id', show_id).eq('name', vlan.name).execute()
+    if name_check_res.count > 0:
+        raise HTTPException(status_code=409, detail=f"A VLAN with the name '{vlan.name}' already exists in this show.")
+
+    # Check for duplicate VLAN tag
+    tag_check_res = supabase.table('vlans').select('id', count='exact').eq('show_id', show_id).eq('tag', vlan.tag).execute()
+    if tag_check_res.count > 0:
+        raise HTTPException(status_code=409, detail=f"A VLAN with tag '{vlan.tag}' already exists in this show.")
 
     insert_data = vlan.model_dump()
     insert_data['show_id'] = show_id
@@ -67,12 +56,68 @@ async def create_vlan_for_show(show_name: str, vlan: models.VLANCreate, user = D
         
     return response.data[0]
 
-@router.delete("/api/vlans/{vlan_id}", status_code=204, tags=["VLANs"])
-async def delete_vlan(vlan_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.put("/vlans/{vlan_id}", response_model=VLAN)
+async def update_vlan(vlan_id: uuid.UUID, vlan_data: VLANUpdate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
-    Delete a VLAN by its ID.
-    The user must have 'owner' or 'editor' role on the show this VLAN belongs to.
+    Updates an existing VLAN.
     """
-    # RLS will enforce delete permissions.
+    # 1. Fetch the VLAN to get the show_id
+    vlan_res = supabase.table('vlans').select('show_id').eq('id', str(vlan_id)).single().execute()
+    if not vlan_res.data:
+        raise HTTPException(status_code=404, detail="VLAN not found.")
+    show_id = vlan_res.data['show_id']
+
+    # 2. Verify the user owns the parent show
+    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own the show this VLAN belongs to.")
+
+    update_dict = vlan_data.model_dump(exclude_unset=True)
+
+    # 3. Check for duplicates if name or tag are being updated
+    if 'name' in update_dict:
+        name_check_res = supabase.table('vlans').select('id', count='exact') \
+            .eq('show_id', show_id) \
+            .eq('name', update_dict['name']) \
+            .neq('id', str(vlan_id)) \
+            .execute()
+        if name_check_res.count > 0:
+            raise HTTPException(status_code=409, detail=f"A VLAN with the name '{update_dict['name']}' already exists in this show.")
+
+    if 'tag' in update_dict:
+        tag_check_res = supabase.table('vlans').select('id', count='exact') \
+            .eq('show_id', show_id) \
+            .eq('tag', update_dict['tag']) \
+            .neq('id', str(vlan_id)) \
+            .execute()
+        if tag_check_res.count > 0:
+            raise HTTPException(status_code=409, detail=f"A VLAN with tag '{update_dict['tag']}' already exists in this show.")
+
+    # 4. Perform the update
+    response = supabase.table('vlans').update(update_dict).eq('id', str(vlan_id)).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to update VLAN.")
+    return response.data[0]
+
+
+@router.delete("/vlans/{vlan_id}", status_code=204)
+async def delete_vlan(vlan_id: uuid.UUID, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """
+    Deletes a VLAN by its ID.
+    """
+    # 1. Fetch the VLAN to get the show_id
+    vlan_res = supabase.table('vlans').select('show_id').eq('id', str(vlan_id)).single().execute()
+    if not vlan_res.data:
+        return # Idempotent delete
+
+    show_id = vlan_res.data['show_id']
+
+    # 2. Verify the user owns the parent show
+    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=403, detail="Access denied: You do not own the show this VLAN belongs to.")
+        
+    # 3. Perform the delete
     supabase.table('vlans').delete().eq('id', str(vlan_id)).execute()
     return

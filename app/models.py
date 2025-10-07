@@ -153,6 +153,10 @@ class VLANBase(BaseModel):
 class VLANCreate(VLANBase):
     pass
 
+class VLANUpdate(BaseModel):
+    name: Optional[str] = None
+    tag: Optional[int] = None
+
 class VLAN(VLANBase):
     id: uuid.UUID
     show_id: int
