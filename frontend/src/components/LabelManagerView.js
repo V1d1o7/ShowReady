@@ -1,20 +1,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Edit, Trash2, ChevronsUpDown, Grid3x3, Eye } from 'lucide-react';
 import Card from './Card';
-import EditableLabelRow from './EditableLabelRow';
 import NewSheetModal from './NewSheetModal';
 import PdfPreviewModal from './PdfPreviewModal';
 import AdvancedPrintModal from './AdvancedPrintModal';
 import { api } from '../api/api';
 import ConfirmationModal from './ConfirmationModal';
+import NewLabelModal from './NewLabelModal';
+import useHotkeys from '../hooks/useHotkeys';
 
 function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType }) {
     const [activeSheetName, setActiveSheetName] = useState('');
     const [isNewSheetModalOpen, setIsNewSheetModalOpen] = useState(false);
+    const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+    const [editingLabel, setEditingLabel] = useState(null);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
     const [isAdvancedPrintModalOpen, setIsAdvancedPrintModalOpen] = useState(false);
-    const [editingIndex, setEditingIndex] = useState(null);
-    const [editFormData, setEditFormData] = useState({});
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const sheets = useMemo(() => showData[sheetType] || {}, [showData, sheetType]);
@@ -29,6 +30,24 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
             setActiveSheetName('');
         }
     }, [sheetNames, activeSheetName]);
+
+    const handleOpenNewLabelModal = () => {
+        setEditingLabel(null);
+        setIsLabelModalOpen(true);
+    };
+
+    useHotkeys({
+        'n': () => {
+            if (activeSheetName && !isNewSheetModalOpen && !isLabelModalOpen && !pdfPreviewUrl && !isAdvancedPrintModalOpen && !confirmationModal.isOpen) {
+                handleOpenNewLabelModal();
+            }
+        },
+        'esc': () => {
+            if (isLabelModalOpen) {
+                setIsLabelModalOpen(false);
+            }
+        }
+    });
 
     const handleCreateSheet = (newSheetName) => {
         if (!newSheetName || sheetNames.includes(newSheetName)) {
@@ -48,41 +67,31 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
         const updatedShowData = { ...showData, [sheetType]: { ...sheets, [activeSheetName]: newLabels } };
         onSave(updatedShowData);
     };
- 
-    const handleAddNewLabel = () => {
-        const newLabel = labelFields.reduce((acc, f) => ({...acc, [f.name]: ''}), {});
-        const newLabels = [...labels, newLabel];
-        handleUpdateLabels(newLabels);
-        setEditingIndex(newLabels.length - 1);
-        setEditFormData(newLabel);
-    };
 
-    const handleEditClick = (label, index) => {
-        setEditingIndex(index);
-        setEditFormData(label);
-    };
- 
-    const handleCancelEdit = () => {
-        if (labels[editingIndex] && Object.values(labels[editingIndex]).every(val => val === '')) {
-            const newLabels = labels.filter((_, i) => i !== editingIndex);
-            handleUpdateLabels(newLabels);
+    const handleSaveLabel = (formData) => {
+        let newLabels;
+        if (editingLabel) {
+            newLabels = labels.map(label => (label.id === editingLabel.id ? { ...label, ...formData } : label));
+        } else {
+            const newLabel = { id: Date.now(), ...formData };
+            newLabels = [...labels, newLabel];
         }
-        setEditingIndex(null);
-    };
-
-    const handleSaveEdit = (index) => {
-        const newLabels = [...labels];
-        newLabels[index] = editFormData;
         handleUpdateLabels(newLabels);
-        setEditingIndex(null);
+        setIsLabelModalOpen(false);
+        setEditingLabel(null);
     };
 
-    const handleDeleteLabel = (indexToDelete) => {
+    const handleEditLabel = (label) => {
+        setEditingLabel(label);
+        setIsLabelModalOpen(true);
+    };
+
+    const handleDeleteLabel = (idToDelete) => {
         setConfirmationModal({
             isOpen: true,
             message: "Are you sure you want to delete this label?",
             onConfirm: () => {
-                const newLabels = labels.filter((_, i) => i !== indexToDelete);
+                const newLabels = labels.filter(label => label.id !== idToDelete);
                 handleUpdateLabels(newLabels);
                 setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
             }
@@ -93,7 +102,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
         const body = { labels };
         if (pdfType === 'case') body.logo_path = showData.info.logo_path;
         if (placement) body.placement = placement;
-   
+
         try {
             const blob = await api.generatePdf(pdfType, body);
             const url = URL.createObjectURL(blob);
@@ -117,13 +126,13 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                     </div>
                     {activeSheetName && (
                         <div className="flex items-center gap-2">
-                            <button onClick={handleAddNewLabel} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
-                                <Plus size={16}/> Add Label
+                            <button onClick={handleOpenNewLabelModal} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
+                                <Plus size={16}/> Add Label (N)
                             </button>
                         </div>
                     )}
                 </div>
-       
+
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead className="border-b border-gray-700">
@@ -133,25 +142,14 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                             </tr>
                         </thead>
                         <tbody>
-                            {labels.map((label, idx) => (
-                                editingIndex === idx ? (
-                                    <EditableLabelRow
-                                        key={idx}
-                                        fields={labelFields}
-                                        formData={editFormData}
-                                        setFormData={setEditFormData}
-                                        onSave={() => handleSaveEdit(idx)}
-                                        onCancel={handleCancelEdit}
-                                    />
-                                ) : (
-                                    <tr key={idx} className="border-b border-gray-700/50 hover:bg-gray-800/50">
-                                        {labelFields.map(f => <td key={f.name} className="p-3 truncate">{label[f.name]}</td>)}
-                                        <td className="p-3 flex justify-end gap-2">
-                                            <button onClick={() => handleEditClick(label, idx)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
-                                            <button onClick={() => handleDeleteLabel(idx)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
-                                        </td>
-                                    </tr>
-                                )
+                            {labels.map((label) => (
+                                <tr key={label.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
+                                    {labelFields.map(f => <td key={f.name} className="p-3 truncate">{label[f.name]}</td>)}
+                                    <td className="p-3 flex justify-end gap-2">
+                                        <button onClick={() => handleEditLabel(label)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
+                                        <button onClick={() => handleDeleteLabel(label.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
+                                    </td>
+                                </tr>
                             ))}
                         </tbody>
                     </table>
@@ -165,18 +163,31 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                     </button>
                 </div>
             </Card>
-     
+
             <NewSheetModal isOpen={isNewSheetModalOpen} onClose={() => setIsNewSheetModalOpen(false)} onSubmit={handleCreateSheet} />
+            
+            {isLabelModalOpen && (
+                <NewLabelModal
+                    isOpen={isLabelModalOpen}
+                    onClose={() => setIsLabelModalOpen(false)}
+                    onSubmit={handleSaveLabel}
+                    labelFields={labelFields}
+                    initialData={editingLabel}
+                />
+            )}
+
             <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
-            {isAdvancedPrintModalOpen && <AdvancedPrintModal 
+            
+            {isAdvancedPrintModalOpen && <AdvancedPrintModal
                 key={pdfType}
-                isOpen={isAdvancedPrintModalOpen} 
-                onClose={() => setIsAdvancedPrintModalOpen(false)} 
+                isOpen={isAdvancedPrintModalOpen}
+                onClose={() => setIsAdvancedPrintModalOpen(false)}
                 labels={labels}
                 onGeneratePdf={handleGeneratePdf}
                 numSlots={numSlots}
                 pdfType={pdfType}
             />}
+            
             {confirmationModal.isOpen && (
                 <ConfirmationModal
                     message={confirmationModal.message}

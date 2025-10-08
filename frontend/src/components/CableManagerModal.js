@@ -4,6 +4,7 @@ import { X, Plus, Edit, Trash2, FileText } from 'lucide-react';
 import CableForm from './CableForm';
 import BulkEditCableForm from './BulkEditCableForm';
 import ConfirmationModal from './ConfirmationModal';
+import useHotkeys from '../hooks/useHotkeys';
 
 const CableManagerModal = ({ loom, onClose, onExport }) => {
     const [cables, setCables] = useState([]);
@@ -30,25 +31,11 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
         fetchCables();
     }, [fetchCables]);
 
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'Escape') {
-                // If a confirmation or edit modal is open, let it handle the escape key.
-                if (confirmationModal.isOpen || editingCable || isBulkEditing) {
-                    return;
-                }
-                onClose();
-            }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-
-        return () => {
-            document.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [onClose, confirmationModal.isOpen, editingCable, isBulkEditing]);
-    
-    const handleAddNewCable = () => {
+    const handleAddNewCable = useCallback(() => {
+        // This check prevents opening a new cable form if another modal/form is already active.
+        if (editingCable || isBulkEditing || confirmationModal.isOpen) {
+            return;
+        }
         const newCable = {
             loom_id: loom.id,
             label_content: 'New Cable',
@@ -62,7 +49,17 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
             is_complete: false,
         };
         setEditingCable(newCable);
-    };
+    }, [loom.id, editingCable, isBulkEditing, confirmationModal.isOpen]);
+
+    useHotkeys({
+        'n': handleAddNewCable,
+        'escape': () => {
+            // This ensures escape only closes the main modal if no other forms are open.
+            if (!editingCable && !isBulkEditing && !confirmationModal.isOpen) {
+                onClose();
+            }
+        }
+    });
 
     const handleSaveCable = async (cableToSave) => {
         try {

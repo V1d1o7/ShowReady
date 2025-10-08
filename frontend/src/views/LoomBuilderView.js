@@ -7,6 +7,7 @@ import NamePromptModal from '../components/NamePromptModal';
 import CableManagerModal from '../components/CableManagerModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import { api } from '../api/api';
+import useHotkeys from '../hooks/useHotkeys';
 
 const LoomBuilderView = () => {
     const { showName } = useShow();
@@ -17,6 +18,14 @@ const LoomBuilderView = () => {
     const [editingLoom, setEditingLoom] = useState(null);
     const [managingLoom, setManagingLoom] = useState(null);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+
+    useHotkeys({
+        'n': () => {
+            if (!isNameModalOpen && !editingLoom && !managingLoom && !pdfPreviewUrl) {
+                setIsNameModalOpen(true);
+            }
+        },
+    });
 
     const fetchLooms = useCallback(async () => {
         try {
@@ -36,8 +45,9 @@ const LoomBuilderView = () => {
 
     const handleCreateLoom = async (name) => {
         try {
-            await api.createLoom({ name, show_name: showName });
+            const newLoom = await api.createLoom({ name, show_name: showName });
             fetchLooms();
+            setManagingLoom(newLoom);
         } catch (error) {
             console.error("Failed to create loom:", error);
             alert(`Error: ${error.message}`);
