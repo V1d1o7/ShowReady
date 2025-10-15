@@ -21,6 +21,11 @@ function Auth() {
 
         let response;
         if (isSignUp) {
+            if (!firstName || !lastName) {
+                setAuthError('First name and last name are required.');
+                setLoading(false);
+                return;
+            }
             const metaData = {
                 first_name: firstName,
                 last_name: lastName,

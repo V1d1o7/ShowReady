@@ -203,7 +203,6 @@ const UserManagementView = () => {
     if (isLoading) {
         return <div className="p-8 text-center text-gray-400">Loading User Management...</div>;
     }
-    console.log('Users from API:', users)
 
     return (
         <>

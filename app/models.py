@@ -227,6 +227,14 @@ class RackEquipmentInstanceCreate(BaseModel):
     instance_name: Optional[str] = None
     rack_side: Optional[str] = None
 
+class EquipmentInstanceCreate(BaseModel):
+    equipment_template_id: uuid.UUID
+    instance_name: str
+    show_id: int
+    x_pos: Optional[int] = None
+    y_pos: Optional[int] = None
+    page_number: Optional[int] = None
+
 class RackEquipmentInstanceUpdate(BaseModel):
     instance_name: Optional[str] = None
     ru_position: Optional[int] = None

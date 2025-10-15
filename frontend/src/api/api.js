@@ -120,6 +120,12 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(updateData),
     }).then(handleResponse),
+
+    createEquipmentInstance: async (instanceData) => fetch('/api/equipment_instances', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(instanceData),
+    }).then(handleResponse),
     deleteConnection: async (connectionId) => fetch(`/api/connections/${connectionId}`, {
         method: 'DELETE',
         headers: await getAuthHeader()

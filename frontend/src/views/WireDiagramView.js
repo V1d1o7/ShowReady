@@ -337,7 +337,10 @@ const WireDiagramView = () => {
                 targetHandle: `port-in-${newConnection.destination_port_id}`,
                 animated: true,
                 style: { strokeWidth: 2, stroke: '#f59e0b' },
-                data: { label: newConnection.cable_type || '' },
+                data: { 
+                    db_id: newConnection.id,
+                    label: newConnection.cable_type || '' 
+                },
                 markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
             };
             setEdges((eds) => eds.concat(newEdge));
@@ -422,7 +425,7 @@ const WireDiagramView = () => {
                 const newInstanceData = {
                     show_id: showData.info.id,
                     equipment_template_id: equipmentData.id,
-                    instance_name: `${equipmentData.model_number} (New)`,
+                    instance_name: equipmentData.model_number,
                     x_pos: Math.round(position.x),
                     y_pos: Math.round(position.y),
                     page_number: activeTab,
@@ -468,6 +471,21 @@ const WireDiagramView = () => {
             });
         }
     }, [activeTab, screenToFlowPosition, showData?.info?.id, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
+
+    const onEdgesChangeCustom = useCallback((changes) => {
+        for (const change of changes) {
+            if (change.type === 'remove') {
+                const edgeToRemove = getEdges().find(edge => edge.id === change.id);
+                if (edgeToRemove && edgeToRemove.data.db_id) {
+                    api.deleteConnection(edgeToRemove.data.db_id).catch(err => {
+                        console.error("Failed to delete connection:", err);
+                        // Optionally, add the edge back to the UI to indicate the deletion failed
+                    });
+                }
+            }
+        }
+        onEdgesChange(changes);
+    }, [onEdgesChange, getEdges]);
 
     const onNodesChangeCustom = useCallback((changes) => {
         const currentEdges = getEdges();
@@ -602,7 +620,7 @@ const WireDiagramView = () => {
                         nodes={nodes}
                         edges={edges}
                         onNodesChange={onNodesChangeCustom}
-                        onEdgesChange={onEdgesChange}
+                        onEdgesChange={onEdgesChangeCustom}
                         onConnect={onConnect}
                         onNodeDragStop={onNodeDragStop}
                         onNodeDoubleClick={handleNodeDoubleClick}

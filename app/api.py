@@ -17,7 +17,7 @@ from .models import (
     ShowFile, LoomLabel, CaseLabel, UserProfile, UserProfileUpdate, SSOConfig,
     Rack, RackUpdate, EquipmentTemplate, EquipmentTemplateCreate, RackEquipmentInstance, RackCreate,
     RackEquipmentInstanceCreate, RackEquipmentInstanceUpdate, Folder, FolderCreate,
-    Connection, ConnectionCreate, ConnectionUpdate, PortTemplate,
+    Connection, ConnectionCreate, ConnectionUpdate, PortTemplate, EquipmentInstanceCreate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
     SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
@@ -789,6 +789,7 @@ async def get_show(show_name: str, user = Depends(get_user), supabase: Client = 
             show_data_json = show_record.get('data', {})
             
             info_from_columns = {
+                "id": show_record.get("id"),
                 "show_pm_name": show_record.get("show_pm_name"),
                 "show_pm_email": show_record.get("show_pm_email"),
                 "show_td_name": show_record.get("show_td_name"),
@@ -1459,6 +1460,85 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
         return response.data[0]
     
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
+
+@router.post("/equipment_instances", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
+async def create_equipment_instance(
+    equipment_data: EquipmentInstanceCreate, 
+    user = Depends(get_user), 
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Creates an equipment instance, initially un-racked."""
+    # 1. Find the show to get its name
+    show_res = supabase.table('shows').select('name').eq('id', equipment_data.show_id).eq('user_id', str(user.id)).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found or access denied.")
+    show_name = show_res.data['name']
+
+    # 2. Find or create the "[Unracked]" rack for this show
+    unracked_rack_name = "[Unracked]"
+    rack_query = supabase.table('racks').select('id').eq('show_name', show_name).eq('rack_name', unracked_rack_name).eq('user_id', str(user.id)).execute()
+    
+    if rack_query.data:
+        rack_id = rack_query.data[0]['id']
+    else:
+        new_rack_res = supabase.table('racks').insert({
+            "rack_name": unracked_rack_name,
+            "ru_height": 0,
+            "show_name": show_name,
+            "user_id": str(user.id)
+        }).execute()
+        if not new_rack_res.data:
+            raise HTTPException(status_code=500, detail="Failed to create a temporary rack for the equipment.")
+        rack_id = new_rack_res.data[0]['id']
+
+    # 3. Fetch the equipment template
+    template_res = supabase.table('equipment_templates').select('*, folders(nomenclature_prefix)').eq('id', str(equipment_data.equipment_template_id)).single().execute()
+    if not template_res.data:
+        raise HTTPException(status_code=404, detail="Equipment template not found.")
+    template = template_res.data
+
+    # 4. Get all equipment in the show for nomenclature calculation
+    all_racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    all_rack_ids = [r['id'] for r in all_racks_res.data]
+    
+    all_show_equipment_res = supabase.table('rack_equipment_instances').select('instance_name').in_('rack_id', all_rack_ids).execute()
+    all_show_equipment = all_show_equipment_res.data if all_show_equipment_res.data else []
+
+    prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
+    base_name = prefix if prefix else template['model_number']
+    
+    highest_num = 0
+    for item in all_show_equipment:
+        if item['instance_name'].startswith(base_name + "-"):
+            try:
+                num = int(item['instance_name'].split('-')[-1])
+                if num > highest_num:
+                    highest_num = num
+            except (ValueError, IndexError):
+                continue
+    
+    new_instance_name = f"{base_name}-{(highest_num + 1):02}"
+
+    # 5. Create the new equipment instance
+    insert_data = {
+        "rack_id": rack_id,
+        "template_id": str(equipment_data.equipment_template_id),
+        "ru_position": 1, # Default for un-racked items, won't be used
+        "rack_side": "front",
+        "instance_name": new_instance_name,
+        "x_pos": equipment_data.x_pos,
+        "y_pos": equipment_data.y_pos,
+        "page_number": equipment_data.page_number,
+    }
+    
+    response = supabase.table('rack_equipment_instances').insert(insert_data).execute()
+    
+    if response.data:
+        new_instance = response.data[0]
+        new_instance['equipment_templates'] = template
+        return new_instance
+        
+    raise HTTPException(status_code=500, detail="Failed to create equipment instance.")
 
 
 @router.delete("/racks/equipment/{instance_id}", status_code=204, tags=["Racks"])
