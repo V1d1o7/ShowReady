@@ -485,6 +485,8 @@ ALL_FEATURES = [
     {"key": "wire_diagram", "name": "Wire Diagram"},
     {"key": "loom_builder", "name": "Loom Builder"},
     {"key": "vlan_management", "name": "VLAN Management"},
+    {"key": "crew", "name": "Crew Management"},
+    {"key": "hours_tracking", "name": "Hours Tracking"},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:

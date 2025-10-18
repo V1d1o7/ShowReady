@@ -3,7 +3,7 @@ import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock } from 'lucide-react';
 
 const ShowSidebar = () => {
     const { profile } = useAuth();
@@ -28,6 +28,8 @@ const ShowSidebar = () => {
 
     const allTabs = [
         { path: 'info', label: 'Show Info', icon: Info, feature: null },
+        { path: 'crew', label: 'Crew', icon: Users, feature: 'crew' },
+        { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'hours_tracking' },
         { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },

@@ -336,4 +336,50 @@ export const api = {
 
     // --- Permissions Versioning ---
     getPermissionsVersion: async () => fetch('/api/permissions/version', { headers: await getAuthHeader() }).then(handleResponse),
+
+    // --- Roster Endpoints ---
+    getRoster: async () => fetch('/api/roster', { headers: await getAuthHeader() }).then(handleResponse),
+    createRosterMember: async (rosterData) => fetch('/api/roster', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(rosterData),
+    }).then(handleResponse),
+    updateRosterMember: async (rosterId, rosterData) => fetch(`/api/roster/${rosterId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(rosterData),
+    }).then(handleResponse),
+    deleteRosterMember: async (rosterId) => fetch(`/api/roster/${rosterId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }),
+
+    // --- Show Crew Endpoints ---
+    getShowCrew: async (showId) => fetch(`/api/shows/${showId}/crew`, { headers: await getAuthHeader() }).then(handleResponse),
+    addCrewToShow: async (showId, rosterId) => fetch(`/api/shows/${showId}/crew?roster_id=${rosterId}`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+    removeCrewFromShow: async (showId, rosterId) => fetch(`/api/shows/${showId}/crew/${rosterId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }),
+    createRosterMemberAndAddToShow: async (data) => fetch('/api/roster_and_show_crew', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+    updateShowCrewMember: async (showCrewId, data) => fetch(`/api/show_crew/${showCrewId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    // --- Hours Tracking Endpoints ---
+    getDailyHours: async (showId) => fetch(`/api/shows/${showId}/daily_hours`, { headers: await getAuthHeader() }).then(handleResponse),
+    bulkUpdateDailyHours: async (entries) => fetch('/api/daily_hours/bulk-update', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ entries }),
+    }).then(handleResponse),
 };

@@ -6806,3 +6806,78 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 
 \unrestrict EouoUhchIJWiehhTRoXUGgv1ISx118ls4qVAcOdlSgAhqYK4k9FJOS6aJByPOwx
 
+-- Add OT threshold columns to the shows table
+ALTER TABLE public.shows
+ADD COLUMN ot_daily_threshold numeric(4, 2) DEFAULT 10.00,
+ADD COLUMN ot_weekly_threshold numeric(4, 2) DEFAULT 40.00;
+
+-- Roster Table: Stores individual crew members in a user's global roster.
+CREATE TABLE public.roster (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    first_name text,
+    last_name text,
+    phone_number text,
+    email text,
+    "position" text,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT roster_pkey PRIMARY KEY (id),
+    CONSTRAINT roster_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users (id) ON DELETE CASCADE
+);
+
+ALTER TABLE public.roster ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow full access to own roster" ON public.roster AS PERMISSIVE FOR ALL TO public USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+-- Show Crew Table: Links roster members to a specific show and sets their rate.
+CREATE TABLE public.show_crew (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_id bigint NOT NULL,
+    roster_id uuid NOT NULL,
+    "role" text,
+    hourly_rate numeric(8, 2),
+    daily_rate numeric(8, 2),
+    rate_type text DEFAULT 'hourly'::text,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT show_crew_pkey PRIMARY KEY (id),
+    CONSTRAINT show_crew_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows (id) ON DELETE CASCADE,
+    CONSTRAINT show_crew_roster_id_fkey FOREIGN KEY (roster_id) REFERENCES public.roster (id) ON DELETE CASCADE,
+    CONSTRAINT show_crew_show_id_roster_id_key UNIQUE (show_id, roster_id)
+);
+
+ALTER TABLE public.show_crew ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow full access to own show crew" ON public.show_crew AS PERMISSIVE FOR ALL TO public
+USING ((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))))
+WITH CHECK ((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))));
+
+-- Daily Hours Table: Stores the total hours worked by a crew member on a given day.
+CREATE TABLE public.daily_hours (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_crew_id uuid NOT NULL,
+    "date" date NOT NULL,
+    hours numeric(4, 2) NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT daily_hours_pkey PRIMARY KEY (id),
+    CONSTRAINT daily_hours_show_crew_id_fkey FOREIGN KEY (show_crew_id) REFERENCES public.show_crew (id) ON DELETE CASCADE,
+    CONSTRAINT daily_hours_show_crew_id_date_key UNIQUE (show_crew_id, "date")
+);
+
+ALTER TABLE public.daily_hours ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow full access to own show hours" ON public.daily_hours
+AS PERMISSIVE FOR ALL
+TO public
+USING (
+    (EXISTS ( SELECT 1
+   FROM public.show_crew sc
+     JOIN public.shows s ON sc.show_id = s.id
+  WHERE ((sc.id = daily_hours.show_crew_id) AND (s.user_id = auth.uid()))))
+)
+WITH CHECK (
+    (EXISTS ( SELECT 1
+   FROM public.show_crew sc
+     JOIN public.shows s ON sc.show_id = s.id
+  WHERE ((sc.id = daily_hours.show_crew_id) AND (s.user_id = auth.uid()))))
+);

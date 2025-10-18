@@ -33,6 +33,9 @@ import RackBuilderView from './views/RackBuilderView';
 import WireDiagramView from './views/WireDiagramView';
 import LoomBuilderView from './views/LoomBuilderView';
 import VLANView from './views/VLANView';
+import RosterView from './views/RosterView';
+import ShowCrewView from './views/ShowCrewView';
+import HoursTrackingView from './views/HoursTrackingView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -131,6 +134,8 @@ const MainLayout = ({ session }) => {
                                             <Route element={<ShowView />}>
                                                 <Route index element={<Navigate to="info" replace />} />
                                                 <Route path="info" element={<ShowInfoView />} />
+                                                <Route path="crew" element={<ProtectedRoute feature="crew"><ShowCrewView /></ProtectedRoute>} />
+                                                <Route path="hourstracking" element={<ProtectedRoute feature="hours_tracking"><HoursTrackingView /></ProtectedRoute>} />
                                                 <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
                                                 <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
@@ -147,6 +152,7 @@ const MainLayout = ({ session }) => {
                                         <Route path="equipment" element={<EquipmentLibraryView />} />
                                         <Route path="racks" element={<UserRackBuilderView />} />
                                     </Route>
+                                    <Route path="/roster" element={<ProtectedRoute><RosterView /></ProtectedRoute>} />
                                     <Route
                                         path="/mgmt"
                                         element={

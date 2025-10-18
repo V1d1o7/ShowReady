@@ -21,6 +21,8 @@ from app.routers.export_wire_pdf import router as wire_export_router
 from app.routers.feedback import router as feedback_router
 from app.routers.vlan import router as vlan_router
 from app.routers.vlan_script import router as vlan_script_router
+from app.routers.roster import router as roster_router
+from app.routers.hours import router as hours_router
 
 
 app = FastAPI(
@@ -52,6 +54,8 @@ app.include_router(vlan_router, prefix="/api")
 app.include_router(vlan_script_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")
 app.include_router(wire_export_router)
+app.include_router(roster_router, prefix="/api")
+app.include_router(hours_router, prefix="/api")
 app.include_router(api_router, prefix="/api")
 
 # --- Static Files Configuration ---

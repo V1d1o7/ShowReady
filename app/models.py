@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 import uuid
 from datetime import datetime
 
@@ -69,6 +69,8 @@ class ShowInfo(BaseModel):
     show_td_email: Optional[str] = None
     show_designer_name: Optional[str] = None
     show_designer_email: Optional[str] = None
+    ot_daily_threshold: Optional[float] = 10.0
+    ot_weekly_threshold: Optional[float] = 40.0
 
 # --- Loom Label Models ---
 class LoomLabel(BaseModel):
@@ -144,6 +146,57 @@ class Loom(LoomBase):
     id: uuid.UUID
     user_id: uuid.UUID
     created_at: datetime
+
+# --- Roster Models ---
+class RosterMemberBase(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
+    position: Optional[str] = None
+
+class RosterMemberCreate(RosterMemberBase):
+    pass
+
+class RosterMember(RosterMemberBase):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    created_at: datetime
+
+class RosterMemberAndShowCrewCreate(RosterMemberCreate):
+    show_id: int
+
+class ShowCrewMember(BaseModel):
+    id: uuid.UUID
+    show_id: int
+    roster_id: uuid.UUID
+    role: Optional[str] = None
+    hourly_rate: Optional[float] = None
+    daily_rate: Optional[float] = None
+    rate_type: Optional[str] = None
+    roster: RosterMember
+
+class ShowCrewMemberUpdate(BaseModel):
+    role: Optional[str] = None
+    hourly_rate: Optional[float] = None
+    daily_rate: Optional[float] = None
+    rate_type: Optional[str] = None
+
+# --- Hours Tracking Models ---
+class DailyHoursBase(BaseModel):
+    show_crew_id: uuid.UUID
+    date: str
+    hours: float
+
+class DailyHoursCreate(DailyHoursBase):
+    pass
+
+class DailyHours(DailyHoursBase):
+    id: uuid.UUID
+    created_at: datetime
+
+class BulkDailyHoursUpdate(BaseModel):
+    entries: List[DailyHoursCreate]
 
 # --- VLAN Models ---
 class VLANBase(BaseModel):

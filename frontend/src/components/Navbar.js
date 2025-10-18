@@ -68,6 +68,17 @@ const Navbar = () => {
                                     My Library
                                 </NavLink>
                                 <NavLink
+                                    to="/roster"
+                                    className={({ isActive }) =>
+                                        `flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                            isActive ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                                        }`
+                                    }
+                                >
+                                    <User size={16} className="mr-2" />
+                                    Roster
+                                </NavLink>
+                                <NavLink
                                     to="/account"
                                     className={({ isActive }) =>
                                         `flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
