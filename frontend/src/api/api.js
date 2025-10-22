@@ -63,6 +63,12 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(body),
     }).then(handleResponse),
+
+    generateHoursPdf: async (body) => fetch('/api/pdf/hours-labels', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(body),
+    }).then(handleResponse),
     getProfile: async () => fetch('/api/profile', { headers: await getAuthHeader() }).then(handleResponse),
     updateProfile: async (profileData) => fetch('/api/profile', {
         method: 'POST',

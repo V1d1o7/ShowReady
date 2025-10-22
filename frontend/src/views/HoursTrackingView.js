@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
+import PdfPreviewModal from '../components/PdfPreviewModal';
 
 const HoursTrackingView = () => {
     const { showData } = useShow();
@@ -8,6 +9,7 @@ const HoursTrackingView = () => {
     const [crew, setCrew] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [editedHours, setEditedHours] = useState({});
+    const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
 
     const fetchData = useCallback(async () => {
         if (!showData) return;
@@ -33,13 +35,13 @@ const HoursTrackingView = () => {
     const handleHoursChange = (crewId, date, value) => {
         setEditedHours(prev => ({
             ...prev,
-            [`${crewId}-${date}`]: value
+            [`${crewId}__${date}`]: value
         }));
     };
 
     const handleSaveChanges = async () => {
         const entries = Object.entries(editedHours).map(([key, hours]) => {
-            const [show_crew_id, date] = key.split('_');
+            const [show_crew_id, date] = key.split('__');
             return { show_crew_id, date, hours: parseFloat(hours) || 0 };
         });
         await api.bulkUpdateDailyHours(entries);
@@ -56,6 +58,22 @@ const HoursTrackingView = () => {
         }
         return week;
     }, []);
+
+    const handleGeneratePdf = async () => {
+        const body = {
+            show_name: showData.info.name,
+            dates,
+            crew,
+            hoursByDate,
+        };
+        try {
+            const blob = await api.generateHoursPdf(body);
+            const url = URL.createObjectURL(blob);
+            setPdfPreviewUrl(url);
+        } catch (error) {
+            console.error("Failed to generate PDF:", error.message);
+        }
+    };
 
     const hoursByDate = useMemo(() => {
         const data = {};
@@ -101,7 +119,7 @@ const HoursTrackingView = () => {
                                                 <td key={d} className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">
                                                     <input
                                                         type="number"
-                                                        value={editedHours[`${c.id}_${d}`] ?? crewHours[d]}
+                                                        value={editedHours[`${c.id}__${d}`] ?? crewHours[d]}
                                                         onChange={(e) => handleHoursChange(c.id, d, e.target.value)}
                                                         className="w-16 bg-gray-800 border border-gray-700 rounded-md p-1 text-center"
                                                     />
@@ -115,12 +133,14 @@ const HoursTrackingView = () => {
                                 })}
                             </tbody>
                         </table>
-                        <div className="mt-4 flex justify-end">
+                        <div className="mt-4 flex justify-end space-x-4">
+                            <button onClick={handleGeneratePdf} className="px-4 py-2 text-sm font-medium rounded-md bg-gray-600 text-white hover:bg-gray-500">Print</button>
                             <button onClick={handleSaveChanges} className="px-4 py-2 text-sm font-medium rounded-md bg-amber-500 text-black hover:bg-amber-400">Save Changes</button>
                         </div>
                     </div>
                 )}
             </main>
+            <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
         </div>
     );
 };

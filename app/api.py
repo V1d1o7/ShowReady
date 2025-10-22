@@ -25,9 +25,10 @@ from .models import (
     Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload,
     ImpersonateRequest, Token
 )
-from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_racks_pdf, generate_loom_builder_pdf
+from .pdf_utils import generate_loom_label_pdf, generate_case_label_pdf, generate_racks_pdf, generate_loom_builder_pdf, generate_hours_pdf
 from .email_utils import create_email_html, send_email
 from typing import List, Dict, Optional
+from .models import HoursPDFPayload
 
 router = APIRouter()
 
@@ -1864,6 +1865,17 @@ async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), sh
         return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
     except Exception as e:
         print(f"Error generating rack PDF: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
+
+@router.post("/pdf/hours-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("hours_tracking"))])
+async def create_hours_pdf(payload: HoursPDFPayload, user = Depends(get_user)):
+    """Generates a PDF for the hours tracking view."""
+    try:
+        pdf_buffer = generate_hours_pdf(payload.model_dump())
+        return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
+    except Exception as e:
+        print(f"Error generating hours PDF: {e}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 

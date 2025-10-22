@@ -465,6 +465,12 @@ class LoomBuilderPDFPayload(BaseModel):
     looms: List[LoomWithCables]
     show_name: str
 
+class HoursPDFPayload(BaseModel):
+    show_name: str
+    dates: List[str]
+    crew: List[ShowCrewMember]
+    hoursByDate: Dict[str, Dict[str, Dict[str, float]]]
+
 # --- Impersonation Models ---
 class ImpersonateRequest(BaseModel):
     user_id: uuid.UUID

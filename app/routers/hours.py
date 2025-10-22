@@ -23,8 +23,14 @@ async def get_daily_hours_for_show(show_id: int, user=Depends(get_user), supabas
 @router.post("/daily_hours/bulk-update", tags=["Hours Tracking"])
 async def bulk_update_daily_hours(update_data: BulkDailyHoursUpdate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Bulk updates daily hours entries."""
-    # This is a simplified implementation. A real implementation would need to
-    # be more transactional to avoid partial updates.
-    for entry in update_data.entries:
-        supabase.table('daily_hours').upsert(entry.model_dump(), on_conflict='show_crew_id, date').execute()
-    return {"message": "Hours updated successfully."}
+    try:
+        for entry in update_data.entries:
+            entry_dict = entry.model_dump()
+            entry_dict['show_crew_id'] = str(entry.show_crew_id)
+            supabase.table('daily_hours').upsert(entry_dict).execute()
+        return {"message": "Hours updated successfully."}
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error during bulk update: {e}")
+        # Re-raise as an HTTPException to give a clear error to the client
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
