@@ -488,6 +488,7 @@ ALL_FEATURES = [
     {"key": "vlan_management", "name": "VLAN Management"},
     {"key": "crew", "name": "Crew Management"},
     {"key": "hours_tracking", "name": "Hours Tracking"},
+    {"key": "global_feedback_button", "name": "Global Feedback Button"},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
@@ -677,6 +678,8 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
         except Exception as e:
             print(f"Error fetching permitted features for user {user.id}: {e}")
             profile_data['permitted_features'] = []
+
+        profile_data['feedback_button_text'] = "Feedback"
 
         return UserProfile(**profile_data)
     except Exception as e:

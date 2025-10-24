@@ -43,6 +43,7 @@ class UserProfile(BaseModel):
     company_logo_path: Optional[str] = None
     roles: List[str] = []
     permitted_features: List[str] = []
+    feedback_button_text: Optional[str] = None
 
 class UserProfileUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -516,10 +517,20 @@ class UserSMTPSettingsCreate(BaseModel):
     smtp_username: str
     smtp_password: str
 
+class UserSMTPSettingsUpdate(BaseModel):
+    from_name: Optional[str] = None
+    from_email: Optional[str] = None
+    smtp_server: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None # Plain text, will be encrypted in the router
+
 class UserSMTPSettingsResponse(BaseModel):
+    id: uuid.UUID
     user_id: uuid.UUID
     from_name: str
     from_email: str
     smtp_server: str
     smtp_port: int
     smtp_username: str
+    created_at: datetime

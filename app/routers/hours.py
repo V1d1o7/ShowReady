@@ -20,10 +20,13 @@ async def get_timesheet_data(show_id: int, week_start_date: date, supabase: Clie
     week_end_date = week_start_date + timedelta(days=6)
 
     # 1. Get Show Info (for OT rules and PM email)
-    show_res = supabase.table('shows').select('id, name, ot_weekly_threshold, show_pm_email, logo_path').eq('id', show_id).single().execute()
+    # The logo_path is stored in the `data` jsonb column, not as a top-level column.
+    show_res = supabase.table('shows').select('id, name, ot_weekly_threshold, show_pm_email, data').eq('id', show_id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found")
     show_info = show_res.data
+    show_data_json = show_info.get('data', {}) or {}
+    logo_path = show_data_json.get('info', {}).get('logo_path')
 
     # 2. Get Show Crew and their Roster info
     crew_res = supabase.table('show_crew').select('*, roster(*)').eq('show_id', show_id).execute()
@@ -61,7 +64,7 @@ async def get_timesheet_data(show_id: int, week_start_date: date, supabase: Clie
     return WeeklyTimesheet(
         show_id=show_id,
         show_name=show_info['name'],
-        logo_path=show_info.get('logo_path'),
+        logo_path=logo_path,
         week_start_date=week_start_date,
         week_end_date=week_end_date,
         ot_weekly_threshold=show_info['ot_weekly_threshold'],
