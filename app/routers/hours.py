@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from supabase import Client
-from app.api import get_supabase_client, get_user
+from app.api import get_supabase_client, get_user, get_branding_visibility
 from app.models import (
     TimesheetEntryCreate, WeeklyTimesheet, 
     CrewMemberHours, TimesheetEmailPayload
@@ -117,7 +118,8 @@ async def get_timesheet_pdf(
     show_id: int, 
     week_start_date: date = Query(...), 
     user=Depends(get_user), 
-    supabase: Client = Depends(get_supabase_client)
+    supabase: Client = Depends(get_supabase_client),
+    show_branding: bool = Depends(get_branding_visibility)
 ):
     """Generates and returns a PDF of the weekly timesheet."""
     timesheet_data = await get_timesheet_data(show_id, week_start_date, supabase)
@@ -130,9 +132,15 @@ async def get_timesheet_pdf(
         except Exception as e:
             print(f"Could not download logo: {e}")
 
-    pdf_bytes_io = generate_timesheet_pdf(timesheet_data, logo_bytes)
+    pdf_bytes_io = generate_timesheet_pdf(timesheet_data, logo_bytes, show_branding=show_branding)
     
-    return Response(content=pdf_bytes_io.getvalue(), media_type="application/pdf")
+    filename = f"\"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf\""
+
+    return Response(
+        content=pdf_bytes_io.getvalue(), 
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 @router.post("/timesheet/email")
@@ -144,7 +152,7 @@ async def email_weekly_timesheet(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Generates a timesheet PDF and emails it using the user's SMTP settings."""
-    user_id = user['id']
+    user_id = user.id # Correctly access the user ID
 
     # 1. Get User's SMTP settings
     res = supabase.table('user_smtp_settings').select('*').eq('user_id', user_id).maybe_single().execute()
@@ -165,13 +173,14 @@ async def email_weekly_timesheet(
         except Exception as e:
             print(f"Could not download logo: {e}")
 
-    pdf_bytes_io = generate_timesheet_pdf(timesheet_data, logo_bytes)
+    pdf_bytes_io = generate_timesheet_pdf(timesheet_data, logo_bytes, show_branding=payload.show_branding)
     pdf_bytes = pdf_bytes_io.getvalue()
-    filename = f"{timesheet_data.show_name} Timesheet - {week_start_date}.pdf"
+    filename = f"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf"
 
-    # 4. Send Email
+    # 4. Send Email in a separate thread to avoid blocking
     try:
-        send_email_with_user_smtp(
+        await run_in_threadpool(
+            send_email_with_user_smtp,
             smtp_settings=smtp_settings,
             recipient_email=payload.recipient_email,
             subject=payload.subject,

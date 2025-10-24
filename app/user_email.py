@@ -22,9 +22,7 @@ def send_email_with_user_smtp(
     attachment_filename: str = "report.pdf"
 ):
     """Connects to a user's SMTP server and sends an email."""
-    
     try:
-        # Decrypt the password right before use
         password = decrypt_password(smtp_settings.encrypted_smtp_password)
 
         msg = MIMEMultipart()
@@ -38,17 +36,20 @@ def send_email_with_user_smtp(
             part["Content-Disposition"] = f'attachment; filename="{attachment_filename}"'
             msg.attach(part)
 
-        # Connect to the server
-        with smtplib.SMTP(smtp_settings.smtp_server, smtp_settings.smtp_port) as server:
-            server.starttls() # Secure the connection
+        server = None
+        if smtp_settings.smtp_port == 465:
+            server = smtplib.SMTP_SSL(smtp_settings.smtp_server, smtp_settings.smtp_port, timeout=15)
+        else:
+            server = smtplib.SMTP(smtp_settings.smtp_server, smtp_settings.smtp_port, timeout=15)
+            server.starttls()
+
+        with server:
             server.login(smtp_settings.smtp_username, password)
             server.send_message(msg)
             
     except smtplib.SMTPException as e:
-        print(f"SMTP Error: {e}")
         raise ValueError(f"Failed to send email. SMTP Error: {e}")
     except Exception as e:
-        print(f"General email error: {e}")
         raise ValueError(f"An unexpected error occurred: {e}")
 
 def test_user_smtp_connection(
@@ -56,11 +57,21 @@ def test_user_smtp_connection(
 ):
     """Attempts to log in to the SMTP server to validate credentials."""
     try:
-        password = settings['smtp_password'] # Plain text from user
-        with smtplib.SMTP(settings['smtp_server'], int(settings['smtp_port'])) as server:
+        password = settings['smtp_password']
+        port = int(settings['smtp_port'])
+        
+        server = None
+        if port == 465:
+            server = smtplib.SMTP_SSL(settings['smtp_server'], port, timeout=15)
+        else:
+            server = smtplib.SMTP(settings['smtp_server'], port, timeout=15)
             server.starttls()
+
+        with server:
             server.login(settings['smtp_username'], password)
+            
         return True
     except smtplib.SMTPException as e:
-        print(f"SMTP Test Error: {e}")
         raise ValueError(f"Connection failed: {e}")
+    except Exception as e:
+        raise

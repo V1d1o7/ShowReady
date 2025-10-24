@@ -216,6 +216,7 @@ class CrewMemberHours(BaseModel):
 class WeeklyTimesheet(BaseModel):
     show_id: int
     show_name: str
+    logo_path: Optional[str] = None
     week_start_date: date
     week_end_date: date
     ot_weekly_threshold: float
@@ -226,6 +227,7 @@ class TimesheetEmailPayload(BaseModel):
     recipient_email: str
     subject: str
     body: str
+    show_branding: bool = True
 
 # --- VLAN Models ---
 class VLANBase(BaseModel):

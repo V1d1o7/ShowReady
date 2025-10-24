@@ -1,7 +1,7 @@
 import io
 import os
 from typing import List, Dict, Optional, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -202,7 +202,13 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
     buffer.seek(0)
     return buffer
 
-def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional[bytes] = None) -> io.BytesIO:
+def draw_timesheet_footer(canvas, doc):
+    canvas.saveState()
+    canvas.setFont('SpaceMono', 8)
+    canvas.drawString(0.5 * inch, 0.5 * inch, "Created using ShowReady")
+    canvas.restoreState()
+
+def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional[bytes] = None, show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
     elements = []
@@ -210,7 +216,8 @@ def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional
 
     # Logo
     if logo_bytes:
-        logo = Image(io.BytesIO(logo_bytes), width=1*inch, height=1*inch)
+        logo = Image(io.BytesIO(logo_bytes), width=1.5*inch, height=1*inch)
+        logo.preserveAspectRatio = True
         logo.hAlign = 'LEFT'
         elements.append(logo)
 
@@ -271,7 +278,11 @@ def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional
     table.setStyle(style)
     elements.append(table)
 
-    doc.build(elements)
+    if show_branding:
+        doc.build(elements, onFirstPage=draw_timesheet_footer, onLaterPages=draw_timesheet_footer)
+    else:
+        doc.build(elements)
+        
     buffer.seek(0)
     return buffer
 

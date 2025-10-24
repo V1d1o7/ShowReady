@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { api } from '../api/api';
+import useHotkeys from '../hooks/useHotkeys';
 
 const EmailTimesheetModal = ({ show, onClose, showData, weekStartDate }) => {
+    useHotkeys({ 'escape': onClose });
     const defaultSubject = `${showData.info.name} Timesheet - Week of ${weekStartDate}`;
     const [to, setTo] = useState(showData.info.show_pm_email || '');
     const [subject, setSubject] = useState(defaultSubject);
