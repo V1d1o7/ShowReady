@@ -20,6 +20,15 @@ const AccountView = () => {
     const [logoError, setLogoError] = useState(false);
     const [newEmail, setNewEmail] = useState(user?.email || '');
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
+    const [smtpStatus, setSmtpStatus] = useState({ message: '', isError: false });
+    const [smtpSettings, setSmtpSettings] = useState({
+        from_name: '',
+        from_email: '',
+        smtp_server: '',
+        smtp_port: 587,
+        smtp_username: '',
+        smtp_password: '' // Note: password is write-only
+    });
 
     // Effect to control page scrolling
     useEffect(() => {
@@ -47,6 +56,11 @@ const AccountView = () => {
         } else {
             setCompanyLogoUrl(null);
         }
+        
+        // Fetch existing settings (minus password) to populate form
+        api.getUserSmtpSettings()
+            .then(data => setSmtpSettings(prev => ({ ...prev, ...data, smtp_password: '' })))
+            .catch(err => console.log("No SMTP settings found yet"));
     }, [profile, user?.email]);
 
     const handleProfileChange = (e) => {
@@ -84,6 +98,31 @@ const AccountView = () => {
             alert("Profile updated successfully!");
         } catch (error) {
             alert(`Failed to update profile: ${error.message}`);
+        }
+    };
+
+    const handleSmtpChange = (e) => {
+        setSmtpSettings({ ...smtpSettings, [e.target.name]: e.target.value });
+    };
+
+    const handleSaveSmtp = async () => {
+        setSmtpStatus({ message: 'Saving...', isError: false });
+        try {
+            await api.createUserSmtpSettings(smtpSettings);
+            setSmtpStatus({ message: 'Settings saved successfully!', isError: false });
+            setSmtpSettings({ ...smtpSettings, smtp_password: '' }); // Clear password field
+        } catch (err) {
+            setSmtpStatus({ message: `Failed to save settings: ${err.message}`, isError: true });
+        }
+    };
+    
+    const handleTestSmtp = async () => {
+        setSmtpStatus({ message: 'Testing connection...', isError: false });
+        try {
+            await api.testUserSmtpSettings(smtpSettings);
+            setSmtpStatus({ message: 'Connection successful!', isError: false });
+        } catch (err) {
+            setSmtpStatus({ message: `Connection failed: ${err.message}`, isError: true });
         }
     };
 
@@ -193,6 +232,29 @@ const AccountView = () => {
                         <button onClick={handleUpdateEmail} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Update Email</button>
                     </div>
                 </Card>
+
+                <Card>
+                    <h2 className="text-xl font-bold text-white">Email (SMTP) Settings</h2>
+                    <p className="text-gray-400">Configure your own email server to send reports.</p>
+                    {smtpStatus.message && (
+                        <div className={`mt-4 p-3 rounded text-center ${smtpStatus.isError ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                            {smtpStatus.message}
+                        </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                        <InputField label="From Name" name="from_name" value={smtpSettings.from_name} onChange={handleSmtpChange} />
+                        <InputField label="From Email" name="from_email" type="email" value={smtpSettings.from_email} onChange={handleSmtpChange} />
+                        <InputField label="SMTP Server" name="smtp_server" value={smtpSettings.smtp_server} onChange={handleSmtpChange} />
+                        <InputField label="SMTP Port" name="smtp_port" type="number" value={smtpSettings.smtp_port} onChange={handleSmtpChange} />
+                        <InputField label="SMTP Username" name="smtp_username" value={smtpSettings.smtp_username} onChange={handleSmtpChange} />
+                        <InputField label="SMTP Password" name="smtp_password" type="password" value={smtpSettings.smtp_password} onChange={handleSmtpChange} />
+                    </div>
+                    <div className="mt-6 flex justify-end gap-4">
+                        <button onClick={handleTestSmtp} className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-colors">Test Connection</button>
+                        <button onClick={handleSaveSmtp} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Settings</button>
+                    </div>
+                </Card>
+
                 <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">Single Sign On</h2>
                     <div className="space-y-4">

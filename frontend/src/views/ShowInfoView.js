@@ -4,9 +4,11 @@ import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
 import { useShow } from '../contexts/ShowContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const ShowInfoView = () => {
     const { showData, onSave } = useShow();
+    const { profile } = useAuth();
     const [formData, setFormData] = useState(showData.info);
     const [isUploading, setIsUploading] = useState(false);
     const [logoUrl, setLogoUrl] = useState(null);
@@ -67,8 +69,12 @@ const ShowInfoView = () => {
             <InputField label="Designer" name="show_designer_name" value={formData.show_designer_name || ''} onChange={handleChange} />
             <InputField label="Designer Email" name="show_designer_email" type="email" value={formData.show_designer_email || ''} onChange={handleChange} />
             <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
-            <InputField label="OT Daily Threshold" name="ot_daily_threshold" type="number" value={formData.ot_daily_threshold || ''} onChange={handleChange} />
-            <InputField label="OT Weekly Threshold" name="ot_weekly_threshold" type="number" value={formData.ot_weekly_threshold || ''} onChange={handleChange} />
+            {profile?.permitted_features?.includes('hours_tracking') && (
+              <>
+                <InputField label="OT Daily Threshold" name="ot_daily_threshold" type="number" value={formData.ot_daily_threshold || ''} onChange={handleChange} />
+                <InputField label="OT Weekly Threshold" name="ot_weekly_threshold" type="number" value={formData.ot_weekly_threshold || ''} onChange={handleChange} />
+              </>
+            )}
           </Card>
           <Card className="lg:col-span-2 space-y-4">
             <label className="block text-sm font-medium text-gray-300">Show Logo</label>

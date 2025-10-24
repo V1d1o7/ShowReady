@@ -183,20 +183,48 @@ class ShowCrewMemberUpdate(BaseModel):
     rate_type: Optional[str] = None
 
 # --- Hours Tracking Models ---
-class DailyHoursBase(BaseModel):
+from datetime import date
+
+class TimesheetEntryBase(BaseModel):
     show_crew_id: uuid.UUID
     date: str
     hours: float
 
-class DailyHoursCreate(DailyHoursBase):
+class TimesheetEntryCreate(TimesheetEntryBase):
     pass
 
-class DailyHours(DailyHoursBase):
+class TimesheetEntry(TimesheetEntryBase):
     id: uuid.UUID
     created_at: datetime
 
-class BulkDailyHoursUpdate(BaseModel):
-    entries: List[DailyHoursCreate]
+class BulkTimesheetUpdate(BaseModel):
+    entries: List[TimesheetEntryCreate]
+
+# Model for a single crew member's week
+class CrewMemberHours(BaseModel):
+    show_crew_id: uuid.UUID
+    first_name: str
+    last_name: str
+    rate_type: Optional[str] = None
+    hourly_rate: Optional[float] = 0.0
+    daily_rate: Optional[float] = 0.0
+    # Store hours as a simple dict: {"2025-10-20": 8.0}
+    hours_by_date: Dict[date, float] = Field(default_factory=dict)
+
+# Model that represents the entire grid
+class WeeklyTimesheet(BaseModel):
+    show_id: int
+    show_name: str
+    week_start_date: date
+    week_end_date: date
+    ot_weekly_threshold: float
+    crew_hours: List[CrewMemberHours]
+
+# Model for the email endpoint payload
+class TimesheetEmailPayload(BaseModel):
+    recipient_email: str
+    subject: str
+    body: str
 
 # --- VLAN Models ---
 class VLANBase(BaseModel):
@@ -478,3 +506,20 @@ class ImpersonateRequest(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+# --- User SMTP Settings Models ---
+class UserSMTPSettingsCreate(BaseModel):
+    from_name: str
+    from_email: str
+    smtp_server: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+
+class UserSMTPSettingsResponse(BaseModel):
+    user_id: uuid.UUID
+    from_name: str
+    from_email: str
+    smtp_server: str
+    smtp_port: int
+    smtp_username: str

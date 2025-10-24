@@ -381,7 +381,25 @@ export const api = {
         body: JSON.stringify(data),
     }).then(handleResponse),
 
-    // --- Hours Tracking Endpoints ---
+    // --- User SMTP ---
+    getUserSmtpSettings: async () => fetch('/api/user/smtp-settings', { headers: await getAuthHeader() }).then(handleResponse),
+    createUserSmtpSettings: async (settings) => fetch('/api/user/smtp-settings', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(settings) }).then(handleResponse),
+    testUserSmtpSettings: async (settings) => fetch('/api/user/smtp-settings/test', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(settings) }).then(handleResponse),
+    
+    // --- Timesheets ---
+    getWeeklyTimesheet: async (showId, weekStartDate) => 
+        fetch(`/api/shows/${showId}/timesheet?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
+    
+    updateWeeklyTimesheet: async (showId, timesheetData) =>
+        fetch(`/api/shows/${showId}/timesheet`, { method: 'PUT', headers: await getAuthHeader(), body: JSON.stringify(timesheetData) }).then(handleResponse),
+        
+    getTimesheetPdf: async (showId, weekStartDate) =>
+        fetch(`/api/shows/${showId}/timesheet/pdf?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
+
+    emailTimesheet: async (showId, weekStartDate, emailPayload) =>
+        fetch(`/api/shows/${showId}/timesheet/email?week_start_date=${weekStartDate}`, { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(emailPayload) }).then(handleResponse),
+        
+    // --- Old Hours (can be deprecated) ---
     getDailyHours: async (showId) => fetch(`/api/shows/${showId}/daily_hours`, { headers: await getAuthHeader() }).then(handleResponse),
     bulkUpdateDailyHours: async (entries) => fetch('/api/daily_hours/bulk-update', {
         method: 'POST',

@@ -16,8 +16,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 import base64
 from svglib.svglib import svg2rlg
 import xml.etree.ElementTree as ET
+from reportlab.platypus import SimpleDocTemplate
 
-from .models import LoomLabel, CaseLabel, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables
+from .models import LoomLabel, CaseLabel, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables, WeeklyTimesheet
 
 # Register Space Mono font
 try:
@@ -198,6 +199,79 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
         if slot_index == 1 or i == len(labels_to_draw) - 1:
             c.showPage()
     c.save()
+    buffer.seek(0)
+    return buffer
+
+def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional[bytes] = None) -> io.BytesIO:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Logo
+    if logo_bytes:
+        logo = Image(io.BytesIO(logo_bytes), width=1*inch, height=1*inch)
+        logo.hAlign = 'LEFT'
+        elements.append(logo)
+
+    # Title
+    title_style = ParagraphStyle(name='Title', fontSize=18, alignment=TA_CENTER, fontName='SpaceMono-Bold')
+    title_text = f"{timesheet_data.show_name} | Timesheet for week of {timesheet_data.week_start_date.strftime('%m/%d/%y')}"
+    elements.append(Paragraph(title_text, title_style))
+    elements.append(Paragraph("<br/><br/>", styles['Normal']))
+
+    # Table Data
+    dates = [timesheet_data.week_start_date + timedelta(days=i) for i in range(7)]
+    header_style = ParagraphStyle(name='Header', fontSize=8, alignment=TA_CENTER, fontName='SpaceMono-Bold')
+    date_headers = [Paragraph(f"{d.strftime('%m/%d/%y')}<br/>{d.strftime('%a')}", header_style) for d in dates]
+    
+    header = [
+        Paragraph("Crew Member", header_style),
+        Paragraph("Rate", header_style),
+        *date_headers,
+        Paragraph("Regular", header_style),
+        Paragraph("OT", header_style),
+        Paragraph("Total Cost", header_style)
+    ]
+    data = [header]
+
+    # Table Body
+    cell_style = ParagraphStyle(name='Cell', fontSize=8, alignment=TA_CENTER, fontName='SpaceMono')
+    for member in timesheet_data.crew_hours:
+        rate_str = f"${member.daily_rate}/day" if member.rate_type == 'daily' else f"${member.hourly_rate}/hr"
+        row = [Paragraph(f"{member.first_name} {member.last_name}", cell_style), Paragraph(rate_str, cell_style)]
+        
+        for d in dates:
+            hours = member.hours_by_date.get(d, 0)
+            row.append(Paragraph(str(hours) if hours else "0", cell_style))
+
+        weekly_total = sum(member.hours_by_date.values())
+        ot_hours = max(0, weekly_total - timesheet_data.ot_weekly_threshold)
+        regular_hours = weekly_total - ot_hours
+        
+        cost = (member.daily_rate * len([h for h in member.hours_by_date.values() if h > 0])) if member.rate_type == 'daily' else (regular_hours * member.hourly_rate) + (ot_hours * member.hourly_rate * 1.5)
+
+        row.append(Paragraph(f"{regular_hours:.2f}", cell_style))
+        row.append(Paragraph(f"{ot_hours:.2f}", cell_style))
+        row.append(Paragraph(f"${cost:.2f}", cell_style))
+        
+        data.append(row)
+
+    table = Table(data, hAlign='CENTER')
+    style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTNAME', (0, 0), (-1, 0), 'SpaceMono-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ])
+    table.setStyle(style)
+    elements.append(table)
+
+    doc.build(elements)
     buffer.seek(0)
     return buffer
 
