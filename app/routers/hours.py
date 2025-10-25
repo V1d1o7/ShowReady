@@ -7,7 +7,7 @@ from app.models import (
     CrewMemberHours, TimesheetEmailPayload
 )
 from app.user_email import send_email_with_user_smtp, SMTPSettings
-from app.pdf_utils import generate_timesheet_pdf
+from app.pdf_utils import generate_hours_pdf
 from fastapi.responses import Response
 
 import uuid
@@ -17,8 +17,13 @@ from datetime import date, timedelta
 router = APIRouter(prefix="/shows/{show_id}", tags=["Timesheets"])
 
 # This helper function is the core logic
-async def get_timesheet_data(show_id: int, week_start_date: date, supabase: Client) -> WeeklyTimesheet:
+async def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, supabase: Client) -> WeeklyTimesheet:
     week_end_date = week_start_date + timedelta(days=6)
+
+    # Get current user's roster_id from their roster entry
+    roster_res = supabase.table('roster').select('id').eq('user_id', str(user_id)).execute()
+    # Handle multiple roster entries for a user by taking the first one.
+    user_roster_id = roster_res.data[0].get('id') if roster_res.data else None
 
     # 1. Get Show Info (for OT rules and PM email)
     # The logo_path is stored in the `data` jsonb column, not as a top-level column.
@@ -31,8 +36,18 @@ async def get_timesheet_data(show_id: int, week_start_date: date, supabase: Clie
 
     # 2. Get Show Crew and their Roster info
     crew_res = supabase.table('show_crew').select('*, roster(*)').eq('show_id', show_id).execute()
+
+    # Sort crew members: current user first, then alphabetically by first name
+    sorted_crew_data = sorted(
+        crew_res.data,
+        key=lambda c: (
+            c.get('roster_id') != user_roster_id, # False (0) for user, True (1) for others
+            (c.get('roster') or {}).get('first_name', '').lower(),
+            (c.get('roster') or {}).get('last_name', '').lower()
+        )
+    )
     
-    show_crew_ids = [c['id'] for c in crew_res.data]
+    show_crew_ids = [c['id'] for c in sorted_crew_data]
     
     # 3. Get all hours for this crew for this week
     hours_res = supabase.table('timesheet_entries').select('*') \
@@ -49,7 +64,7 @@ async def get_timesheet_data(show_id: int, week_start_date: date, supabase: Clie
         hours_map[h['show_crew_id']][h['date']] = h['hours']
 
     assembled_crew_hours = []
-    for c in crew_res.data:
+    for c in sorted_crew_data:
         assembled_crew_hours.append(
             CrewMemberHours(
                 show_crew_id=c['id'],
@@ -78,10 +93,11 @@ async def get_weekly_timesheet(
     show_id: int, 
     week_start_date: date = Query(...), 
     user=Depends(get_user), 
-    supabase: Client = Depends(get_supabase_client)
+    supabase: Client = Depends(get_supabase_client),
+    show_branding: bool = Depends(get_branding_visibility)
 ):
     """Gets all data needed to display a weekly timesheet."""
-    return await get_timesheet_data(show_id, week_start_date, supabase)
+    return await get_timesheet_data(show_id, week_start_date, user.id, supabase)
 
 @router.put("/timesheet")
 async def update_weekly_timesheet(
@@ -106,8 +122,12 @@ async def update_weekly_timesheet(
         return {"message": "No hours to save."}
         
     try:
-        # Perform a single, atomic bulk upsert
-        supabase.table('timesheet_entries').upsert(entries_to_upsert).execute()
+        # Perform a single, atomic bulk upsert, telling Supabase to update on conflict
+        # with the composite key.
+        supabase.table('timesheet_entries').upsert(
+            entries_to_upsert,
+            on_conflict='show_crew_id,date'
+        ).execute()
         return {"message": "Timesheet saved successfully."}
     except Exception as e:
         print(f"Error during bulk update: {e}")
@@ -122,17 +142,68 @@ async def get_timesheet_pdf(
     show_branding: bool = Depends(get_branding_visibility)
 ):
     """Generates and returns a PDF of the weekly timesheet."""
-    timesheet_data = await get_timesheet_data(show_id, week_start_date, supabase)
+    # 1. Fetch User Profile
+    profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+    if not profile_res.data:
+        raise HTTPException(status_code=404, detail="User profile not found.")
     
-    logo_bytes = None
+    user_profile = profile_res.data
+    user_info = {
+        "full_name": f"{user_profile.get('first_name', '')} {user_profile.get('last_name', '')}".strip(),
+        "company": user_profile.get('company_name')
+    }
+    
+    company_logo_path = user_profile.get('company_logo_path')
+    company_logo_bytes = None
+    if company_logo_path:
+        try:
+            company_logo_bytes = supabase.storage.from_('logos').download(company_logo_path)
+        except Exception:
+            pass
+
+    # 2. Fetch Timesheet Data
+    timesheet_data = await get_timesheet_data(show_id, week_start_date, user.id, supabase)
+
+    show_logo_bytes = None
     if timesheet_data.logo_path:
         try:
-            res = supabase.storage.from_('logos').download(timesheet_data.logo_path)
-            logo_bytes = res
-        except Exception as e:
-            print(f"Could not download logo: {e}")
+            show_logo_bytes = supabase.storage.from_('logos').download(timesheet_data.logo_path)
+        except Exception:
+            pass
 
-    pdf_bytes_io = generate_timesheet_pdf(timesheet_data, logo_bytes, show_branding=show_branding)
+    # 3. Structure data for the new PDF generator
+    show_info = { "name": timesheet_data.show_name }
+    
+    # Create the 'dates' list with MM/DD/YY format
+    dates = [(timesheet_data.week_start_date + timedelta(days=i)).strftime('%m/%d/%y') for i in range(7)]
+
+    # Create the 'crew' and 'hoursByDate' dictionaries
+    crew_list = []
+    hours_by_date_payload = {}
+    for member in timesheet_data.crew_hours:
+        crew_list.append({
+            "id": str(member.show_crew_id),
+            "roster": { "first_name": member.first_name, "last_name": member.last_name },
+            "rate_type": member.rate_type, "daily_rate": member.daily_rate, "hourly_rate": member.hourly_rate
+        })
+        # Use the formatted date string as the key
+        hours_by_date_payload[str(member.show_crew_id)] = {
+            "hours": {day.strftime('%m/%d/%y'): hours for day, hours in member.hours_by_date.items()}
+        }
+
+    payload = { "dates": dates, "crew": crew_list, "hoursByDate": hours_by_date_payload }
+
+    # 4. Generate PDF
+    pdf_bytes_io = await run_in_threadpool(
+        generate_hours_pdf,
+        user=user_info,
+        show=show_info,
+        payload=payload,
+        ot_threshold=timesheet_data.ot_weekly_threshold,
+        show_logo_bytes=show_logo_bytes,
+        company_logo_bytes=company_logo_bytes,
+        show_branding=show_branding
+    )
     
     filename = f"\"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf\""
 
@@ -152,28 +223,66 @@ async def email_weekly_timesheet(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Generates a timesheet PDF and emails it using the user's SMTP settings."""
-    user_id = user.id # Correctly access the user ID
+    user_id = user.id
 
     # 1. Get User's SMTP settings
-    res = supabase.table('user_smtp_settings').select('*').eq('user_id', user_id).maybe_single().execute()
-    if not res.data:
+    smtp_res = supabase.table('user_smtp_settings').select('*').eq('user_id', user_id).maybe_single().execute()
+    if not smtp_res.data:
         raise HTTPException(status_code=400, detail="SMTP settings not configured. Please add them in your Account settings.")
+    smtp_settings = SMTPSettings(**smtp_res.data)
+
+    # 2. Fetch User Profile for PDF header
+    profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+    if not profile_res.data:
+        raise HTTPException(status_code=404, detail="User profile not found.")
     
-    smtp_settings = SMTPSettings(**res.data)
+    user_profile = profile_res.data
+    user_info = {
+        "full_name": f"{user_profile.get('first_name', '')} {user_profile.get('last_name', '')}".strip(),
+        "company": user_profile.get('company_name')
+    }
+    company_logo_path = user_profile.get('company_logo_path')
+    company_logo_bytes = None
+    if company_logo_path:
+        try:
+            company_logo_bytes = supabase.storage.from_('logos').download(company_logo_path)
+        except Exception:
+            pass
 
-    # 2. Get Timesheet Data
-    timesheet_data = await get_timesheet_data(show_id, week_start_date, supabase)
+    # 3. Get Timesheet Data
+    timesheet_data = await get_timesheet_data(show_id, week_start_date, user.id, supabase)
 
-    # 3. Generate PDF (in memory)
-    logo_bytes = None
+    show_logo_bytes = None
     if timesheet_data.logo_path:
         try:
-            res = supabase.storage.from_('logos').download(timesheet_data.logo_path)
-            logo_bytes = res
-        except Exception as e:
-            print(f"Could not download logo: {e}")
+            show_logo_bytes = supabase.storage.from_('logos').download(timesheet_data.logo_path)
+        except Exception:
+            pass
 
-    pdf_bytes_io = generate_timesheet_pdf(timesheet_data, logo_bytes, show_branding=payload.show_branding)
+    # 4. Structure data for PDF generator
+    show_info = { "name": timesheet_data.show_name }
+    dates = [(timesheet_data.week_start_date + timedelta(days=i)).strftime('%m/%d/%y') for i in range(7)]
+    crew_list = []
+    hours_by_date_payload = {}
+    for member in timesheet_data.crew_hours:
+        crew_list.append({
+            "id": str(member.show_crew_id),
+            "roster": { "first_name": member.first_name, "last_name": member.last_name },
+            "rate_type": member.rate_type, "daily_rate": member.daily_rate, "hourly_rate": member.hourly_rate
+        })
+        hours_by_date_payload[str(member.show_crew_id)] = {
+            "hours": {day.strftime('%m/%d/%y'): hours for day, hours in member.hours_by_date.items()}
+        }
+    pdf_payload = { "dates": dates, "crew": crew_list, "hoursByDate": hours_by_date_payload }
+
+    # 5. Generate PDF
+    pdf_bytes_io = await run_in_threadpool(
+        generate_hours_pdf,
+        user=user_info, show=show_info, payload=pdf_payload,
+        ot_threshold=timesheet_data.ot_weekly_threshold,
+        show_logo_bytes=show_logo_bytes, company_logo_bytes=company_logo_bytes,
+        show_branding=payload.show_branding
+    )
     pdf_bytes = pdf_bytes_io.getvalue()
     filename = f"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf"
 
