@@ -254,7 +254,18 @@ def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional
             row.append(Paragraph(str(hours) if hours else "0", cell_style))
 
         weekly_total = sum(member.hours_by_date.values())
-        ot_hours = max(0, weekly_total - timesheet_data.ot_weekly_threshold)
+        
+        daily_ot_hours = 0
+        daily_regular_hours = 0
+        for hours in member.hours_by_date.values():
+            if hours > timesheet_data.ot_daily_threshold:
+                daily_ot_hours += hours - timesheet_data.ot_daily_threshold
+                daily_regular_hours += timesheet_data.ot_daily_threshold
+            else:
+                daily_regular_hours += hours
+        
+        weekly_ot_hours = max(0, daily_regular_hours - timesheet_data.ot_weekly_threshold)
+        ot_hours = daily_ot_hours + weekly_ot_hours
         regular_hours = weekly_total - ot_hours
         
         cost = (member.daily_rate * len([h for h in member.hours_by_date.values() if h > 0])) if member.rate_type == 'daily' else (regular_hours * member.hourly_rate) + (ot_hours * member.hourly_rate * 1.5)
@@ -378,7 +389,7 @@ def _build_header_table(show, user, generation_date, show_logo_bytes, company_lo
 # --- REPLACED/UPDATED HOURS PDF FUNCTION ---
 # This function now accepts the full payload from the frontend
 # and builds a timesheet grid, matching the original logic.
-def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_threshold: int, show_logo_bytes: Optional[bytes], company_logo_bytes: Optional[bytes], show_branding: bool = True):
+def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_weekly_threshold: int, ot_daily_threshold: int, show_logo_bytes: Optional[bytes], company_logo_bytes: Optional[bytes], show_branding: bool = True):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -456,17 +467,34 @@ def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_threshold: int,
         row = [Paragraph(f"{c['roster']['first_name']} {c['roster']['last_name']}", styles['CrewName'])]
         
         weekly_total = 0
+        daily_ot_total = 0
         for d_str in dates:
             try:
                 hours_for_day = float(crew_hours_map.get(d_str, 0))
             except (ValueError, TypeError):
                 hours_for_day = 0
             
+            if hours_for_day > ot_daily_threshold:
+                daily_ot_total += hours_for_day - ot_daily_threshold
+
             # Use CellCenter style for data
             row.append(Paragraph(str(hours_for_day), styles['CellCenter']))
             weekly_total += hours_for_day
+        
+        daily_regular_hours = 0
+        for d_str in dates:
+            try:
+                hours_for_day = float(crew_hours_map.get(d_str, 0))
+            except (ValueError, TypeError):
+                hours_for_day = 0
+            
+            if hours_for_day > ot_daily_threshold:
+                daily_regular_hours += ot_daily_threshold
+            else:
+                daily_regular_hours += hours_for_day
 
-        ot_hours = max(0, weekly_total - ot_threshold)
+        weekly_ot_hours = max(0, daily_regular_hours - ot_weekly_threshold)
+        ot_hours = daily_ot_total + weekly_ot_hours
         regular_hours = weekly_total - ot_hours
         
         cost = 0

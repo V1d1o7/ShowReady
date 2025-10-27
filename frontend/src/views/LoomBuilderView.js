@@ -10,7 +10,8 @@ import { api } from '../api/api';
 import useHotkeys from '../hooks/useHotkeys';
 
 const LoomBuilderView = () => {
-    const { showName } = useShow();
+    const { showId, showData } = useShow();
+    const showName = showData?.info?.show_name;
     const { showConfirmationModal } = useModal();
     const [looms, setLooms] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -28,16 +29,17 @@ const LoomBuilderView = () => {
     });
 
     const fetchLooms = useCallback(async () => {
+        if (!showId) return;
         try {
             setIsLoading(true);
-            const fetchedLooms = await api.getLoomsForShow(showName);
+            const fetchedLooms = await api.getLoomsForShow(showId);
             setLooms(fetchedLooms);
         } catch (error) {
             console.error("Failed to fetch looms:", error);
         } finally {
             setIsLoading(false);
         }
-    }, [showName]);
+    }, [showId]);
 
     useEffect(() => {
         fetchLooms();
@@ -45,7 +47,7 @@ const LoomBuilderView = () => {
 
     const handleCreateLoom = async (name) => {
         try {
-            const newLoom = await api.createLoom({ name, show_name: showName });
+            const newLoom = await api.createLoom({ name, show_id: showId });
             fetchLooms();
             setManagingLoom(newLoom);
         } catch (error) {

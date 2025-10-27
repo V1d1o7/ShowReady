@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Routes, Route, useNavigate, useParams, Outlet, Navigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { supabase, api } from './api/api';
 
 // Contexts
@@ -80,22 +80,25 @@ const MainLayout = ({ session }) => {
         }
         try {
             const newShowData = { info: { show_name: newShowName }, loom_sheets: {}, case_sheets: {} };
-            await api.saveShow(newShowName, newShowData);
+            const createdShow = await api.createShow(newShowData);
             await loadShows();
-            navigate(`/show/${encodeURIComponent(newShowName)}/info`);
+            if (createdShow && createdShow.name) {
+                const urlFriendlyName = createdShow.name.replace(/\s+/g, '-');
+                navigate(`/show/${urlFriendlyName}/info`);
+            }
         } catch (error) {
             console.error("Failed to create show:", error);
         }
         setIsNewShowModalOpen(false);
     };
 
-    const handleDeleteShow = (showNameToDelete) => {
+    const handleDeleteShow = (showId, showName) => {
         setConfirmationModal({
             isOpen: true,
-            message: `Are you sure you want to delete "${showNameToDelete}"? This action cannot be undone.`,
+            message: `Are you sure you want to delete "${showName}"? This action cannot be undone.`,
             onConfirm: async () => {
                 try {
-                    await api.deleteShow(showNameToDelete);
+                    await api.deleteShow(showId);
                     loadShows();
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 } catch (error) {
@@ -121,9 +124,14 @@ const MainLayout = ({ session }) => {
                                         element={
                                             <DashboardView
                                                 shows={shows}
-                                                onSelectShow={(showName) => navigate(`/show/${encodeURIComponent(showName)}/info`)}
+                                                onSelectShow={(showId) => {
+                                                    const show = shows.find(s => s.id === showId);
+                                                    if (show) {
+                                                        navigate(`/show/${show.name.replace(/\s+/g, '-')}/info`);
+                                                    }
+                                                }}
                                                 onNewShow={() => setIsNewShowModalOpen(true)}
-                                                onDeleteShow={handleDeleteShow}
+                                                onDeleteShow={(showId, showName) => handleDeleteShow(showId, showName)}
                                                 isLoading={isLoadingShows}
                                                 user={session.user}
                                             />
@@ -196,18 +204,17 @@ const ShowWrapper = ({ onShowUpdate }) => {
     const [racks, setRacks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const navigate = useNavigate();
+    const location = useLocation();
 
     const fetchShowData = useCallback(async () => {
         setIsLoading(true);
         try {
-            const [data, racksData] = await Promise.all([
-                api.getShow(showName),
-                api.getDetailedRacksForShow(showName)
-            ]);
-            setShowData(data);
+            const fullShowObject = await api.getShowByName(showName);
+            const racksData = await api.getDetailedRacksForShow(fullShowObject.id);
+            setShowData(fullShowObject); // Store the full object
             setRacks(racksData);
         } catch (error) {
-            console.error("Failed to fetch show data:", error);
+            console.error("Failed to fetch show data by name:", error);
             navigate('/');
         } finally {
             setIsLoading(false);
@@ -220,28 +227,39 @@ const ShowWrapper = ({ onShowUpdate }) => {
         }
     }, [showName, fetchShowData]);
 
-    const handleSaveShowData = async (updatedData) => {
+    const handleSaveShowData = async (updatedShowDataBlob) => {
+        if (!showData || !showData.id) return;
         try {
-            const originalName = showName;
-            const newName = updatedData.info.show_name;
-
-            await api.saveShow(originalName, updatedData);
-            setShowData(updatedData);
+            await api.saveShow(showData.id, updatedShowDataBlob);
             
-            if (onShowUpdate) {
-                onShowUpdate();
+            const oldUrlFriendlyName = showName.replace(/\s+/g, '-');
+            const newUrlFriendlyName = updatedShowDataBlob.info.show_name.replace(/\s+/g, '-');
+
+            if (oldUrlFriendlyName !== newUrlFriendlyName) {
+                const newPath = location.pathname.replace(oldUrlFriendlyName, newUrlFriendlyName);
+                navigate(newPath, { replace: true });
+            } else {
+                 // Create a new full show object with the updated data blob
+                 setShowData(prevShowData => ({
+                    ...prevShowData,
+                    data: updatedShowDataBlob
+                 }));
             }
 
-            if (newName && newName !== originalName) {
-                navigate(`/show/${encodeURIComponent(newName)}/info`, { replace: true });
+            if (onShowUpdate) {
+                onShowUpdate();
             }
         } catch (error) {
             console.error("Failed to save show data:", error);
         }
     };
+    
+    const showId = showData ? showData.id : null;
+    // Pass the nested 'data' object to the provider for backward compatibility
+    const providerShowData = showData ? showData.data : null;
 
     return (
-        <ShowProvider value={{ showData, racks, onSave: handleSaveShowData, isLoading, showName, refreshRacks: fetchShowData }}>
+        <ShowProvider value={{ showData: providerShowData, racks, onSave: handleSaveShowData, isLoading, showId, refreshRacks: fetchShowData }}>
             <Outlet />
         </ShowProvider>
     );

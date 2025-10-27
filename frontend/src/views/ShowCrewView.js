@@ -6,7 +6,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import useHotkeys from '../hooks/useHotkeys';
 
 const ShowCrewView = () => {
-    const { showData } = useShow();
+    const { showId } = useShow();
     const [crew, setCrew] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
@@ -15,30 +15,30 @@ const ShowCrewView = () => {
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
 
     const fetchCrew = useCallback(async () => {
-        if (!showData) return;
+        if (!showId) return;
         setIsLoading(true);
         try {
-            const crewData = await api.getShowCrew(showData.info.id);
+            const crewData = await api.getShowCrew(showId);
             setCrew(crewData);
         } catch (error) {
             console.error("Failed to fetch show crew:", error);
         } finally {
             setIsLoading(false);
         }
-    }, [showData]);
+    }, [showId]);
 
     useEffect(() => {
         fetchCrew();
     }, [fetchCrew]);
 
     const handleAddNewMember = async (formData) => {
-        await api.createRosterMemberAndAddToShow({ ...formData, show_id: showData.info.id });
+        await api.createRosterMemberAndAddToShow({ ...formData, show_id: showId });
         fetchCrew();
         setIsRosterModalOpen(false);
     };
 
     const handleAddFromRoster = async (rosterId) => {
-        await api.addCrewToShow(showData.info.id, rosterId);
+        await api.addCrewToShow(showId, rosterId);
         fetchCrew();
         setIsAddFromRosterModalOpen(false);
     };
@@ -48,7 +48,7 @@ const ShowCrewView = () => {
             isOpen: true,
             message: `Are you sure you want to remove ${member.roster.first_name} ${member.roster.last_name} from this show?`,
             onConfirm: async () => {
-                await api.removeCrewFromShow(showData.info.id, member.roster.id);
+                await api.removeCrewFromShow(showId, member.roster.id);
                 fetchCrew();
                 setConfirmModal({ isOpen: false, message: '', onConfirm: null });
             }

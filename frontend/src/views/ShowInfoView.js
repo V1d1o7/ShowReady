@@ -7,28 +7,30 @@ import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
 
 const ShowInfoView = () => {
-    const { showData, onSave } = useShow();
+    const { showData, onSave, isLoading } = useShow();
     const { profile } = useAuth();
-    const [formData, setFormData] = useState(showData.info);
+    const [formData, setFormData] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [logoUrl, setLogoUrl] = useState(null);
     const [logoError, setLogoError] = useState(false);
   
     useEffect(() => {
-      setFormData(showData.info);
-      if (showData.info.logo_path) {
-        setLogoError(false);
-        supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 3600)
-          .then(({ data, error }) => {
-            if (error) {
-              console.error("Error creating signed URL:", error);
-              setLogoError(true);
-            } else {
-              setLogoUrl(data.signedUrl);
-            }
-          });
-      } else {
-        setLogoUrl(null);
+      if (showData && showData.info) {
+        setFormData(showData.info);
+        if (showData.info.logo_path) {
+          setLogoError(false);
+          supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 3600)
+            .then(({ data, error }) => {
+              if (error) {
+                console.error("Error creating signed URL:", error);
+                setLogoError(true);
+              } else {
+                setLogoUrl(data.signedUrl);
+              }
+            });
+        } else {
+          setLogoUrl(null);
+        }
       }
     }, [showData]);
   
@@ -46,7 +48,9 @@ const ShowInfoView = () => {
         if (result.logo_path) {
           const updatedInfo = { ...formData, logo_path: result.logo_path };
           setFormData(updatedInfo);
-          onSave({ ...showData, info: updatedInfo });
+          if (showData) {
+            onSave({ ...showData, info: updatedInfo });
+          }
         }
       } catch (error) { 
         console.error("Logo upload failed:", error); 
@@ -55,7 +59,19 @@ const ShowInfoView = () => {
       setIsUploading(false);
     };
   
-    const handleSave = () => onSave({ ...showData, info: formData });
+    const handleSave = () => {
+      if (showData) {
+        onSave({ ...showData, info: formData });
+      }
+    };
+
+    if (isLoading || !formData) {
+      return (
+        <div className="flex justify-center items-center h-full">
+          <p>Loading show information...</p>
+        </div>
+      );
+    }
   
     return (
       <div className="space-y-8">
@@ -69,12 +85,6 @@ const ShowInfoView = () => {
             <InputField label="Designer" name="show_designer_name" value={formData.show_designer_name || ''} onChange={handleChange} />
             <InputField label="Designer Email" name="show_designer_email" type="email" value={formData.show_designer_email || ''} onChange={handleChange} />
             <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
-            {profile?.permitted_features?.includes('hours_tracking') && (
-              <>
-                <InputField label="OT Daily Threshold" name="ot_daily_threshold" type="number" value={formData.ot_daily_threshold || ''} onChange={handleChange} />
-                <InputField label="OT Weekly Threshold" name="ot_weekly_threshold" type="number" value={formData.ot_weekly_threshold || ''} onChange={handleChange} />
-              </>
-            )}
           </Card>
           <Card className="lg:col-span-2 space-y-4">
             <label className="block text-sm font-medium text-gray-300">Show Logo</label>

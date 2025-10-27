@@ -53,7 +53,7 @@ const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading
                 ) : shows.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {shows.map(show => (
-                            <ShowCard key={show.name} show={show} onSelect={() => onSelectShow(show.name)} onDelete={() => onDeleteShow(show.name)} />
+                            <ShowCard key={show.id} show={show} onSelect={() => onSelectShow(show.id)} onDelete={() => onDeleteShow(show.id, show.name)} />
                         ))}
                     </div>
                 ) : (

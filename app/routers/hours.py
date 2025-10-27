@@ -25,14 +25,19 @@ async def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.
     # Handle multiple roster entries for a user by taking the first one.
     user_roster_id = roster_res.data[0].get('id') if roster_res.data else None
 
-    # 1. Get Show Info (for OT rules and PM email)
-    # The logo_path is stored in the `data` jsonb column, not as a top-level column.
-    show_res = supabase.table('shows').select('id, name, ot_weekly_threshold, show_pm_email, data').eq('id', show_id).single().execute()
+    # 1. Get Show Info (for OT rules)
+    show_res = supabase.table('shows').select('id, name, data').eq('id', show_id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found")
+    
     show_info = show_res.data
     show_data_json = show_info.get('data', {}) or {}
-    logo_path = show_data_json.get('info', {}).get('logo_path')
+    show_info_data = show_data_json.get('info', {})
+
+    logo_path = show_info_data.get('logo_path')
+    ot_daily_threshold = show_info_data.get('ot_daily_threshold', 10)
+    ot_weekly_threshold = show_info_data.get('ot_weekly_threshold', 40)
+    pay_period_start_day = show_info_data.get('pay_period_start_day', 0)
 
     # 2. Get Show Crew and their Roster info
     crew_res = supabase.table('show_crew').select('*, roster(*)').eq('show_id', show_id).execute()
@@ -83,7 +88,9 @@ async def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.
         logo_path=logo_path,
         week_start_date=week_start_date,
         week_end_date=week_end_date,
-        ot_weekly_threshold=show_info['ot_weekly_threshold'],
+        ot_daily_threshold=ot_daily_threshold,
+        ot_weekly_threshold=ot_weekly_threshold,
+        pay_period_start_day=pay_period_start_day,
         crew_hours=assembled_crew_hours
     )
 
@@ -199,7 +206,8 @@ async def get_timesheet_pdf(
         user=user_info,
         show=show_info,
         payload=payload,
-        ot_threshold=timesheet_data.ot_weekly_threshold,
+        ot_weekly_threshold=timesheet_data.ot_weekly_threshold,
+        ot_daily_threshold=timesheet_data.ot_daily_threshold,
         show_logo_bytes=show_logo_bytes,
         company_logo_bytes=company_logo_bytes,
         show_branding=show_branding
@@ -279,7 +287,8 @@ async def email_weekly_timesheet(
     pdf_bytes_io = await run_in_threadpool(
         generate_hours_pdf,
         user=user_info, show=show_info, payload=pdf_payload,
-        ot_threshold=timesheet_data.ot_weekly_threshold,
+        ot_weekly_threshold=timesheet_data.ot_weekly_threshold,
+        ot_daily_threshold=timesheet_data.ot_daily_threshold,
         show_logo_bytes=show_logo_bytes, company_logo_bytes=company_logo_bytes,
         show_branding=payload.show_branding
     )

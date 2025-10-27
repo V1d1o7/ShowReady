@@ -38,17 +38,16 @@ async def get_user(request: Request, supabase: Client = Depends(get_supabase_cli
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-@router.post("/shows/{show_name}/generate-vlan-script", tags=["VLANs"])
-async def generate_vlan_script(show_name: str, payload: VlanScriptRequest, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.post("/vlans/{show_id}/generate-script", tags=["VLANs"])
+async def generate_vlan_script(show_id: int, payload: VlanScriptRequest, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
     Generates a PowerShell script for creating a virtual switch and adding VLANs.
     The user must have collaborator access to the show.
     """
     # 1. Verify user has access to the show and get its ID.
-    show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
+    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
-    show_id = show_res.data['id']
 
     # 2. Fetch the specified VLANs from the database.
     if not payload.vlan_ids:

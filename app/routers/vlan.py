@@ -11,31 +11,27 @@ router = APIRouter(
     dependencies=[Depends(feature_check("vlan_management"))]
 )
 
-@router.get("/shows/{show_name}/vlans", response_model=List[VLAN])
-async def get_vlans_for_show(show_name: str, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.get("/{show_id}", response_model=List[VLAN])
+async def get_vlans_for_show(show_id: int, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
     Retrieves all VLANs for a specific show.
     """
-    show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
+    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
-    
-    show_id = show_res.data['id']
     
     response = supabase.table('vlans').select('*').eq('show_id', show_id).order('tag', desc=False).execute()
     return response.data
 
-@router.post("/shows/{show_name}/vlans", response_model=VLAN)
-async def create_vlan_for_show(show_name: str, vlan: VLANCreate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.post("/{show_id}", response_model=VLAN)
+async def create_vlan_for_show(show_id: int, vlan: VLANCreate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
     Creates a new VLAN for a specific show.
     """
-    show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
+    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
         
-    show_id = show_res.data['id']
-
     # Check for duplicate VLAN name
     name_check_res = supabase.table('vlans').select('id', count='exact').eq('show_id', show_id).eq('name', vlan.name).execute()
     if name_check_res.count > 0:
@@ -56,7 +52,7 @@ async def create_vlan_for_show(show_name: str, vlan: VLANCreate, user=Depends(ge
         
     return response.data[0]
 
-@router.put("/vlans/{vlan_id}", response_model=VLAN)
+@router.put("/{vlan_id}", response_model=VLAN)
 async def update_vlan(vlan_id: uuid.UUID, vlan_data: VLANUpdate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
     Updates an existing VLAN.
@@ -101,7 +97,7 @@ async def update_vlan(vlan_id: uuid.UUID, vlan_data: VLANUpdate, user=Depends(ge
     return response.data[0]
 
 
-@router.delete("/vlans/{vlan_id}", status_code=204)
+@router.delete("/{vlan_id}", status_code=204)
 async def delete_vlan(vlan_id: uuid.UUID, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
     Deletes a VLAN by its ID.

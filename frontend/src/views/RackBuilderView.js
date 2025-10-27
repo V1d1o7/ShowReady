@@ -14,7 +14,8 @@ import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
 
 const RackBuilderView = () => {
-    const { showName } = useShow();
+    const { showId, showData } = useShow();
+    const showName = showData?.info?.show_name;
     const [racks, setRacks] = useState([]);
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [isLoading, setIsLoading] = useState(true);
@@ -32,11 +33,12 @@ const RackBuilderView = () => {
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
 
     const fetchData = useCallback(async () => {
+        if (!showId) return;
         setIsLoading(true);
         try {
             const [fullLibrary, racksData] = await Promise.all([
                 api.getLibrary(),
-                api.getRacksForShow(showName)
+                api.getRacksForShow(showId)
             ]);
 
             setLibrary(fullLibrary || { folders: [], equipment: [] });
@@ -67,7 +69,7 @@ const RackBuilderView = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedRackId, showName]);
+    }, [selectedRackId, showId]);
 
     useEffect(() => {
         fetchData();
@@ -80,7 +82,7 @@ const RackBuilderView = () => {
 
     const handleCreateRack = async (rackData) => {
         try {
-            const newRack = await api.createRack({ rack_name: rackData.rackName, ru_height: parseInt(rackData.ruHeight, 10), show_name: showName });
+            const newRack = await api.createRack({ rack_name: rackData.rackName, ru_height: parseInt(rackData.ruHeight, 10), show_id: showId });
             await fetchData();
             setSelectedRackId(newRack.id);
         } catch (error) {
@@ -169,7 +171,7 @@ const RackBuilderView = () => {
     const handleConfirmCopyRack = async (newName) => {
         if (!rackToCopy) return;
         try {
-            const newRack = await api.copyRackFromLibrary(rackToCopy.id, showName, newName);
+            const newRack = await api.copyRackFromLibrary(rackToCopy.id, showId, newName);
             setRacks(prevRacks => [...prevRacks, newRack]);
             setSelectedRackId(newRack.id);
             setActiveRack(newRack);
@@ -185,7 +187,7 @@ const RackBuilderView = () => {
     const handleGenerateRackPdf = async ({ pageSize }) => {
         toast.loading('Generating PDF...');
         try {
-            const detailedRacks = await api.getDetailedRacksForShow(showName);
+            const detailedRacks = await api.getDetailedRacksForShow(showId);
             
             const payload = {
                 racks: detailedRacks,

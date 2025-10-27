@@ -46,13 +46,19 @@ const handleResponse = async (res) => {
 
 export const api = {
     getShows: async () => fetch('/api/shows', { headers: await getAuthHeader() }).then(handleResponse),
-    getShow: async (showName) => fetch(`/api/shows/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
-    saveShow: async (showName, data) => fetch(`/api/shows/${showName}`, {
+    getShow: async (showId) => fetch(`/api/shows/${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    getShowByName: async (showName) => fetch(`/api/shows/by-name/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    saveShow: async (showId, data) => fetch(`/api/shows/${showId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+    createShow: async (data) => fetch('/api/shows', {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify(data),
     }).then(handleResponse),
-    deleteShow: async (showName) => fetch(`/api/shows/${showName}`, { method: 'DELETE', headers: await getAuthHeader() }).then(res => { if (!res.ok) throw new Error("Delete failed") }),
+    deleteShow: async (showId) => fetch(`/api/shows/${showId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(res => { if (!res.ok) throw new Error("Delete failed") }),
     uploadLogo: async (formData) => fetch('/api/upload/logo', {
         method: 'POST',
         headers: await getAuthHeader(true),
@@ -83,8 +89,8 @@ export const api = {
     }).then(handleResponse),
     deleteAccount: async () => fetch('/api/profile', { method: 'DELETE', headers: await getAuthHeader() }),
     createRack: async (rackData) => fetch('/api/racks', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(rackData) }).then(handleResponse),
-    getRacksForShow: async (showName) => fetch(`/api/racks?show_name=${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
-    getDetailedRacksForShow: async (showName) => fetch(`/api/shows/${showName}/detailed_racks`, { headers: await getAuthHeader() }).then(handleResponse),
+    getRacksForShow: async (showId) => fetch(`/api/shows/${showId}/racks`, { headers: await getAuthHeader() }).then(handleResponse),
+    getDetailedRacksForShow: async (showId) => fetch(`/api/shows/${showId}/detailed_racks`, { headers: await getAuthHeader() }).then(handleResponse),
     getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
     updateRack: async (rackId, rackData) => fetch(`/api/racks/${rackId}`, { method: 'PUT', headers: await getAuthHeader(), body: JSON.stringify(rackData) }).then(handleResponse),
     deleteRack: async (rackId) => fetch(`/api/racks/${rackId}`, { method: 'DELETE', headers: await getAuthHeader() }),
@@ -114,7 +120,7 @@ export const api = {
         headers: await getAuthHeader()
     }),
     
-    getConnectionsForShow: async (showName) => fetch(`/api/connections/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
+    getConnectionsForShow: async (showId) => fetch(`/api/shows/${showId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
     getConnectionsForDevice: async (instanceId) => fetch(`/api/equipment/${instanceId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
     createConnection: async (connectionData) => fetch('/api/connections', {
         method: 'POST',
@@ -187,19 +193,19 @@ export const api = {
         body: JSON.stringify(copyData),
     }).then(handleResponse),
     getLibraryRacks: async () => fetch(`/api/racks?from_library=true`, { headers: await getAuthHeader() }).then(handleResponse),
-    copyRackFromLibrary: async (rackId, showName, newRackName) => fetch('/api/racks/load_from_library', {
+    copyRackFromLibrary: async (rackId, showId, newRackName) => fetch('/api/racks/load_from_library', {
         method: 'POST',
         headers: await getAuthHeader(),
-        body: JSON.stringify({ template_rack_id: rackId, show_name: showName, new_rack_name: newRackName }),
+        body: JSON.stringify({ template_rack_id: rackId, show_id: showId, new_rack_name: newRackName }),
     }).then(handleResponse),
-    getUnassignedEquipment: async (showName) => fetch(`/api/shows/${showName}/unassigned_equipment`, { headers: await getAuthHeader() }).then(handleResponse),
+    getUnassignedEquipment: async (showId) => fetch(`/api/shows/${showId}/unassigned_equipment`, { headers: await getAuthHeader() }).then(handleResponse),
     generateRacksPdf: async (payload) => fetch('/api/pdf/racks', {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify(payload),
     }).then(handleResponse),
 
-    exportWirePdf: async (graphData, showName, titleBlockData) => fetch(`/api/export/wire.pdf?show_name=${encodeURIComponent(showName)}`, {
+    exportWirePdf: async (graphData, showId, titleBlockData) => fetch(`/api/export/wire.pdf?show_id=${encodeURIComponent(showId)}`, {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify({graph: graphData, title_block: titleBlockData}),
@@ -207,7 +213,7 @@ export const api = {
 
     // --- Loom Builder Endpoints ---
     // Loom (Container) Endpoints
-    getLoomsForShow: async (showName) => fetch(`/api/shows/${showName}/looms`, { headers: await getAuthHeader() }).then(handleResponse),
+    getLoomsForShow: async (showId) => fetch(`/api/shows/${showId}/looms`, { headers: await getAuthHeader() }).then(handleResponse),
     createLoom: async (loomData) => fetch('/api/looms', {
         method: 'POST',
         headers: await getAuthHeader(),
@@ -250,8 +256,8 @@ export const api = {
     }).then(handleResponse),
 
     // --- VLAN Endpoints ---
-    getVlans: async (showName) => fetch(`/api/shows/${showName}/vlans`, { headers: await getAuthHeader() }).then(handleResponse),
-    createVlan: async (showName, vlanData) => fetch(`/api/shows/${showName}/vlans`, {
+    getVlans: async (showId) => fetch(`/api/vlans/${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    createVlan: async (showId, vlanData) => fetch(`/api/vlans/${showId}`, {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify(vlanData),
@@ -265,7 +271,7 @@ export const api = {
         method: 'DELETE',
         headers: await getAuthHeader(),
     }),
-    generateVlanScript: async (showName, payload) => fetch(`/api/shows/${showName}/generate-vlan-script`, {
+    generateVlanScript: async (showId, payload) => fetch(`/api/vlans/${showId}/generate-script`, {
         method: 'POST',
         headers: await getAuthHeader(),
         body: JSON.stringify(payload),
@@ -362,6 +368,11 @@ export const api = {
 
     // --- Show Crew Endpoints ---
     getShowCrew: async (showId) => fetch(`/api/shows/${showId}/crew`, { headers: await getAuthHeader() }).then(handleResponse),
+    updateShowSettings: async (showId, settings) => fetch(`/api/shows/${showId}/settings`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(settings),
+    }).then(handleResponse),
     addCrewToShow: async (showId, rosterId) => fetch(`/api/shows/${showId}/crew?roster_id=${rosterId}`, {
         method: 'POST',
         headers: await getAuthHeader(),

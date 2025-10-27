@@ -9,7 +9,7 @@ import GenerateScriptModal from '../components/GenerateScriptModal';
 import VlanInstructionsModal from '../components/VlanInstructionsModal';
 
 const VLANView = () => {
-    const { showName } = useShow();
+    const { showId } = useShow();
     const { showConfirmationModal } = useModal();
     const { addToast } = useToast();
     const [vlans, setVlans] = useState([]);
@@ -22,11 +22,11 @@ const VLANView = () => {
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
     const fetchVlans = useCallback(async () => {
-        if (!showName) return;
+        if (!showId) return;
         setIsLoading(true);
         setError(null);
         try {
-            const data = await api.getVlans(showName);
+            const data = await api.getVlans(showId);
             setVlans(data);
         } catch (err) {
             setError(err.message);
@@ -35,7 +35,7 @@ const VLANView = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [showName, addToast]);
+    }, [showId, addToast]);
 
     useEffect(() => {
         fetchVlans();
@@ -102,7 +102,7 @@ const VLANView = () => {
                 await api.updateVlan(editingVlan.id, vlanData);
                 addToast('VLAN updated successfully', 'success');
             } else {
-                await api.createVlan(showName, vlanData);
+                await api.createVlan(showId, vlanData);
                 addToast('VLAN created successfully', 'success');
             }
             fetchVlans();
@@ -130,7 +130,7 @@ const VLANView = () => {
                 virtual_switch_name: virtualSwitchName,
                 vlan_ids: vlanIdsToGenerate,
             };
-            const blob = await api.generateVlanScript(showName, payload);
+            const blob = await api.generateVlanScript(showId, payload);
             
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');

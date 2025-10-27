@@ -2,20 +2,37 @@ import React, { useState } from 'react';
 import { api } from '../api/api';
 import useHotkeys from '../hooks/useHotkeys';
 
-const EmailTimesheetModal = ({ show, onClose, showData, weekStartDate }) => {
+import { useEffect } from 'react';
+
+const EmailTimesheetModal = ({ show, onClose, showId, weekStartDate }) => {
     useHotkeys({ 'escape': onClose });
-    const defaultSubject = `${showData.info.name} Timesheet - Week of ${weekStartDate}`;
-    const [to, setTo] = useState(showData.info.show_pm_email || '');
-    const [subject, setSubject] = useState(defaultSubject);
-    const [body, setBody] = useState(`Please find the attached timesheet for ${showData.info.name}.`);
+    
+    const [showData, setShowData] = useState(null);
+    const [to, setTo] = useState('');
+    const [subject, setSubject] = useState('');
+    const [body, setBody] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+
+    useEffect(() => {
+        if (showId) {
+            api.getShow(showId).then(data => {
+                if (data) {
+                    setShowData(data);
+                    const defaultSubject = `${data.name} Timesheet - Week of ${weekStartDate}`;
+                    setTo(data.data?.show_pm_email || '');
+                    setSubject(defaultSubject);
+                    setBody(`Please find the attached timesheet for ${data.name}.`);
+                }
+            });
+        }
+    }, [showId, weekStartDate]);
 
     const handleSend = async () => {
         setIsLoading(true);
         setError(null);
         try {
-            await api.emailTimesheet(showData.info.id, weekStartDate, {
+            await api.emailTimesheet(showId, weekStartDate, {
                 recipient_email: to,
                 subject,
                 body,

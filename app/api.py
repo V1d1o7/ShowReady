@@ -737,106 +737,86 @@ async def update_sso_config(sso_data: SSOConfig, user = Depends(get_user), supab
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Show Management Endpoints ---
-@router.post("/shows/{show_name}", tags=["Shows"])
-async def create_or_update_show(show_name: str, show_data: ShowFile, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Creates a new show or updates an existing one for the authenticated user."""
+@router.post("/shows", tags=["Shows"])
+async def create_show(show_data: ShowFile, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new show for the authenticated user."""
     try:
-        cloned_show_data = show_data.model_copy(deep=True)
-        info_data = cloned_show_data.info
-
-        top_level_data = {
-            'show_pm_name': info_data.show_pm_name,
-            'show_pm_email': info_data.show_pm_email,
-            'show_td_name': info_data.show_td_name,
-            'show_td_email': info_data.show_td_email,
-            'show_designer_name': info_data.show_designer_name,
-            'show_designer_email': info_data.show_designer_email,
-        }
-
-        # Remove duplicated fields from the info object before saving to JSON
-        if hasattr(info_data, 'show_pm_name'):
-            delattr(info_data, 'show_pm_name')
-        if hasattr(info_data, 'show_pm_email'):
-            delattr(info_data, 'show_pm_email')
-        if hasattr(info_data, 'show_td_name'):
-            delattr(info_data, 'show_td_name')
-        if hasattr(info_data, 'show_td_email'):
-            delattr(info_data, 'show_td_email')
-        if hasattr(info_data, 'show_designer_name'):
-            delattr(info_data, 'show_designer_name')
-        if hasattr(info_data, 'show_designer_email'):
-            delattr(info_data, 'show_designer_email')
-        
-        upsert_data = {
-            'name': show_name,
-            'data': cloned_show_data.model_dump(mode='json'),
-            'user_id': str(user.id),
-            **top_level_data
-        }
-        
-        response = supabase.table('shows').upsert(
-            upsert_data, 
-            on_conflict='name, user_id'
-        ).execute()
+        response = supabase.table('shows').insert({
+            'name': show_data.info.show_name,
+            'data': show_data.model_dump(mode='json'),
+            'user_id': str(user.id)
+        }).execute()
         
         if response.data:
             return response.data[0]
-        raise HTTPException(status_code=500, detail="Failed to save show data.")
+        raise HTTPException(status_code=500, detail="Failed to create show.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/shows/{show_name}", tags=["Shows"])
-async def get_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.put("/shows/{show_id}", tags=["Shows"])
+async def update_show(show_id: int, show_data: ShowFile, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates an existing show for the authenticated user."""
+    try:
+        update_data = {
+            'name': show_data.info.show_name,
+            'data': show_data.model_dump(mode='json')
+        }
+        
+        response = supabase.table('shows').update(update_data).eq('id', show_id).eq('user_id', user.id).execute()
+        
+        if response.data:
+            return response.data[0]
+        raise HTTPException(status_code=404, detail="Show not found or update failed.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/shows/{show_id}", tags=["Shows"])
+async def get_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves a specific show for the authenticated user."""
     try:
-        response = supabase.table('shows').select('*').eq('name', show_name).eq('user_id', user.id).maybe_single().execute()
+        response = supabase.table('shows').select('*').eq('id', show_id).eq('user_id', user.id).maybe_single().execute()
         if response.data:
-            show_record = response.data
-            show_data_json = show_record.get('data', {})
-            
-            info_from_columns = {
-                "id": show_record.get("id"),
-                "show_pm_name": show_record.get("show_pm_name"),
-                "show_pm_email": show_record.get("show_pm_email"),
-                "show_td_name": show_record.get("show_td_name"),
-                "show_td_email": show_record.get("show_td_email"),
-                "show_designer_name": show_record.get("show_designer_name"),
-                "show_designer_email": show_record.get("show_designer_email"),
-            }
-
-            if 'info' in show_data_json:
-                show_data_json['info'].update(info_from_columns)
-            else:
-                show_data_json['info'] = info_from_columns
-
-            return show_data_json
+            return response.data
         raise HTTPException(status_code=404, detail="Show not found")
     except Exception as e:
         traceback.print_exc()
-        raise HTTPException(status_code=404, detail=f"Show '{show_name}' not found.")
+        raise HTTPException(status_code=404, detail=f"Show with id '{show_id}' not found.")
+
+@router.get("/shows/by-name/{show_name}", tags=["Shows"])
+async def get_show_by_name(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Retrieves a specific show for the authenticated user by its name."""
+    try:
+        formatted_show_name = show_name.replace('-', ' ')
+        response = supabase.table('shows').select('*').eq('name', formatted_show_name).eq('user_id', user.id).maybe_single().execute()
+        if response.data:
+            return response.data
+        raise HTTPException(status_code=404, detail="Show not found")
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=404, detail=f"Show with name '{show_name}' not found.")
 
 @router.get("/shows", tags=["Shows"])
 async def list_shows(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Lists all shows for the authenticated user, including their logo paths."""
     try:
-        response = supabase.table('shows').select('name, data').eq('user_id', user.id).execute()
+        response = supabase.table('shows').select('id, name, data').eq('user_id', user.id).execute()
         if not response.data:
             return []
         
         shows_with_logos = []
         for item in response.data:
             logo_path = item.get('data', {}).get('info', {}).get('logo_path')
-            shows_with_logos.append({'name': item['name'], 'logo_path': logo_path})
+            shows_with_logos.append({'id': item['id'], 'name': item['name'], 'logo_path': logo_path})
             
         return shows_with_logos
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/shows/{show_name}", status_code=204, tags=["Shows"])
-async def delete_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.delete("/shows/{show_id}", status_code=204, tags=["Shows"])
+async def delete_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Deletes a specific show for the authenticated user."""
     try:
-        supabase.table('shows').delete().eq('name', show_name).eq('user_id', user.id).execute()
+        supabase.table('shows').delete().eq('id', show_id).eq('user_id', user.id).execute()
         return
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -844,20 +824,20 @@ async def delete_show(show_name: str, user = Depends(get_user), supabase: Client
 # --- Loom Builder Endpoints ---
 
 # -- Looms (Containers) --
-@router.get("/shows/{show_name}/looms", response_model=List[Loom], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
-async def get_looms_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.get("/shows/{show_id}/looms", response_model=List[Loom], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
+async def get_looms_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all loom containers for a specific show."""
-    show_res = supabase.table('shows').select('id').eq('name', show_name).eq('user_id', user.id).single().execute()
+    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
     
-    response = supabase.table('looms').select('*').eq('show_name', show_name).eq('user_id', user.id).execute()
+    response = supabase.table('looms').select('*').eq('show_id', show_id).eq('user_id', user.id).execute()
     return response.data
 
 @router.post("/looms", response_model=Loom, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def create_loom(loom_data: LoomCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new loom container for a show."""
-    show_res = supabase.table('shows').select('id').eq('name', loom_data.show_name).eq('user_id', user.id).single().execute()
+    show_res = supabase.table('shows').select('id').eq('id', loom_data.show_id).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
 
@@ -905,7 +885,7 @@ async def copy_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Clie
     # 2. Create the new loom with the same name
     new_loom_data = {
         "name": original_loom['name'],
-        "show_name": original_loom['show_name'],
+        "show_id": original_loom['show_id'],
         "user_id": str(user.id)
     }
     new_loom_res = supabase.table('looms').insert(new_loom_data).execute()
@@ -1100,12 +1080,17 @@ async def create_rack(rack_data: RackCreate, user = Depends(get_user), supabase:
 
 
 @router.get("/racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
-async def list_racks(show_name: Optional[str] = None, from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    query = supabase.table('racks').select('*').eq('user_id', user.id)
-    if show_name:
-        query = query.eq('show_name', show_name)
-    if from_library:
-        query = query.eq('saved_to_library', True)
+async def list_library_racks(from_library: bool = False, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    if not from_library:
+        raise HTTPException(status_code=400, detail="This endpoint is for library racks only. Use /shows/{show_id}/racks for show-specific racks.")
+    
+    query = supabase.table('racks').select('*').eq('user_id', user.id).eq('saved_to_library', True)
+    response = query.execute()
+    return response.data
+
+@router.get("/shows/{show_id}/racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
+async def list_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    query = supabase.table('racks').select('*').eq('user_id', user.id).eq('show_id', show_id)
     
     response = query.execute()
     return response.data
@@ -1144,10 +1129,10 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     rack_data['equipment'] = equipment_instances
     return rack_data
 
-@router.get("/shows/{show_name}/detailed_racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
-async def get_detailed_racks_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.get("/shows/{show_id}/detailed_racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
+async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get all racks for the show
-    racks_res = supabase.table('racks').select('*').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    racks_res = supabase.table('racks').select('*').eq('show_id', show_id).eq('user_id', str(user.id)).execute()
     if not racks_res.data:
         return []
     
@@ -1217,7 +1202,7 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
         template_rack = template_res.data
 
         # 2. Check for name uniqueness
-        existing_rack_res = supabase.table('racks').select('id').eq('show_name', load_data.show_name).eq('user_id', str(user.id)).eq('rack_name', load_data.new_rack_name).execute()
+        existing_rack_res = supabase.table('racks').select('id').eq('show_id', load_data.show_id).eq('user_id', str(user.id)).eq('rack_name', load_data.new_rack_name).execute()
         if existing_rack_res.data:
             raise HTTPException(status_code=409, detail=f"A rack with the name '{load_data.new_rack_name}' already exists in this show.")
 
@@ -1225,7 +1210,7 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
         new_rack_data = {
             "rack_name": load_data.new_rack_name,
             "ru_height": template_rack['ru_height'],
-            "show_name": load_data.show_name,
+            "show_id": load_data.show_id,
             "user_id": str(user.id),
             "saved_to_library": False
         }
@@ -1474,15 +1459,9 @@ async def create_equipment_instance(
     supabase: Client = Depends(get_supabase_client)
 ):
     """Creates an equipment instance, initially un-racked."""
-    # 1. Find the show to get its name
-    show_res = supabase.table('shows').select('name').eq('id', equipment_data.show_id).eq('user_id', str(user.id)).single().execute()
-    if not show_res.data:
-        raise HTTPException(status_code=404, detail="Show not found or access denied.")
-    show_name = show_res.data['name']
-
     # 2. Find or create the "[Unracked]" rack for this show
     unracked_rack_name = "[Unracked]"
-    rack_query = supabase.table('racks').select('id').eq('show_name', show_name).eq('rack_name', unracked_rack_name).eq('user_id', str(user.id)).execute()
+    rack_query = supabase.table('racks').select('id').eq('show_id', equipment_data.show_id).eq('rack_name', unracked_rack_name).eq('user_id', str(user.id)).execute()
     
     if rack_query.data:
         rack_id = rack_query.data[0]['id']
@@ -1490,7 +1469,7 @@ async def create_equipment_instance(
         new_rack_res = supabase.table('racks').insert({
             "rack_name": unracked_rack_name,
             "ru_height": 0,
-            "show_name": show_name,
+            "show_id": equipment_data.show_id,
             "user_id": str(user.id)
         }).execute()
         if not new_rack_res.data:
@@ -1504,7 +1483,7 @@ async def create_equipment_instance(
     template = template_res.data
 
     # 4. Get all equipment in the show for nomenclature calculation
-    all_racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    all_racks_res = supabase.table('racks').select('id').eq('show_id', equipment_data.show_id).eq('user_id', str(user.id)).execute()
     all_rack_ids = [r['id'] for r in all_racks_res.data]
     
     all_show_equipment_res = supabase.table('rack_equipment_instances').select('instance_name').in_('rack_id', all_rack_ids).execute()
@@ -1700,12 +1679,12 @@ async def create_connection(connection_data: ConnectionCreate, user = Depends(ge
         if not source_device_res.data or not dest_device_res.data:
             raise HTTPException(status_code=404, detail="Source or destination device not found.")
             
-        show_id_res = supabase.table('racks').select('show_name, user_id').eq('id', source_device_res.data['rack_id']).single().execute()
+        show_id_res = supabase.table('racks').select('show_id, user_id').eq('id', source_device_res.data['rack_id']).single().execute()
         if not show_id_res.data or show_id_res.data['user_id'] != str(user.id):
             raise HTTPException(status_code=403, detail="Not authorized to create a connection in this show.")
 
         insert_data = connection_data.model_dump(mode='json')
-        insert_data['show_id'] = show_id_res.data['show_name']
+        insert_data['show_id'] = show_id_res.data['show_id']
         
         response = supabase.table('connections').insert(insert_data).execute()
         if response.data:
@@ -1714,12 +1693,12 @@ async def create_connection(connection_data: ConnectionCreate, user = Depends(ge
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/shows/{show_name}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstanceWithTemplate])
-async def get_unassigned_equipment(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.get("/shows/{show_id}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstanceWithTemplate])
+async def get_unassigned_equipment(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all equipment for a show that has not been assigned to a wire diagram page."""
     try:
         # First, get all racks for the given show and user
-        racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+        racks_res = supabase.table('racks').select('id').eq('show_id', show_id).eq('user_id', str(user.id)).execute()
         if not racks_res.data:
             return [] # No racks for this show, so no equipment
 
@@ -1734,11 +1713,11 @@ async def get_unassigned_equipment(show_name: str, user = Depends(get_user), sup
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch unassigned equipment: {str(e)}")
 
-@router.get("/connections/{show_name}", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
-async def get_connections_for_show(show_name: str, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+@router.get("/shows/{show_id}/connections", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
+async def get_connections_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all connections for a specific show."""
     try:
-        response = supabase.table('connections').select('*').eq('show_id', show_name).execute()
+        response = supabase.table('connections').select('*').eq('show_id', show_id).execute()
         connections = response.data or []
         
         device_ids = {c['source_device_id'] for c in connections} | {c['destination_device_id'] for c in connections}
@@ -1794,8 +1773,8 @@ async def delete_connection(connection_id: uuid.UUID, user = Depends(get_user), 
     """Deletes a specific connection."""
     conn_res = supabase.table('connections').select('show_id').eq('id', str(connection_id)).single().execute()
     if conn_res.data:
-        show_name = conn_res.data['show_id']
-        is_owner = supabase.table('shows').select('user_id').eq('name', show_name).eq('user_id', str(user.id)).single().execute()
+        show_id = conn_res.data['show_id']
+        is_owner = supabase.table('shows').select('user_id').eq('id', show_id).eq('user_id', str(user.id)).single().execute()
         if not is_owner.data:
             raise HTTPException(status_code=403, detail="Not authorized to delete this connection.")
             

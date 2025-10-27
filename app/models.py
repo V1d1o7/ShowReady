@@ -72,6 +72,7 @@ class ShowInfo(BaseModel):
     show_designer_email: Optional[str] = None
     ot_daily_threshold: Optional[float] = 10.0
     ot_weekly_threshold: Optional[float] = 40.0
+    pay_period_start_day: Optional[int] = 0
 
 # --- Loom Label Models ---
 class LoomLabel(BaseModel):
@@ -135,7 +136,7 @@ class BulkCableUpdate(BaseModel):
 # A Loom is a container for multiple cables.
 class LoomBase(BaseModel):
     name: str
-    show_name: str
+    show_id: int
 
 class LoomCreate(LoomBase):
     pass
@@ -219,7 +220,9 @@ class WeeklyTimesheet(BaseModel):
     logo_path: Optional[str] = None
     week_start_date: date
     week_end_date: date
+    ot_daily_threshold: Optional[float] = 10.0
     ot_weekly_threshold: float
+    pay_period_start_day: Optional[int] = 0
     crew_hours: List[CrewMemberHours]
 
 # Model for the email endpoint payload
@@ -343,7 +346,7 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
 
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    show_name: Optional[str] = None
+    show_id: Optional[int] = None
     user_id: uuid.UUID
     rack_name: str
     ru_height: int
@@ -353,7 +356,7 @@ class Rack(BaseModel):
 class RackCreate(BaseModel):
     rack_name: str
     ru_height: int
-    show_name: Optional[str] = None
+    show_id: Optional[int] = None
 
 class RackUpdate(BaseModel):
     rack_name: Optional[str] = None
@@ -439,7 +442,7 @@ class EquipmentCopy(BaseModel):
 
 class RackLoad(BaseModel):
     template_rack_id: uuid.UUID
-    show_name: str
+    show_id: int
     new_rack_name: str
 
 # --- PDF Generation Models ---

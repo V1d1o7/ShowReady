@@ -15,7 +15,7 @@ router = APIRouter(
 @router.post("/export/wire.pdf")
 async def export_wire_pdf(
     payload: PdfExportPayload, 
-    show_name: str = Query("export"),
+    show_id: int = Query(...),
     user = Depends(get_user),
     supabase: Client = Depends(get_supabase_client),
     show_branding: bool = Depends(get_branding_visibility)
@@ -28,9 +28,11 @@ async def export_wire_pdf(
 
     try:
         # Fetch logos
-        show_res = supabase.table('shows').select('data').eq('name', show_name).eq('user_id', str(user.id)).single().execute()
-        if show_res.data and 'data' in show_res.data and 'info' in show_res.data['data']:
-            show_logo_path = show_res.data['data']['info'].get('logo_path')
+        show_res = supabase.table('shows').select('data, name').eq('id', show_id).eq('user_id', str(user.id)).single().execute()
+        if show_res.data:
+            show_name = show_res.data.get('name', 'export')
+            if 'data' in show_res.data and 'info' in show_res.data['data']:
+                show_logo_path = show_res.data['data']['info'].get('logo_path')
             if show_logo_path:
                 try:
                     show_logo_bytes = supabase.storage.from_('logos').download(show_logo_path)

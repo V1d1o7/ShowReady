@@ -25,6 +25,7 @@ from app.routers.roster import router as roster_router
 from app.routers.hours import router as hours_router
 from app.routers.pdf import router as pdf_router
 from app.routers.user_settings import router as user_settings_router
+from app.routers.show_settings import router as show_settings_router
 
 
 app = FastAPI(
@@ -52,7 +53,7 @@ app.add_middleware(
 # Include the API router BEFORE mounting the static files.
 # Routers with more specific paths should be included before
 # routers with more general paths.
-app.include_router(vlan_router, prefix="/api")
+app.include_router(vlan_router, prefix="/api/vlans")
 app.include_router(vlan_script_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")
 app.include_router(wire_export_router)
@@ -60,6 +61,7 @@ app.include_router(roster_router, prefix="/api")
 app.include_router(hours_router, prefix="/api")
 app.include_router(pdf_router, prefix="/api")
 app.include_router(user_settings_router, prefix="/api")
+app.include_router(show_settings_router, prefix="/api")
 app.include_router(api_router, prefix="/api")
 
 # --- Static Files Configuration ---

@@ -99,7 +99,8 @@ const createApiGraph = (nodes, edges, pageSize) => {
 };
 
 const WireDiagramView = () => {
-    const { showName, showData } = useShow();
+    const { showId, showData } = useShow();
+    const showName = showData?.info?.show_name;
     const { profile } = useAuth();
     const reactFlowWrapper = useRef(null);
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -133,15 +134,16 @@ const WireDiagramView = () => {
 
 
     const fetchData = useCallback(async () => {
+        if (!showId) return;
         setIsLoading(true);
         setError(null);
         try {
-            const detailedRacks = await api.getDetailedRacksForShow(showName);
+            const detailedRacks = await api.getDetailedRacksForShow(showId);
             const allEquipment = detailedRacks.flatMap(rack => 
                 rack.equipment.map(eq => ({ ...eq, rack_name: rack.rack_name }))
             );
 
-            const connectionsData = await api.getConnectionsForShow(showName);
+            const connectionsData = await api.getConnectionsForShow(showId);
             const connections = connectionsData.connections || [];
 
             const maxPage = allEquipment.reduce((max, eq) => Math.max(max, eq.page_number || 1), 1);
@@ -197,17 +199,17 @@ const WireDiagramView = () => {
             fitView({ padding: 0.1 });
         }, 100);
 
-    }, [showName, setNodes, setEdges]);
+    }, [showId, setNodes, setEdges]);
 
     const fetchUnassignedEquipment = useCallback(async () => {
-        if (!showName) return;
+        if (!showId) return;
         try {
-            const data = await api.getUnassignedEquipment(showName);
+            const data = await api.getUnassignedEquipment(showId);
             setUnassignedEquipment(data);
         } catch (err) {
             console.error("Failed to fetch unassigned equipment:", err);
         }
-    }, [showName]);
+    }, [showId]);
 
     const fetchLibraryData = useCallback(async () => {
         try {
@@ -219,12 +221,12 @@ const WireDiagramView = () => {
     }, []);
 
     useEffect(() => {
-        if (showName) {
+        if (showId) {
             fetchData();
             fetchUnassignedEquipment();
             fetchLibraryData();
         }
-    }, [showName, fetchData, fetchUnassignedEquipment, fetchLibraryData]);
+    }, [showId, fetchData, fetchUnassignedEquipment, fetchLibraryData]);
 
     useEffect(() => {
         setNodes(nds =>
@@ -545,7 +547,7 @@ const WireDiagramView = () => {
                 sheet_title: 'Wire Diagram',
             };
 
-            const blob = await api.exportWirePdf(apiGraph, showName, titleBlockData);
+            const blob = await api.exportWirePdf(apiGraph, showId, titleBlockData);
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;

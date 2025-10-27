@@ -7,7 +7,6 @@ import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network
 
 const ShowSidebar = () => {
     const { profile } = useAuth();
-    const { showName } = useShow();
     const { shows, isLoadingShows } = useShows();
     const { showName: showNameFromParams } = useParams();
     const navigate = useNavigate();
@@ -15,7 +14,8 @@ const ShowSidebar = () => {
     const handleShowChange = (e) => {
         const newShowName = e.target.value;
         if (newShowName) {
-            navigate(`/show/${encodeURIComponent(newShowName)}/info`);
+            const urlFriendlyName = newShowName.replace(/\s+/g, '-');
+            navigate(`/show/${urlFriendlyName}/info`);
         }
     };
 
@@ -50,7 +50,7 @@ const ShowSidebar = () => {
                     <select
                         id="show-select"
                         className="appearance-none w-full bg-gray-700 border border-gray-600 rounded-md py-2 pl-3 pr-10 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
-                        value={decodeURIComponent(showName)}
+                        value={decodeURIComponent(showNameFromParams)}
                         onChange={handleShowChange}
                         disabled={isLoadingShows}
                     >
