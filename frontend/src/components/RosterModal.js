@@ -35,6 +35,9 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, customFields, onManage
     const handleSubmit = (e) => {
         e.preventDefault();
         onSubmit(formData);
+        if (!member) { // Only clear form if it's a new member, not an edit
+            setFormData({});
+        }
     };
 
     return (

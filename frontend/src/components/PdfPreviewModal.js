@@ -1,16 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
+import useHotkeys from '../hooks/useHotkeys';
 
 const PdfPreviewModal = ({ url, onClose }) => {
-    useEffect(() => {
-        const handleEsc = (event) => {
-            if (event.key === 'Escape') {
-                onClose();
-            }
-        };
-        window.addEventListener('keydown', handleEsc);
-        return () => window.removeEventListener('keydown', handleEsc);
-    }, [onClose]);
+    useHotkeys({ 'escape': onClose });
 
     if (!url) return null;
 

@@ -9,7 +9,6 @@ from app.models import (
 from app.user_email import send_email_with_user_smtp, SMTPSettings
 from app.pdf_utils import generate_hours_pdf
 from fastapi.responses import Response
-
 import uuid
 from typing import List
 from datetime import date, timedelta
@@ -31,13 +30,14 @@ async def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.
         raise HTTPException(status_code=404, detail="Show not found")
     
     show_info = show_res.data
-    show_data_json = show_info.get('data', {}) or {}
-    show_info_data = show_data_json.get('info', {})
+    show_data = show_info.get('data', {}) or {}
+    # Correctly access the nested info object for logo_path and other settings
+    info_data = show_data.get('info', {}) or {}
 
-    logo_path = show_info_data.get('logo_path')
-    ot_daily_threshold = show_info_data.get('ot_daily_threshold', 10)
-    ot_weekly_threshold = show_info_data.get('ot_weekly_threshold', 40)
-    pay_period_start_day = show_info_data.get('pay_period_start_day', 0)
+    logo_path = info_data.get('logo_path')
+    ot_daily_threshold = info_data.get('ot_daily_threshold', 10)
+    ot_weekly_threshold = info_data.get('ot_weekly_threshold', 40)
+    pay_period_start_day = info_data.get('pay_period_start_day', 0)
 
     # 2. Get Show Crew and their Roster info
     crew_res = supabase.table('show_crew').select('*, roster(*)').eq('show_id', show_id).execute()
@@ -157,7 +157,8 @@ async def get_timesheet_pdf(
     user_profile = profile_res.data
     user_info = {
         "full_name": f"{user_profile.get('first_name', '')} {user_profile.get('last_name', '')}".strip(),
-        "company": user_profile.get('company_name')
+        "company": user_profile.get('company_name'),
+        "position": user_profile.get('production_role')
     }
     
     company_logo_path = user_profile.get('company_logo_path')
@@ -213,7 +214,7 @@ async def get_timesheet_pdf(
         show_branding=show_branding
     )
     
-    filename = f"\"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf\""
+    filename = f"\"{timesheet_data.show_name} Hours | {week_start_date}.pdf\""
 
     return Response(
         content=pdf_bytes_io.getvalue(), 
@@ -293,14 +294,14 @@ async def email_weekly_timesheet(
         show_branding=payload.show_branding
     )
     pdf_bytes = pdf_bytes_io.getvalue()
-    filename = f"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf"
+    filename = f"\"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf\""
 
     # 4. Send Email in a separate thread to avoid blocking
     try:
         await run_in_threadpool(
             send_email_with_user_smtp,
             smtp_settings=smtp_settings,
-            recipient_email=payload.recipient_email,
+            recipient_emails=payload.recipient_emails,
             subject=payload.subject,
             html_body=payload.body.replace("\n", "<br>"),
             attachment_blob=pdf_bytes,

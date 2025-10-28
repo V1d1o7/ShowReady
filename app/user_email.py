@@ -4,6 +4,7 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from pydantic import BaseModel
 from .encryption import decrypt_password
+from typing import List
 
 class SMTPSettings(BaseModel):
     from_name: str
@@ -15,7 +16,7 @@ class SMTPSettings(BaseModel):
 
 def send_email_with_user_smtp(
     smtp_settings: SMTPSettings,
-    recipient_email: str,
+    recipient_emails: List[str],
     subject: str,
     html_body: str,
     attachment_blob: bytes = None,
@@ -27,7 +28,7 @@ def send_email_with_user_smtp(
 
         msg = MIMEMultipart()
         msg["From"] = f"{smtp_settings.from_name} <{smtp_settings.from_email}>"
-        msg["To"] = recipient_email
+        msg["To"] = ", ".join(recipient_emails)
         msg["Subject"] = subject
         msg.attach(MIMEText(html_body, "html"))
 

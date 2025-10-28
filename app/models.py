@@ -225,9 +225,10 @@ class WeeklyTimesheet(BaseModel):
     pay_period_start_day: Optional[int] = 0
     crew_hours: List[CrewMemberHours]
 
+from typing import List
 # Model for the email endpoint payload
 class TimesheetEmailPayload(BaseModel):
-    recipient_email: str
+    recipient_emails: List[str]
     subject: str
     body: str
     show_branding: bool = True

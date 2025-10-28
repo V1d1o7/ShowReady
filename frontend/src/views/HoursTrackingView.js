@@ -3,6 +3,7 @@ import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { ChevronLeft, ChevronRight, Mail, Download, Save, Settings } from 'lucide-react';
 import EmailTimesheetModal from '../components/EmailTimesheetModal';
+import { useToast } from '../contexts/ToastContext';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
 
@@ -18,6 +19,7 @@ const getWeekStartDate = (date, startDay) => {
 
 const HoursTrackingView = () => {
     const { showId } = useShow();
+    const { addToast } = useToast();
     const [timesheetData, setTimesheetData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [weekStartDate, setWeekStartDate] = useState(getWeekStartDate(new Date(), 0));
@@ -33,8 +35,15 @@ const HoursTrackingView = () => {
             // Re-calculate based on the *currently viewed* week, not the current date
             const parts = weekStartDate.split('-').map(Number);
             const currentViewDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-            setWeekStartDate(getWeekStartDate(currentViewDate, newStartDay));
-            // No need to call fetchTimesheet() separately, as the useEffect for weekStartDate will trigger it.
+            const newStartDate = getWeekStartDate(currentViewDate, newStartDay);
+            
+            // If the start date hasn't changed, the useEffect won't trigger.
+            // We need to manually fetch the data to get new OT thresholds.
+            if (newStartDate === weekStartDate) {
+                fetchTimesheet();
+            } else {
+                setWeekStartDate(newStartDate);
+            }
         } catch (error) {
             console.error("Failed to save settings:", error);
         }
@@ -96,11 +105,11 @@ const HoursTrackingView = () => {
         if (!timesheetData) return;
         try {
             await api.updateWeeklyTimesheet(showId, timesheetData);
-            // Optionally show a success toast
+            addToast("Timesheet saved successfully!", "success");
             fetchTimesheet(); // Refresh data after save
         } catch (error) {
             console.error("Failed to save timesheet:", error);
-            // Optionally show an error toast
+            addToast("Failed to save timesheet. Please try again.", "error");
         }
     };
 
@@ -230,7 +239,7 @@ const HoursTrackingView = () => {
             </main>
             {isEmailModalOpen && (
                 <EmailTimesheetModal
-                    show={isEmailModalOpen}
+                    isOpen={isEmailModalOpen}
                     onClose={() => setIsEmailModalOpen(false)}
                     showId={showId}
                     weekStartDate={weekStartDate}

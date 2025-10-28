@@ -13,20 +13,22 @@ async def update_show_settings(
     user=Depends(get_user),
     supabase: Client = Depends(get_supabase_client),
 ):
-    """Update a show's settings by merging them into the main 'data' JSONB column."""
+    """Update a show's settings by merging them into the 'info' object within the main 'data' JSONB column."""
     try:
         # 1. Fetch the existing show's data column
         show_res = supabase.table("shows").select("data").eq("id", show_id).single().execute()
         if not show_res.data:
             raise HTTPException(status_code=404, detail="Show not found")
 
-        # 2. Merge the new settings directly into the 'data' column
+        # 2. Merge the new settings into the nested 'info' object
         existing_data = show_res.data.get('data') or {}
+        info_data = existing_data.get('info', {}) or {}
+        update_data = settings.dict(exclude_unset=True)
+
+        for key, value in update_data.items():
+            info_data[key] = value
         
-        # Update the top-level keys
-        existing_data['ot_daily_threshold'] = settings.ot_daily_threshold
-        existing_data['ot_weekly_threshold'] = settings.ot_weekly_threshold
-        existing_data['pay_period_start_day'] = settings.pay_period_start_day
+        existing_data['info'] = info_data
 
         # 3. Update the 'data' column with the merged JSON
         response = supabase.table("shows").update({"data": existing_data}).eq("id", show_id).execute()

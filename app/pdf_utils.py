@@ -363,6 +363,10 @@ def _build_header_table(show, user, generation_date, show_logo_bytes, company_lo
     header_right.append(
         Paragraph(user.get("full_name", "User Name"), styles["HeaderUserName"])
     )
+    if user.get("position"):
+        header_right.append(
+            Paragraph(user.get("position"), styles["HeaderCompanyName"])
+        )
     if user.get("company"):
         header_right.append(
             Paragraph(user.get("company"), styles["HeaderCompanyName"])
