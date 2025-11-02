@@ -228,9 +228,10 @@ export const api = {
         method: 'DELETE',
         headers: await getAuthHeader(),
     }),
-    copyLoom: async (loomId) => fetch(`/api/looms/${loomId}/copy`, {
+    copyLoom: async (loomId, newName) => fetch(`/api/looms/${loomId}/copy`, {
         method: 'POST',
         headers: await getAuthHeader(),
+        body: JSON.stringify({ new_name: newName }),
     }).then(handleResponse),
 
     // Cable (Item) Endpoints

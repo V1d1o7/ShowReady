@@ -29,6 +29,7 @@ const EditInstanceModal = ({ isOpen, onClose, onSubmit, item }) => {
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Edit: ${item.instance_name}`}>
             <form onSubmit={handleSubmit} className="space-y-4">
+                <p className="text-sm text-gray-400 -mb-2">Model: {template.model_number}</p>
                 <InputField
                     label="Instance Name"
                     type="text"

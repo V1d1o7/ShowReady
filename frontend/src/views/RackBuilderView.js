@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
-import { Plus, Library, HardDrive } from 'lucide-react';
+import { Plus, Library, HardDrive, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
@@ -31,52 +31,78 @@ const RackBuilderView = () => {
     const [dragOverData, setDragOverData] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+    // Fetch initial library and rack list on mount
+    useEffect(() => {
+        const fetchInitialData = async () => {
+            if (!showId) return;
+            setIsLoading(true);
+            try {
+                const [fullLibrary, racksData] = await Promise.all([
+                    api.getLibrary(),
+                    api.getRacksForShow(showId)
+                ]);
+                setLibrary(fullLibrary || { folders: [], equipment: [] });
+                setRacks(racksData);
+                if (racksData.length > 0 && !selectedRackId) {
+                    setSelectedRackId(racksData[0].id);
+                }
+            } catch (error) {
+                console.error("Failed to fetch initial data:", error);
+                toast.error("Failed to load initial data.");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchInitialData();
+    }, [showId]);
+
+    // Fetch details for the selected rack when it changes
+    useEffect(() => {
+        const fetchActiveRack = async () => {
+            if (selectedRackId) {
+                try {
+                    // Do not set loading for rack switches, it's jarring
+                    // setIsLoading(true); 
+                    const detailedRack = await api.getRackDetails(selectedRackId);
+                    setActiveRack(detailedRack);
+                } catch (error) {
+                    console.error("Failed to fetch active rack:", error);
+                    toast.error("Failed to load selected rack.");
+                    // If the selected rack is not found, clear it
+                    if (error.message.includes("Not Found")) {
+                        setActiveRack(null);
+                        setSelectedRackId(null);
+                    }
+                } finally {
+                    // setIsLoading(false);
+                }
+            } else {
+                setActiveRack(null);
+            }
+        };
+        fetchActiveRack();
+    }, [selectedRackId]);
 
     const fetchData = useCallback(async () => {
         if (!showId) return;
-        setIsLoading(true);
         try {
-            const [fullLibrary, racksData] = await Promise.all([
-                api.getLibrary(),
-                api.getRacksForShow(showId)
-            ]);
-
-            setLibrary(fullLibrary || { folders: [], equipment: [] });
+            const racksData = await api.getRacksForShow(showId);
             setRacks(racksData);
-
-            const currentRackId = selectedRackId || (racksData.length > 0 ? racksData[0].id : null);
-
-            if (currentRackId) {
-                if (!selectedRackId) setSelectedRackId(currentRackId);
-            try {
-                const detailedRack = await api.getRackDetails(currentRackId);
-                setActiveRack(detailedRack);
-            } catch (error) {
-                if (error.message.includes("Not Found")) {
-                    setActiveRack(null);
-                    setSelectedRackId(null);
-                } else {
-                    throw error;
-                }
-            }
-            } else {
-                setActiveRack(null);
-                setSelectedRackId(null);
+            if (!selectedRackId && racksData.length > 0) {
+                setSelectedRackId(racksData[0].id);
             }
         } catch (error) {
-            console.error("Failed to fetch data:", error);
-            toast.error("Failed to load data.");
-        } finally {
-            setIsLoading(false);
+            console.error("Failed to refresh racks:", error);
         }
-    }, [selectedRackId, showId]);
-
+    }, [showId, selectedRackId]);
+	
     useEffect(() => {
-        fetchData();
         const handleClickOutside = () => setContextMenu(null);
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
-    }, [fetchData]);
+    }, []);
 
     const handleSelectRack = (rackId) => setSelectedRackId(rackId);
 
@@ -226,6 +252,7 @@ const RackBuilderView = () => {
                         ...currentRack,
                         equipment: currentRack.equipment.filter(item => item.id !== instanceId)
                     }));
+                    toast.success("Equipment removed successfully.");
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 } catch (error) {
                     console.error("Failed to delete equipment:", error);
@@ -451,17 +478,28 @@ const RackBuilderView = () => {
     return (
         <div className="flex flex-row gap-8 h-full" onDragEnd={handleDragEnd}>
             <Toaster position="bottom-center" />
-            <RackList
-                racks={racks}
-                onSelectRack={handleSelectRack}
-                onNewRack={() => setIsNewRackModalOpen(true)}
-                onDeleteRack={handleDeleteRack}
-                onUpdateRack={handleUpdateRack}
-                selectedRackId={selectedRackId}
-                onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
-                onExportPdf={() => setIsRackPdfModalOpen(true)}
-                title="Show Racks"
-            />
+            
+            {isSidebarCollapsed ? (
+                <div className="p-2">
+                    <button onClick={() => setIsSidebarCollapsed(false)} className="p-2 text-gray-400 hover:text-amber-400">
+                        <PanelLeftOpen size={20} />
+                    </button>
+                </div>
+            ) : (
+                <RackList
+                    racks={racks}
+                    onSelectRack={handleSelectRack}
+                    onNewRack={() => setIsNewRackModalOpen(true)}
+                    onDeleteRack={handleDeleteRack}
+                    onUpdateRack={handleUpdateRack}
+                    selectedRackId={selectedRackId}
+                    onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
+                    onExportPdf={() => setIsRackPdfModalOpen(true)}
+                    title="Show Racks"
+                    onCollapse={() => setIsSidebarCollapsed(true)}
+                />
+            )}
+
             <div className="flex-grow overflow-auto pb-4">
                 <div className="flex justify-center gap-8">
                     {activeRack ? (

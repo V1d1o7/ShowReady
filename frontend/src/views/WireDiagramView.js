@@ -606,7 +606,7 @@ const WireDiagramView = () => {
                         </button>
                         <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black shadow-lg">
                             <Download size={16} />
-                            Generate PDF
+                            Export PDF
                         </button>
                     </div>
                 </div>

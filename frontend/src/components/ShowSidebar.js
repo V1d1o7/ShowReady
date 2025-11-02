@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle } from 'lucide-react';
+import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
     const { profile } = useAuth();
+    const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
     const { shows, isLoadingShows } = useShows();
     const { showName: showNameFromParams } = useParams();
     const navigate = useNavigate();
@@ -76,6 +78,16 @@ const ShowSidebar = () => {
                     </NavLink>
                 ))}
             </nav>
+            <div className="mt-auto">
+                <button
+                    onClick={() => setIsShortcutsModalOpen(true)}
+                    className="flex items-center px-4 py-2 text-sm font-medium text-gray-400 hover:bg-gray-700 hover:text-white rounded-lg transition-colors w-full"
+                >
+                    <HelpCircle className="mr-3 h-5 w-5" />
+                    Shortcuts
+                </button>
+            </div>
+            <ShortcutsModal isOpen={isShortcutsModalOpen} onClose={() => setIsShortcutsModalOpen(false)} />
         </div>
     );
 };

@@ -7,6 +7,7 @@ import { Plus, Info, Download, Trash2, Edit } from 'lucide-react';
 import AddVLANModal from '../components/AddVLANModal';
 import GenerateScriptModal from '../components/GenerateScriptModal';
 import VlanInstructionsModal from '../components/VlanInstructionsModal';
+import useHotkeys from '../hooks/useHotkeys';
 
 const VLANView = () => {
     const { showId } = useShow();
@@ -46,22 +47,10 @@ const VLANView = () => {
         setIsVlanModalOpen(true);
     }, []);
 
-    useEffect(() => {
-        const handleKeyDown = (event) => {
-            if (event.key === 'n' && !isVlanModalOpen && !isScriptModalOpen && !isInfoModalOpen) {
-                if (['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) {
-                    return;
-                }
-                event.preventDefault();
-                handleOpenModal();
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => {
-            window.removeEventListener('keydown', handleKeyDown);
-        };
-    }, [isVlanModalOpen, isScriptModalOpen, isInfoModalOpen, handleOpenModal]);
+    useHotkeys({
+        'n': () => handleOpenModal(),
+        'e': () => setIsScriptModalOpen(true),
+    });
 
     const handleSelectVlan = (vlanId) => {
         setSelectedVlans(prev => {

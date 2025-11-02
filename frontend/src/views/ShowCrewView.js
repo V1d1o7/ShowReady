@@ -72,6 +72,7 @@ const ShowCrewView = () => {
 
     useHotkeys({
         'n': () => setIsRosterModalOpen(true),
+        'a': openAddFromRosterModal,
         'escape': () => setIsAddFromRosterModalOpen(false),
     });
 

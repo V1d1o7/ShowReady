@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Edit, Trash2, ChevronsUpDown, Grid3x3, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, ChevronsUpDown, Grid3x3, Download } from 'lucide-react';
 import Card from './Card';
 import NewSheetModal from './NewSheetModal';
 import PdfPreviewModal from './PdfPreviewModal';
@@ -40,6 +40,11 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
         'n': () => {
             if (activeSheetName && !isNewSheetModalOpen && !isLabelModalOpen && !pdfPreviewUrl && !isAdvancedPrintModalOpen && !confirmationModal.isOpen) {
                 handleOpenNewLabelModal();
+            }
+        },
+        'e': () => {
+            if (labels.length > 0) {
+                handleGeneratePdf();
             }
         },
         'esc': () => {
@@ -127,7 +132,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                     {activeSheetName && (
                         <div className="flex items-center gap-2">
                             <button onClick={handleOpenNewLabelModal} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
-                                <Plus size={16}/> Add Label (N)
+                                <Plus size={16}/> Add Label
                             </button>
                         </div>
                     )}
@@ -159,7 +164,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                         <Grid3x3 size={16} /> Advanced Print
                     </button>
                     <button onClick={() => handleGeneratePdf()} disabled={labels.length === 0} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors text-sm disabled:bg-gray-600 disabled:text-gray-400">
-                        <Eye size={16} /> Generate Full Sheet
+                        <Download size={16} /> Export PDF
                     </button>
                 </div>
             </Card>

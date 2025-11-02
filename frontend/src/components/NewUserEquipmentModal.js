@@ -43,9 +43,10 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
     return (
         <>
             <Modal isOpen={isOpen} onClose={onClose} title="Create New Equipment in Your Library">
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <InputField label="Model Number" name="model_number" value={formData.model_number} onChange={handleChange} required autoFocus />
-                    <InputField label="Manufacturer" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
+                <div className="max-h-[70vh] overflow-y-auto pr-2">
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <InputField label="Model Number" name="model_number" value={formData.model_number} onChange={handleChange} required autoFocus />
+                        <InputField label="Manufacturer" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
                     <div className="grid grid-cols-2 gap-4">
                         <InputField label="RU Height" name="ru_height" type="number" min="0" value={formData.ru_height} onChange={handleChange} required />
                         <div>
@@ -94,7 +95,8 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
                         <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
                         <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Create Equipment</button>
                     </div>
-                </form>
+                    </form>
+                </div>
             </Modal>
             <PortManagerModal
                 isOpen={isPortModalOpen}

@@ -214,7 +214,7 @@ async def get_timesheet_pdf(
         show_branding=show_branding
     )
     
-    filename = f"\"{timesheet_data.show_name} Hours | {week_start_date}.pdf\""
+    filename = f"{timesheet_data.show_name} Hours | {week_start_date}.pdf"
 
     return Response(
         content=pdf_bytes_io.getvalue(), 
@@ -294,10 +294,15 @@ async def email_weekly_timesheet(
         show_branding=payload.show_branding
     )
     pdf_bytes = pdf_bytes_io.getvalue()
-    filename = f"\"{timesheet_data.show_name} | Timesheet {week_start_date}.pdf\""
+    filename = f"{timesheet_data.show_name} Hours | {week_start_date}.pdf"
 
     # 4. Send Email in a separate thread to avoid blocking
     try:
+        import json
+        print("--- Timesheet Data for Email ---")
+        print(json.dumps(timesheet_data.model_dump(), indent=2, default=str))
+        print("---------------------------------")
+        
         await run_in_threadpool(
             send_email_with_user_smtp,
             smtp_settings=smtp_settings,
@@ -305,8 +310,12 @@ async def email_weekly_timesheet(
             subject=payload.subject,
             html_body=payload.body.replace("\n", "<br>"),
             attachment_blob=pdf_bytes,
-            attachment_filename=filename
+            attachment_filename=filename,
+            timesheet_data=timesheet_data.model_dump(mode='json')
         )
         return {"message": "Email sent successfully."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {e}")
+        import traceback
+        print(f"Error sending email: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {repr(e)}")

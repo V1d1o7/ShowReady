@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShow } from '../contexts/ShowContext';
 import { useModal } from '../contexts/ModalContext';
-import { Plus, Edit, Copy, Trash2, FileText, Printer, Spline } from 'lucide-react';
+import { Plus, Edit, Copy, Trash2, Download, Printer, Spline } from 'lucide-react';
 import Card from '../components/Card';
 import NamePromptModal from '../components/NamePromptModal';
 import CableManagerModal from '../components/CableManagerModal';
@@ -19,11 +19,17 @@ const LoomBuilderView = () => {
     const [editingLoom, setEditingLoom] = useState(null);
     const [managingLoom, setManagingLoom] = useState(null);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+    const [loomToCopy, setLoomToCopy] = useState(null);
 
     useHotkeys({
         'n': () => {
             if (!isNameModalOpen && !editingLoom && !managingLoom && !pdfPreviewUrl) {
                 setIsNameModalOpen(true);
+            }
+        },
+        'e': () => {
+            if (!isNameModalOpen && !editingLoom && !managingLoom && !pdfPreviewUrl && looms.length > 0) {
+                handleGeneratePdf();
             }
         },
     });
@@ -87,14 +93,16 @@ const LoomBuilderView = () => {
         );
     };
 
-    const handleCopyLoom = async (loomId) => {
+    const handleCopyLoom = async (newName) => {
+        if (!loomToCopy) return;
         try {
-            await api.copyLoom(loomId);
+            await api.copyLoom(loomToCopy.id, newName);
             fetchLooms();
         } catch (error) {
             console.error("Failed to copy loom:", error);
             alert(`Error: ${error.message}`);
         }
+        setLoomToCopy(null);
     };
 
     const handleGeneratePdf = async (selectedLooms = null) => {
@@ -123,7 +131,7 @@ const LoomBuilderView = () => {
                     <h1 className="text-2xl font-bold text-white">Loom Builder</h1>
                     <div className="flex items-center gap-4">
                         <button onClick={() => handleGeneratePdf()} disabled={looms.length === 0} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50">
-                            <FileText size={16}/> Export All Looms
+                            <Download size={16}/> Export PDF
                         </button>
                         <button onClick={() => setIsNameModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black text-sm font-bold rounded-lg hover:bg-amber-400 transition-colors">
                             <Plus size={16}/> Add New Loom
@@ -136,26 +144,32 @@ const LoomBuilderView = () => {
                         <thead className="border-b border-gray-700">
                             <tr>
                                 <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Loom Name</th>
-                                <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Created</th>
+                                <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Length</th>
                                 <th className="p-3 w-48 text-right font-bold text-gray-400 uppercase tracking-wider">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {isLoading ? (
                                 <tr><td colSpan="3" className="text-center py-8 text-gray-500">Loading looms...</td></tr>
-                            ) : looms.map((loom) => (
-                                <tr key={loom.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
-                                    <td className="p-3 truncate max-w-xs">{loom.name}</td>
-                                    <td className="p-3 truncate">{new Date(loom.created_at).toLocaleDateString()}</td>
-                                    <td className="p-3 flex justify-end gap-3">
-                                        <button onClick={() => setManagingLoom(loom)} title="Edit Cables" className="text-blue-400 hover:text-blue-300"><Spline size={16} /></button>
-                                        <button onClick={() => handleStartEditLoom(loom)} title="Edit Loom Name" className="text-gray-400 hover:text-gray-300"><Edit size={16} /></button>
-                                        <button onClick={() => handleCopyLoom(loom.id)} title="Copy Loom" className="text-gray-400 hover:text-gray-300"><Copy size={16} /></button>
-                                        <button onClick={() => handleGeneratePdf(loom)} title="Print Loom" className="text-gray-400 hover:text-gray-300"><Printer size={16} /></button>
-                                        <button onClick={() => handleDeleteLoom(loom.id)} title="Delete Loom" className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
-                                    </td>
-                                </tr>
-                            ))}
+                            ) : looms.map((loom) => {
+                                const longestCable = (loom.cables || []).reduce((max, cable) => {
+                                    return Math.max(max, cable.length_ft || 0);
+                                }, 0);
+
+                                return (
+                                    <tr key={loom.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
+                                        <td className="p-3 truncate max-w-xs">{loom.name}</td>
+                                        <td className="p-3 truncate">{longestCable}ft</td>
+                                        <td className="p-3 flex justify-end gap-3">
+                                            <button onClick={() => setManagingLoom(loom)} title="Edit Cables" className="text-blue-400 hover:text-blue-300"><Spline size={16} /></button>
+                                            <button onClick={() => handleStartEditLoom(loom)} title="Edit Loom Name" className="text-gray-400 hover:text-gray-300"><Edit size={16} /></button>
+                                            <button onClick={() => setLoomToCopy(loom)} title="Copy Loom" className="text-gray-400 hover:text-gray-300"><Copy size={16} /></button>
+                                            <button onClick={() => handleGeneratePdf(loom)} title="Print Loom" className="text-gray-400 hover:text-gray-300"><Printer size={16} /></button>
+                                            <button onClick={() => handleDeleteLoom(loom.id)} title="Delete Loom" className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                     {looms.length === 0 && !isLoading && (
@@ -192,6 +206,17 @@ const LoomBuilderView = () => {
                     loom={managingLoom}
                     onClose={() => setManagingLoom(null)}
                     onExport={handleGeneratePdf}
+                />
+            )}
+
+            {loomToCopy && (
+                <NamePromptModal
+                    isOpen={!!loomToCopy}
+                    onClose={() => setLoomToCopy(null)}
+                    onSubmit={handleCopyLoom}
+                    title="Copy Loom"
+                    label="New Loom Name"
+                    initialValue={`${loomToCopy.name} (Copy)`}
                 />
             )}
             <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />

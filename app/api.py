@@ -824,15 +824,41 @@ async def delete_show(show_id: int, user = Depends(get_user), supabase: Client =
 # --- Loom Builder Endpoints ---
 
 # -- Looms (Containers) --
-@router.get("/shows/{show_id}/looms", response_model=List[Loom], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
+@router.get("/shows/{show_id}/looms", response_model=List[LoomWithCables], tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def get_looms_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves all loom containers for a specific show."""
+    """Retrieves all loom containers for a specific show, including their cables."""
+    # 1. Verify show access and get looms
     show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
     
-    response = supabase.table('looms').select('*').eq('show_id', show_id).eq('user_id', user.id).execute()
-    return response.data
+    looms_res = supabase.table('looms').select('*').eq('show_id', show_id).eq('user_id', user.id).execute()
+    if not looms_res.data:
+        return []
+
+    looms = looms_res.data
+    loom_ids = [loom['id'] for loom in looms]
+
+    # 2. Get all cables for all looms in one query
+    cables_res = supabase.table('cables').select('*').in_('loom_id', loom_ids).order('created_at').execute()
+    cables_data = cables_res.data if cables_res.data else []
+    
+    # 3. Create a map of loom_id to its cables
+    cables_by_loom_id = {}
+    for cable in cables_data:
+        loom_id = cable['loom_id']
+        if loom_id not in cables_by_loom_id:
+            cables_by_loom_id[loom_id] = []
+        cables_by_loom_id[loom_id].append(cable)
+
+    # 4. Attach cables to their respective looms
+    looms_with_cables = []
+    for loom in looms:
+        loom_dict = loom.copy()
+        loom_dict['cables'] = cables_by_loom_id.get(loom['id'], [])
+        looms_with_cables.append(LoomWithCables(**loom_dict))
+
+    return looms_with_cables
 
 @router.post("/looms", response_model=Loom, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
 async def create_loom(loom_data: LoomCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
@@ -873,18 +899,20 @@ async def delete_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Cl
     supabase.table('looms').delete().eq('id', str(loom_id)).execute() # RLS and CASCADE will handle deletion
     return
 
+class LoomCopy(BaseModel):
+    new_name: str
+
 @router.post("/looms/{loom_id}/copy", response_model=Loom, tags=["Loom Builder"], dependencies=[Depends(feature_check("loom_builder"))])
-async def copy_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Copies a loom and all its cables."""
-    # 1. Fetch the original loom
+async def copy_loom(loom_id: uuid.UUID, payload: LoomCopy, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Copies a loom and all its cables, renaming them in the process."""
     original_loom_res = supabase.table('looms').select('*').eq('id', str(loom_id)).eq('user_id', user.id).single().execute()
     if not original_loom_res.data:
         raise HTTPException(status_code=404, detail="Loom not found or access denied.")
     original_loom = original_loom_res.data
+    original_loom_name = original_loom['name']
 
-    # 2. Create the new loom with the same name
     new_loom_data = {
-        "name": original_loom['name'],
+        "name": payload.new_name,
         "show_id": original_loom['show_id'],
         "user_id": str(user.id)
     }
@@ -893,17 +921,19 @@ async def copy_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Clie
         raise HTTPException(status_code=500, detail="Failed to create new loom copy.")
     new_loom = new_loom_res.data[0]
 
-    # 3. Fetch cables from the original loom
     original_cables_res = supabase.table('cables').select('*').eq('loom_id', str(loom_id)).order('created_at').execute()
     original_cables = original_cables_res.data
 
-    # 4. Copy cables to the new loom
     if original_cables:
         new_cables_to_create = []
         for cable in original_cables:
+            new_label_content = cable['label_content']
+            if original_loom_name and payload.new_name and new_label_content and new_label_content.startswith(original_loom_name):
+                new_label_content = payload.new_name + new_label_content[len(original_loom_name):]
+
             new_cable_data = {
                 "loom_id": new_loom['id'],
-                "label_content": cable['label_content'],
+                "label_content": new_label_content,
                 "cable_type": cable['cable_type'],
                 "length_ft": cable.get('length_ft'),
                 "origin": cable['origin'],
@@ -915,11 +945,11 @@ async def copy_loom(loom_id: uuid.UUID, user = Depends(get_user), supabase: Clie
             }
             new_cables_to_create.append(new_cable_data)
         
-        new_cables_res = supabase.table('cables').insert(new_cables_to_create).execute()
-        if not new_cables_res.data:
-            # Rollback loom creation if cable copy fails
-            supabase.table('looms').delete().eq('id', new_loom['id']).execute()
-            raise HTTPException(status_code=500, detail="Failed to copy cables to new loom.")
+        if new_cables_to_create:
+            new_cables_res = supabase.table('cables').insert(new_cables_to_create).execute()
+            if not new_cables_res.data:
+                supabase.table('looms').delete().eq('id', new_loom['id']).execute()
+                raise HTTPException(status_code=500, detail="Failed to copy cables to new loom.")
 
     return new_loom
 
@@ -1268,7 +1298,7 @@ async def add_equipment_to_rack(
     user = Depends(get_user), 
     supabase: Client = Depends(get_supabase_client)
 ):
-    rack_res = supabase.table('racks').select('id, ru_height, show_name').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
+    rack_res = supabase.table('racks').select('id, ru_height, show_id').eq('id', str(rack_id)).eq('user_id', str(user.id)).single().execute()
     if not rack_res.data:
         raise HTTPException(status_code=404, detail="Rack not found or access denied")
 
@@ -1279,8 +1309,8 @@ async def add_equipment_to_rack(
     template = template_res.data
     
     # Get all equipment in the show for nomenclature calculation
-    show_name = rack_res.data['show_name']
-    all_racks_res = supabase.table('racks').select('id').eq('show_name', show_name).eq('user_id', str(user.id)).execute()
+    show_id = rack_res.data['show_id']
+    all_racks_res = supabase.table('racks').select('id').eq('show_id', show_id).eq('user_id', str(user.id)).execute()
     all_rack_ids = [r['id'] for r in all_racks_res.data]
     
     all_show_equipment_res = supabase.table('rack_equipment_instances').select('instance_name').in_('rack_id', all_rack_ids).execute()

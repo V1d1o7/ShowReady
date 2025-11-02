@@ -6,6 +6,7 @@ import EmailTimesheetModal from '../components/EmailTimesheetModal';
 import { useToast } from '../contexts/ToastContext';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
+import useHotkeys from '../hooks/useHotkeys';
 
 // Helper to get the start of the pay period using UTC to avoid timezone issues.
 const getWeekStartDate = (date, startDay) => {
@@ -18,34 +19,29 @@ const getWeekStartDate = (date, startDay) => {
 };
 
 const HoursTrackingView = () => {
-    const { showId } = useShow();
+    const { showId, showData, onSave } = useShow();
     const { addToast } = useToast();
     const [timesheetData, setTimesheetData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [weekStartDate, setWeekStartDate] = useState(getWeekStartDate(new Date(), 0));
+    const [weekStartDate, setWeekStartDate] = useState(null);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
-    const handleSaveSettings = async (settings) => {
+    const handleSaveSettings = async (newSettings) => {
+        if (!showData || !onSave) {
+            return;
+        }
+
+        const updatedInfo = { ...showData.info, ...newSettings };
+        const updatedShowData = { ...showData, info: updatedInfo };
+
         try {
-            await api.updateShowSettings(showId, settings);
-            // After saving, immediately recalculate the week start date based on the new setting
-            const newStartDay = parseInt(settings.pay_period_start_day, 10);
-            // Re-calculate based on the *currently viewed* week, not the current date
-            const parts = weekStartDate.split('-').map(Number);
-            const currentViewDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-            const newStartDate = getWeekStartDate(currentViewDate, newStartDay);
-            
-            // If the start date hasn't changed, the useEffect won't trigger.
-            // We need to manually fetch the data to get new OT thresholds.
-            if (newStartDate === weekStartDate) {
-                fetchTimesheet();
-            } else {
-                setWeekStartDate(newStartDate);
-            }
+            await onSave(updatedShowData);
+            addToast('Settings saved successfully!', 'success');
         } catch (error) {
             console.error("Failed to save settings:", error);
+            addToast('Failed to save settings.', 'error');
         }
     };
 
@@ -63,30 +59,28 @@ const HoursTrackingView = () => {
         }
     }, [showId, weekStartDate]);
 
-    // Step 1: Fetch show settings to determine the correct pay period start day
+    // Effect to initialize or update the week start date from context
     useEffect(() => {
-        const fetchShowSettings = async () => {
-            if (showId) {
-                try {
-                    const settings = await api.getShow(showId);
-                    const startDay = settings?.data?.pay_period_start_day ?? 0; // Default to Sunday
-                    const initialDate = getWeekStartDate(new Date(), startDay);
-                    setWeekStartDate(initialDate);
-                } catch (error) {
-                    console.error("Failed to fetch show settings:", error);
-                    // Fallback to default if settings can't be fetched
-                    const initialDate = getWeekStartDate(new Date(), 0);
-                    setWeekStartDate(initialDate);
-                }
+        if (showData) {
+            const startDay = showData.info?.pay_period_start_day ?? 0;
+            // Only update if weekStartDate is null (initial load) or the start day changes
+            if (weekStartDate === null) {
+                setWeekStartDate(getWeekStartDate(new Date(), startDay));
+            } else {
+                // If settings change, recalculate based on the current view
+                const parts = weekStartDate.split('-').map(Number);
+                const currentViewDate = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                setWeekStartDate(getWeekStartDate(currentViewDate, startDay));
             }
-        };
-        fetchShowSettings();
-    }, [showId]);
+        }
+    }, [showData]);
 
-    // Step 2: Fetch timesheet data once the weekStartDate is correctly set
+    // Effect to fetch data when the week start date changes
     useEffect(() => {
-        fetchTimesheet();
-    }, [fetchTimesheet]);
+        if (weekStartDate) {
+            fetchTimesheet();
+        }
+    }, [weekStartDate, fetchTimesheet]);
 
     const handleHoursChange = (crewMemberId, date, value) => {
         setTimesheetData(prev => {
@@ -147,6 +141,34 @@ const HoursTrackingView = () => {
 
     const dataDates = dateObjects.map(d => d.toISOString().split('T')[0]);
 
+    useHotkeys({
+        's': () => setIsSettingsModalOpen(true),
+        'e': handleDownloadPdf,
+        'm': () => setIsEmailModalOpen(true),
+    });
+
+    const calculateTotals = (member) => {
+        const weeklyTotal = Object.values(member.hours_by_date).reduce((sum, h) => sum + (h || 0), 0);
+        let dailyRegularHours = 0;
+        let dailyOtHours = 0;
+        Object.values(member.hours_by_date).forEach(h => {
+            const hours = h || 0;
+            if (hours > timesheetData.ot_daily_threshold) {
+                dailyOtHours += hours - timesheetData.ot_daily_threshold;
+                dailyRegularHours += timesheetData.ot_daily_threshold;
+            } else {
+                dailyRegularHours += hours;
+            }
+        });
+        const weeklyOtHours = Math.max(0, dailyRegularHours - timesheetData.ot_weekly_threshold);
+        const totalOt = dailyOtHours + weeklyOtHours;
+        const regularHours = weeklyTotal - totalOt;
+        const cost = member.rate_type === 'daily'
+            ? (weeklyTotal > 0 ? member.daily_rate : 0)
+            : (regularHours * member.hourly_rate) + (totalOt * member.hourly_rate * 1.5);
+        return { regularHours, totalOt, cost };
+    };
+
     return (
         <div className="p-4 sm:p-6 lg:p-8">
             <header className="flex flex-col sm:flex-row items-center justify-between pb-4 border-b border-gray-700 gap-4">
@@ -173,30 +195,7 @@ const HoursTrackingView = () => {
                                 </thead>
                                 <tbody className="divide-y divide-gray-800">
                                     {timesheetData.crew_hours.map(member => {
-                                        let totalOt = 0;
-                                        let regularHours = 0;
-                                        let weeklyTotal = 0;
-                                        let dailyRegularHours = 0;
-                                        let dailyOtHours = 0;
-
-                                        Object.values(member.hours_by_date).forEach(h => {
-                                            const hours = h || 0;
-                                            weeklyTotal += hours;
-                                            if (hours > timesheetData.ot_daily_threshold) {
-                                                dailyOtHours += hours - timesheetData.ot_daily_threshold;
-                                                dailyRegularHours += timesheetData.ot_daily_threshold;
-                                            } else {
-                                                dailyRegularHours += hours;
-                                            }
-                                        });
-                                        
-                                        const weeklyOtHours = Math.max(0, dailyRegularHours - timesheetData.ot_weekly_threshold);
-                                        totalOt = dailyOtHours + weeklyOtHours;
-                                        regularHours = weeklyTotal - totalOt;
-                                        const cost = member.rate_type === 'daily' 
-                                            ? (weeklyTotal > 0 ? member.daily_rate : 0) 
-                                            : (regularHours * member.hourly_rate) + (totalOt * member.hourly_rate * 1.5);
-                                        
+                                        const { regularHours, totalOt, cost } = calculateTotals(member);
                                         return (
                                             <tr key={member.show_crew_id}>
                                                 <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{`${member.first_name} ${member.last_name}`}</td>
@@ -218,6 +217,23 @@ const HoursTrackingView = () => {
                                         );
                                     })}
                                 </tbody>
+                                <tfoot>
+                                    <tr className="border-t-2 border-gray-500">
+                                        <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-bold text-white sm:pl-6">Totals</td>
+                                        {dataDates.map(date => (
+                                            <td key={`${date}-total`} className="whitespace-nowrap px-3 py-4"></td>
+                                        ))}
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-center font-bold text-white">
+                                            {timesheetData.crew_hours.reduce((acc, member) => acc + calculateTotals(member).regularHours, 0).toFixed(2)}
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-center font-bold text-white">
+                                            {timesheetData.crew_hours.reduce((acc, member) => acc + calculateTotals(member).totalOt, 0).toFixed(2)}
+                                        </td>
+                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-center font-bold text-white">
+                                            ${timesheetData.crew_hours.reduce((acc, member) => acc + calculateTotals(member).cost, 0).toFixed(2)}
+                                        </td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                         <div className="mt-6 flex justify-end space-x-4">
