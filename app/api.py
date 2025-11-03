@@ -1204,6 +1204,68 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
         
     return racks
 
+@router.get("/shows/{show_id}/racks/export-list", tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
+async def export_racks_list_pdf(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client), show_branding: bool = Depends(get_branding_visibility)):
+    """Exports a list of all equipment across all racks in a show to a PDF file."""
+    
+    # 1. Get Show Info
+    show_res = supabase.table('shows').select('id, name, data').eq('id', show_id).eq('user_id', user.id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found")
+    show_name = show_res.data.get('name', 'Show')
+
+    # 2. Get all racks for the show to build a name map
+    racks_res = supabase.table('racks').select('id, rack_name').eq('show_id', show_id).execute()
+    rack_map = {r['id']: r['rack_name'] for r in racks_res.data}
+    rack_ids = list(rack_map.keys())
+
+    if not rack_ids:
+        raise HTTPException(status_code=404, detail="No racks found for this show to export.")
+
+    # 3. Get all equipment instances for those racks and join with templates
+    instances_res = supabase.table('rack_equipment_instances') \
+        .select('*, equipment_templates!inner(manufacturer, model_number)') \
+        .in_('rack_id', rack_ids) \
+        .execute()
+
+    # 4. Process data and aggregate quantities
+    equipment_counts = {}
+    for item in instances_res.data:
+        template = item.get('equipment_templates')
+        if not template:
+            continue
+
+        manufacturer = template.get('manufacturer', 'N/A')
+        model = template.get('model_number', 'N/A')
+        rack_name = rack_map.get(item['rack_id'], 'Unknown Rack')
+        location = f"{rack_name}.{item.get('ru_position', 'N/A')}"
+        
+        key = (manufacturer, model, location)
+        equipment_counts[key] = equipment_counts.get(key, 0) + 1
+
+    # 5. Format data for PDF generation
+    table_data = [
+        ["Manufacturer", "Model Name", "Location", "Qty"]
+    ]
+    for (manufacturer, model, location), qty in sorted(equipment_counts.items()):
+        table_data.append([manufacturer, model, location, str(qty)])
+        
+    # 6. Generate PDF (function to be created in pdf_utils.py)
+    from .pdf_utils import generate_equipment_list_pdf
+    pdf_buffer = generate_equipment_list_pdf(
+        show_name=show_name,
+        table_data=table_data,
+        show_branding=show_branding
+    )
+    
+    filename = f"{show_name.strip()}_Equipment_List.pdf"
+    
+    return Response(
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=\"{filename}\""}
+    )
+
 @router.put("/racks/{rack_id}", response_model=Rack, tags=["Racks"])
 async def update_rack(rack_id: uuid.UUID, rack_update: RackUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     update_data = rack_update.model_dump(exclude_unset=True)

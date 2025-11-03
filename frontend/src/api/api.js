@@ -204,6 +204,8 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(payload),
     }).then(handleResponse),
+    exportRacksListPdf: async (showId) => 
+        fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
 
     exportWirePdf: async (graphData, showId, titleBlockData) => fetch(`/api/export/wire.pdf?show_id=${encodeURIComponent(showId)}`, {
         method: 'POST',

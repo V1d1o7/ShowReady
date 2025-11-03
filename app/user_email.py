@@ -5,6 +5,10 @@ from email.mime.application import MIMEApplication
 from pydantic import BaseModel
 from .encryption import decrypt_password
 from typing import List
+from .models import WeeklyTimesheet
+from datetime import timedelta
+from html import escape
+
 
 class SMTPSettings(BaseModel):
     from_name: str
@@ -52,6 +56,80 @@ def send_email_with_user_smtp(
         raise ValueError(f"Failed to send email. SMTP Error: {e}")
     except Exception as e:
         raise ValueError(f"An unexpected error occurred: {e}")
+
+def create_styled_email_template(title: str, content_html: str, logo_url: str = None, show_branding: bool = True) -> str:
+    """
+    Creates a standardized, styled HTML email wrapper for user-facing emails.
+    """
+    logo_html = f'<img src="{escape(logo_url)}" alt="Show Logo" class="logo" />' if logo_url else f'<img src="https://showready.k-p.video/logo.png" alt="ShowReady Logo" class="logo" />'
+    footer_html = '<p class="footer">Sent using ShowReady</p>' if show_branding else ''
+
+    html_template = f"""
+    <html>
+      <head>
+        <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+          body {{
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+          }}
+          .container {{
+            font-size: 16px;
+            text-align: center;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 30px;
+            border-radius: 15px;
+          }}
+          .footer {{
+            margin-top: 30px;
+            font-size: 14px;
+            color: #a1a1aa; /* Zinc 400 */
+          }}
+          .logo-container {{
+            text-align: center;
+            margin-bottom: 20px;
+          }}
+          .logo {{
+            max-height: 80px;
+            max-width: 240px;
+            margin-bottom: 10px;
+          }}
+          .mainHeader {{
+            font-family: 'Space Mono', monospace;
+            font-size: 32px;
+            color: #f59e0b; /* Amber 500 */
+            font-weight: bold;
+            text-align: center;
+            letter-spacing: 1px;
+            margin-top: 10px;
+          }}
+        </style>
+      </head>
+      <body>
+        <table width="100%" border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td bgcolor="#111827" align="center" style="padding: 20px 0;">
+              <div class="container" style="background-color: #111827; border: 1px solid #374151;">
+                <div class="logo-container">
+                  {logo_html}
+                </div>
+                <div class="mainHeader">{escape(title)}</div>
+                
+                {content_html}
+
+                {footer_html}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+    return html_template
 
 def test_user_smtp_connection(
     settings: dict

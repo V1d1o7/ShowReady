@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from supabase import Client
-from app.api import get_supabase_client, get_user, get_branding_visibility
+from app.api import get_supabase_client, get_user, get_branding_visibility, SUPABASE_URL
 from app.models import (
     TimesheetEntryCreate, WeeklyTimesheet, 
     CrewMemberHours, TimesheetEmailPayload
 )
-from app.user_email import send_email_with_user_smtp, SMTPSettings
+from app.user_email import send_email_with_user_smtp, SMTPSettings, create_styled_email_template
 from app.pdf_utils import generate_hours_pdf
 from fastapi.responses import Response
 import uuid
@@ -214,7 +214,7 @@ async def get_timesheet_pdf(
         show_branding=show_branding
     )
     
-    filename = f"{timesheet_data.show_name} Hours | {week_start_date}.pdf"
+    filename = f"{timesheet_data.show_name.strip()} Hours | {week_start_date}.pdf"
 
     return Response(
         content=pdf_bytes_io.getvalue(), 
@@ -294,24 +294,42 @@ async def email_weekly_timesheet(
         show_branding=payload.show_branding
     )
     pdf_bytes = pdf_bytes_io.getvalue()
-    filename = f"{timesheet_data.show_name} Hours | {week_start_date}.pdf"
+    filename = f"{timesheet_data.show_name.strip()} Hours | {week_start_date}.pdf"
 
     # 4. Send Email in a separate thread to avoid blocking
     try:
-        import json
-        print("--- Timesheet Data for Email ---")
-        print(json.dumps(timesheet_data.model_dump(), indent=2, default=str))
-        print("---------------------------------")
+        # Format the user's custom message to match the email style
+        # Use a standard string and .format() to avoid f-string limitations with backslashes
+        user_message_html_template = """
+        <div style="margin-top: 20px; text-align: left; background-color: #1F2937; padding: 20px; border-radius: 10px;">
+            <p style="font-size: 16px; line-height: 1.8; color: #d4d4d8; text-align: left; margin: 0;">
+                {}
+            </p>
+        </div>
+        """
+        content_html = user_message_html_template.format(payload.body.replace("\n", "<br>"))
         
+        # Construct the full public URL for the show logo
+        logo_url = None
+        if timesheet_data.logo_path:
+            logo_url = supabase.storage.from_('logos').get_public_url(timesheet_data.logo_path)
+
+        # Wrap everything in the main styled template, passing logo and branding info
+        final_html_body = create_styled_email_template(
+            title="Timesheet Submission",
+            content_html=content_html,
+            logo_url=logo_url,
+            show_branding=payload.show_branding
+        )
+
         await run_in_threadpool(
             send_email_with_user_smtp,
             smtp_settings=smtp_settings,
             recipient_emails=payload.recipient_emails,
             subject=payload.subject,
-            html_body=payload.body.replace("\n", "<br>"),
+            html_body=final_html_body,
             attachment_blob=pdf_bytes,
-            attachment_filename=filename,
-            timesheet_data=timesheet_data.model_dump(mode='json')
+            attachment_filename=filename
         )
         return {"message": "Email sent successfully."}
     except Exception as e:

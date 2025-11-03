@@ -203,6 +203,69 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
     buffer.seek(0)
     return buffer
 
+def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], show_branding: bool = True) -> io.BytesIO:
+    """Generates a PDF listing equipment for a show."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=portrait(letter),
+        rightMargin=0.5*inch,
+        leftMargin=0.5*inch,
+        topMargin=0.5*inch,
+        bottomMargin=0.5*inch,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+    styles['Normal'].fontName = "SpaceMono"
+    styles['Title'].fontName = "SpaceMono-Bold"
+    styles['Title'].fontSize = 18
+    styles['Title'].spaceAfter = 16
+
+    # --- Title ---
+    story.append(Paragraph(f"{show_name} - Equipment List", styles["Title"]))
+
+    # --- Table ---
+    if table_data:
+        # Calculate column widths to fit the page
+        col_widths = [2*inch, 2.5*inch, 2*inch, 0.5*inch] 
+
+        # Apply paragraph styles to all cells for consistent formatting
+        styled_table_data = []
+        header_style = ParagraphStyle(name='Header', parent=styles['Normal'], fontName='SpaceMono-Bold', alignment=TA_LEFT)
+        body_style = ParagraphStyle(name='Body', parent=styles['Normal'], alignment=TA_LEFT)
+
+        # Header Row
+        styled_table_data.append([Paragraph(cell, header_style) for cell in table_data[0]])
+        # Data Rows
+        for row in table_data[1:]:
+            styled_table_data.append([Paragraph(cell, body_style) for cell in row])
+        
+        table = Table(styled_table_data, colWidths=col_widths, hAlign='LEFT')
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('LINEBELOW', (0, 0), (-1, 0), 2, colors.black),
+            ('LINEBELOW', (0, 1), (-1, -1), 1, colors.lightgrey),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        story.append(table)
+
+    # --- Footer and Build ---
+    def footer(canvas, doc):
+        if show_branding:
+            canvas.saveState()
+            canvas.setFont('SpaceMono', 8)
+            canvas.drawString(0.5 * inch, 0.5 * inch, "Created using ShowReady")
+            canvas.restoreState()
+
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    
+    buffer.seek(0)
+    return buffer
+
 def draw_timesheet_footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('SpaceMono', 8)
@@ -451,7 +514,7 @@ def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_weekly_threshol
     # Add day of the week to dates
     date_objects = [datetime.strptime(d, '%m/%d/%y') for d in dates]
     # Format date as: MON<br/>mm/dd/yy
-    header_row_text = ['Crew Member'] + [f"{d.strftime('%a').upper()}<br/>{d.strftime('%m/%d/%y')}" for d in date_objects] + ['Regular', 'OT', 'Cost']
+    header_row_text = ['Crew Member', 'Rate'] + [f"{d.strftime('%a').upper()}<br/>{d.strftime('%m/%d/%y')}" for d in date_objects] + ['Regular', 'OT', 'Cost']
     table_data = [[Paragraph(text, styles["HeaderCenter"]) for text in header_row_text]]
     
     crew_list = payload.get('crew', [])
@@ -467,8 +530,9 @@ def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_weekly_threshol
         # Skip crew members with no hours
         if not any(float(h) > 0 for h in crew_hours_map.values()):
             continue
-
-        row = [Paragraph(f"{c['roster']['first_name']} {c['roster']['last_name']}", styles['CrewName'])]
+            
+        rate_str = f"${c.get('daily_rate', 0)}/day" if c.get('rate_type') == 'daily' else f"${c.get('hourly_rate', 0)}/hr"
+        row = [Paragraph(f"{c['roster']['first_name']} {c['roster']['last_name']}", styles['CrewName']), Paragraph(rate_str, styles['CellCenter'])]
         
         weekly_total = 0
         daily_ot_total = 0
@@ -521,7 +585,7 @@ def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_weekly_threshol
     # --- Totals Row ---
     totals_row = [
         Paragraph("Totals", styles['TotalsLabel']),
-    ] + [""] * len(dates) + [
+    ] + [""] * (len(dates) + 1) + [ # +1 for the new Rate column
         Paragraph(f"{total_regular_hours:.2f}", styles['TotalsValue']),
         Paragraph(f"{total_ot_hours:.2f}", styles['TotalsValue']),
         Paragraph(f"${total_cost:.2f}", styles['TotalsValue']),
@@ -534,10 +598,10 @@ def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_weekly_threshol
     # Dynamically set column widths
     num_dates = len(dates)
     if num_dates > 0:
-        # Crew Member (14%), Dates (61% total), Regular (8%), OT (8%), Cost (9%)
-        col_widths = ['14%'] + [f'{61 / num_dates}%'] * num_dates + ['8%', '8%', '9%']
+        # Crew Member (14%), Rate (8%), Dates (53% total), Regular (8%), OT (8%), Cost (9%)
+        col_widths = ['14%', '8%'] + [f'{53 / num_dates}%'] * num_dates + ['8%', '8%', '9%']
     else:
-        col_widths = ['35%', '15%', '15%', '15%'] # Fallback if no dates
+        col_widths = ['25%', '15%', '15%', '15%', '15%'] # Fallback if no dates
 
     # The header row is already composed of Paragraphs with the correct style.
     # We no longer need to process it separately.

@@ -33,6 +33,28 @@ const RackBuilderView = () => {
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+    const handleExportListPdf = async () => {
+        if (!showId) return;
+        toast.loading('Exporting Equipment List...');
+        try {
+            const pdfBlob = await api.exportRacksListPdf(showId);
+            const url = window.URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${showName || 'Show'}_Equipment_List.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            toast.dismiss();
+            toast.success('Equipment list exported successfully!');
+        } catch (error) {
+            console.error("Failed to export equipment list PDF:", error);
+            toast.dismiss();
+            toast.error(`Failed to export: ${error.message}`);
+        }
+    };
+
     // Fetch initial library and rack list on mount
     useEffect(() => {
         const fetchInitialData = async () => {
@@ -495,6 +517,7 @@ const RackBuilderView = () => {
                     selectedRackId={selectedRackId}
                     onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
                     onExportPdf={() => setIsRackPdfModalOpen(true)}
+                    onExportListPdf={handleExportListPdf}
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
                 />

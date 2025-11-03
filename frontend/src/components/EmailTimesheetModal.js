@@ -19,9 +19,10 @@ const EmailTimesheetModal = ({ isOpen, onClose, showId, weekStartDate }) => {
                 if (data) {
                     setShowData(data);
                     const defaultSubject = `${data.name} Timesheet - Week of ${weekStartDate}`;
+                    const defaultBody = `Please find the attached timesheet for week ${weekStartDate} for ${data.name}.`;
                     setTo(data.data?.info?.show_pm_email || '');
                     setSubject(defaultSubject);
-                    setBody(`Please find the attached timesheet for ${data.name}.`);
+                    setBody(defaultBody);
                 }
             });
         }
