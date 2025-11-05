@@ -227,7 +227,7 @@ def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], sho
     # --- Table ---
     if table_data:
         # Calculate column widths to fit the page
-        col_widths = [2*inch, 2.5*inch, 2*inch, 0.5*inch] 
+        col_widths = [3*inch, 3.5*inch, 1*inch] 
 
         # Apply paragraph styles to all cells for consistent formatting
         styled_table_data = []

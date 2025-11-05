@@ -9,6 +9,7 @@ import RackLibraryModal from '../components/RackLibraryModal';
 import NamePromptModal from '../components/NamePromptModal';
 import RackComponent from '../components/RackComponent';
 import RackPdfModal from '../components/RackPdfModal';
+import PdfPreviewModal from '../components/PdfPreviewModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -32,26 +33,20 @@ const RackBuilderView = () => {
     const [contextMenu, setContextMenu] = useState(null);
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
 
     const handleExportListPdf = async () => {
         if (!showId) return;
-        toast.loading('Exporting Equipment List...');
+        toast.loading('Generating Equipment List PDF...');
         try {
             const pdfBlob = await api.exportRacksListPdf(showId);
             const url = window.URL.createObjectURL(pdfBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${showName || 'Show'}_Equipment_List.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            a.remove();
+            setPdfPreview({ isOpen: true, url: url });
             toast.dismiss();
-            toast.success('Equipment list exported successfully!');
         } catch (error) {
-            console.error("Failed to export equipment list PDF:", error);
+            console.error("Failed to generate equipment list PDF:", error);
             toast.dismiss();
-            toast.error(`Failed to export: ${error.message}`);
+            toast.error(`Failed to generate PDF: ${error.message}`);
         }
     };
 
@@ -517,7 +512,7 @@ const RackBuilderView = () => {
                     selectedRackId={selectedRackId}
                     onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
                     onExportPdf={() => setIsRackPdfModalOpen(true)}
-                    onExportListPdf={handleExportListPdf}
+                    onExportEquipmentList={handleExportListPdf}
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
                 />
@@ -602,6 +597,15 @@ const RackBuilderView = () => {
                     message={confirmationModal.message}
                     onConfirm={confirmationModal.onConfirm}
                     onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
+                />
+            )}
+            {pdfPreview.isOpen && (
+                <PdfPreviewModal
+                    url={pdfPreview.url}
+                    onClose={() => {
+                        window.URL.revokeObjectURL(pdfPreview.url);
+                        setPdfPreview({ isOpen: false, url: '' });
+                    }}
                 />
             )}
         </div>

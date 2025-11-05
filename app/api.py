@@ -1237,18 +1237,16 @@ async def export_racks_list_pdf(show_id: int, user = Depends(get_user), supabase
 
         manufacturer = template.get('manufacturer', 'N/A')
         model = template.get('model_number', 'N/A')
-        rack_name = rack_map.get(item['rack_id'], 'Unknown Rack')
-        location = f"{rack_name}.{item.get('ru_position', 'N/A')}"
         
-        key = (manufacturer, model, location)
+        key = (manufacturer, model)
         equipment_counts[key] = equipment_counts.get(key, 0) + 1
 
     # 5. Format data for PDF generation
     table_data = [
-        ["Manufacturer", "Model Name", "Location", "Qty"]
+        ["Manufacturer", "Model Name", "Qty"]
     ]
-    for (manufacturer, model, location), qty in sorted(equipment_counts.items()):
-        table_data.append([manufacturer, model, location, str(qty)])
+    for (manufacturer, model), qty in sorted(equipment_counts.items()):
+        table_data.append([manufacturer, model, str(qty)])
         
     # 6. Generate PDF (function to be created in pdf_utils.py)
     from .pdf_utils import generate_equipment_list_pdf

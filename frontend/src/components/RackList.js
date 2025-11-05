@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Plus, Edit, Trash2, Library, Download, PanelLeftClose, FileText } from 'lucide-react';
 import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, onLoadFromRackLibrary, onExportPdf, onExportListPdf, title = 'Show Racks', onCollapse }) => {
+const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, onLoadFromRackLibrary, onExportPdf, onExportEquipmentList, title = 'Show Racks', onCollapse }) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -61,8 +61,8 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                             <Download size={16} /> Export PDF
                         </button>
                     )}
-                    {onExportListPdf && (
-                        <button onClick={onExportListPdf} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                    {onExportEquipmentList && (
+                        <button onClick={onExportEquipmentList} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
                             <FileText size={16} /> Export Equipment List
                         </button>
                     )}
