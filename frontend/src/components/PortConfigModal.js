@@ -1,151 +1,137 @@
 import React, { useState, useEffect, useContext } from 'react';
 import Modal from './Modal';
-import { ShowContext } from '../contexts/ShowContext';
 import InputField from './InputField';
-import NewVlanModal from './NewVlanModal';
+import SelectField from './SelectField';
+import MultiSelect from './MultiSelect';
 import { api } from '../api/api';
 import toast from 'react-hot-toast';
-import { PlusCircle } from 'lucide-react';
+// CORRECTED: Import useShow hook instead of ShowContext
+import { useShow } from '../contexts/ShowContext';
 
-const PortConfigModal = ({ isOpen, onClose, portNumber, portConfig, onSave, switchId }) => {
-    const { showId, vlans, onVlansUpdate } = useContext(ShowContext);
-    const [isVlanModalOpen, setIsVlanModalOpen] = useState(false);
-    const [formData, setFormData] = useState({
-        port_name: '',
-        pvid: '',
-        tagged_vlans: [],
-        igmp_enabled: false,
-    });
+const PortConfigModal = ({ isOpen, onClose, portNumber, portConfig, switchId, onSave }) => {
+    const [portName, setPortName] = useState('');
+    const [pvid, setPvid] = useState('');
+    const [taggedVlans, setTaggedVlans] = useState([]);
+    const [availableVlans, setAvailableVlans] = useState([]);
+    
+    // CORRECTED: Use the useShow hook
+    const { showId } = useShow();
 
     useEffect(() => {
-        if (portConfig) {
-            setFormData({
-                port_name: portConfig.port_name || '',
-                pvid: portConfig.pvid || '',
-                tagged_vlans: portConfig.tagged_vlans || [],
-                igmp_enabled: portConfig.igmp_enabled || false,
-            });
-        } else {
-             setFormData({ port_name: '', pvid: '', tagged_vlans: [], igmp_enabled: false });
-        }
-    }, [portConfig]);
+        if (isOpen) {
+            setPortName(portConfig?.port_name || '');
+            setPvid(portConfig?.pvid || '');
+            setTaggedVlans(portConfig?.tagged_vlans || []);
 
-    const handleChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'checkbox' ? checked : value
-        }));
-    };
-    
-    const handleMultiSelectChange = (e) => {
-        const selectedOptions = Array.from(e.target.selectedOptions, option => parseInt(option.value, 10));
-        setFormData(prev => ({
-            ...prev,
-            tagged_vlans: selectedOptions
-        }));
-    };
+            // Fetch available VLANs for the select options
+            const fetchVlans = async () => {
+                try {
+                    const vlans = await api.getVlans(showId);
+                    const vlanOptions = vlans.map(v => ({
+                        value: v.vlan_id,
+                        label: `${v.vlan_id} - ${v.name}`
+                    }));
+                    setAvailableVlans(vlanOptions);
+
+                    // Ensure pvid is a string if it's a number
+                    if (portConfig?.pvid) {
+                        setPvid(String(portConfig.pvid));
+                    }
+                    
+                    // Ensure taggedVlans are strings
+                    if (portConfig?.tagged_vlans) {
+                        setTaggedVlans(portConfig.tagged_vlans.map(String));
+                    }
+
+                } catch (error) {
+                    toast.error("Failed to load available VLANs");
+                    console.error("Failed to load VLANs:", error);
+                }
+            };
+            
+            fetchVlans();
+        }
+    }, [isOpen, portConfig, showId]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        const dataToSave = {
-            ...formData,
-            pvid: formData.pvid ? parseInt(formData.pvid, 10) : null,
+        
+        const configData = {
+            port_name: portName,
+            // Convert PVID back to a number, or null if empty
+            pvid: pvid ? parseInt(pvid, 10) : null,
+            // Convert tagged VLANs back to numbers
+            tagged_vlans: taggedVlans.map(v => parseInt(v, 10))
         };
-        onSave(portNumber, dataToSave);
+        
+        onSave(portNumber, configData);
     };
 
-    const handleCreateVlan = async (vlanData) => {
-        try {
-            const newVlan = await api.createVlan(showId, vlanData);
-            onVlansUpdate([...vlans, newVlan]); // Update context
-            toast.success("VLAN created successfully!");
-            setIsVlanModalOpen(false);
-        } catch (error) {
-            toast.error(`Failed to create VLAN: ${error.message}`);
+    const vlanSelectOptions = availableVlans.map(v => ({
+        value: String(v.value), // Ensure value is string for MultiSelect comparison
+        label: v.label
+    }));
+    
+    // Also add any currently tagged VLANs that might have been deleted from the main list
+    taggedVlans.forEach(tv => {
+        if (!vlanSelectOptions.find(v => v.value === String(tv))) {
+            vlanSelectOptions.push({ value: String(tv), label: `${tv} (Deleted VLAN)` });
         }
-    };
+    });
 
+    // PVID options should only be from available VLANs
+    const pvidOptions = [
+        { value: '', label: 'None (Untagged)' },
+        ...availableVlans.map(v => ({
+            value: String(v.value), // Ensure value is string
+            label: v.label
+        }))
+    ];
+    
     return (
-        <>
-            <Modal isOpen={isOpen} onClose={onClose} title={`Configure Port ${portNumber}`}>
-                <form onSubmit={handleSubmit} className="space-y-4">
+        <Modal isOpen={isOpen} onClose={onClose} title={`Configure Port ${portNumber}`}>
+            <form onSubmit={handleSubmit}>
+                <div className="space-y-4">
                     <InputField
                         label="Port Name / Description"
-                        name="port_name"
-                        value={formData.port_name}
-                        onChange={handleChange}
-                        placeholder="e.g., Uplink to Core"
+                        value={portName}
+                        onChange={(e) => setPortName(e.target.value)}
+                        placeholder="e.g., FOH_Network_A"
+                    />
+                    
+                    <SelectField
+                        label="PVID (Untagged VLAN)"
+                        value={pvid}
+                        onChange={(e) => setPvid(e.target.value)}
+                        options={pvidOptions}
                     />
 
-                    <div>
-                        <div className="flex justify-between items-center mb-1.5">
-                            <label htmlFor="pvid" className="block text-sm font-medium text-gray-300">
-                                PVID (Untagged VLAN)
-                            </label>
-                            <button type="button" onClick={() => setIsVlanModalOpen(true)} className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                                <PlusCircle size={14} /> New VLAN
-                            </button>
-                        </div>
-                        <select
-                            id="pvid"
-                            name="pvid"
-                            value={formData.pvid}
-                            onChange={handleChange}
-                            className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg"
-                        >
-                            <option value="">None</option>
-                            {vlans.map(vlan => (
-                                <option key={vlan.id} value={vlan.tag}>{vlan.tag} - {vlan.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div>
-                        <label htmlFor="tagged_vlans" className="block text-sm font-medium text-gray-300 mb-1.5">
-                            Tagged VLANs
-                        </label>
-                        <select
-                            id="tagged_vlans"
-                            name="tagged_vlans"
-                            multiple
-                            value={formData.tagged_vlans.map(String)}
-                            onChange={handleMultiSelectChange}
-                            className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg h-32"
-                        >
-                            {vlans.map(vlan => (
-                                <option key={vlan.id} value={vlan.tag}>{vlan.tag} - {vlan.name}</option>
-                            ))}
-                        </select>
-                    </div>
-
-                    <div className="flex items-center">
-                        <input
-                            type="checkbox"
-                            id="igmp_enabled"
-                            name="igmp_enabled"
-                            checked={formData.igmp_enabled}
-                            onChange={handleChange}
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <label htmlFor="igmp_enabled" className="ml-2 block text-sm text-gray-300">
-                            Enable IGMP Snooping
-                        </label>
-                    </div>
-
-                    <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
-                        <button type="submit" className="px-4 py-2 bg-blue-500 hover:bg-blue-400 rounded-lg font-bold text-white">Save Port</button>
-                    </div>
-                </form>
-            </Modal>
-
-            <NewVlanModal
-                isOpen={isVlanModalOpen}
-                onClose={() => setIsVlanModalOpen(false)}
-                onSubmit={handleCreateVlan}
-            />
-        </>
+                    <MultiSelect
+                        label="Tagged VLANs"
+                        options={vlanSelectOptions}
+                        selected={taggedVlans}
+                        onChange={setTaggedVlans}
+                        placeholder="Select tagged VLANs..."
+                    />
+                </div>
+                
+                <div className="flex justify-end mt-6">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="mr-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-500"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="submit"
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500"
+                    >
+                        Save Configuration
+                    </button>
+                </div>
+            </form>
+        </Modal>
     );
 };
 

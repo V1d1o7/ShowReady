@@ -1,0 +1,220 @@
+/var/www/ShowReady/
+├── app
+│   ├── api.py
+│   ├── checked.png
+│   ├── email_utils.py
+│   ├── encryption.py
+│   ├── main.py
+│   ├── models.py
+│   ├── pdf_generation.py
+│   ├── pdf_utils.py
+│   ├── __pycache__
+│   │   ├── api.cpython-311.pyc
+│   │   ├── db.cpython-311.pyc
+│   │   ├── email_utils.cpython-311.pyc
+│   │   ├── encryption.cpython-311.pyc
+│   │   ├── main.cpython-311.pyc
+│   │   ├── models.cpython-311.pyc
+│   │   ├── pdf_generation.cpython-311.pyc
+│   │   ├── pdf_utils.cpython-311.pyc
+│   │   ├── security.cpython-311.pyc
+│   │   └── user_email.cpython-311.pyc
+│   ├── routers
+│   │   ├── export_wire_pdf.py
+│   │   ├── feedback.py
+│   │   ├── hours.py
+│   │   ├── pdf.py
+│   │   ├── __pycache__
+│   │   │   ├── export_wire_pdf.cpython-311.pyc
+│   │   │   ├── feedback.cpython-311.pyc
+│   │   │   ├── hours.cpython-311.pyc
+│   │   │   ├── pdf.cpython-311.pyc
+│   │   │   ├── radio_labels.cpython-311.pyc
+│   │   │   ├── roster.cpython-311.pyc
+│   │   │   ├── show_settings.cpython-311.pyc
+│   │   │   ├── switch_admin.cpython-311.pyc
+│   │   │   ├── switch_agent.cpython-311.pyc
+│   │   │   ├── switch_config.cpython-311.pyc
+│   │   │   ├── user_settings.cpython-311.pyc
+│   │   │   ├── vlan.cpython-311.pyc
+│   │   │   └── vlan_script.cpython-311.pyc
+│   │   ├── radio_labels.py
+│   │   ├── roster.py
+│   │   ├── show_settings.py
+│   │   ├── switch_admin.py
+│   │   ├── switch_agent.py
+│   │   ├── switch_config.py
+│   │   ├── user_settings.py
+│   │   ├── vlan.py
+│   │   └── vlan_script.py
+│   ├── schemas
+│   │   ├── __pycache__
+│   │   │   └── wire_export.cpython-311.pyc
+│   │   └── wire_export.py
+│   ├── security.py
+│   ├── services
+│   │   ├── __pycache__
+│   │   │   ├── switch_generator.cpython-311.pyc
+│   │   │   └── wire_export_svg.cpython-311.pyc
+│   │   ├── switch_generator.py
+│   │   └── wire_export_svg.py
+│   ├── setup_database.py
+│   ├── title_block.svg
+│   ├── unchecked.png
+│   └── user_email.py
+├── db_migration
+│   └── supabase
+├── db_structure.sql
+├── example.env
+├── fonts
+│   ├── SpaceMono-Bold.ttf
+│   ├── SpaceMono-Italic.ttf
+│   └── SpaceMono-Regular.ttf
+├── frontend
+│   ├── build
+│   │   ├── favicon.ico
+│   │   └── logo.png
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── postcss.config.js
+│   ├── public
+│   │   ├── favicon.ico
+│   │   ├── index.html
+│   │   └── logo.png
+│   ├── src
+│   │   ├── api
+│   │   │   └── api.js
+│   │   ├── App.js
+│   │   ├── components
+│   │   │   ├── AddVLANModal.js
+│   │   │   ├── AdminSidebar.js
+│   │   │   ├── AdvancedPrintModal.js
+│   │   │   ├── BulkEditCableForm.js
+│   │   │   ├── CabkeManagerModal.js
+│   │   │   ├── CableForm.js
+│   │   │   ├── CableManagerModal.js
+│   │   │   ├── Card.js
+│   │   │   ├── ColorPicker.js
+│   │   │   ├── ConfigureSwitchModal.js
+│   │   │   ├── ConfirmationModal.js
+│   │   │   ├── CustomDragLayer.js
+│   │   │   ├── CustomEdge.js
+│   │   │   ├── DeviceNode.js
+│   │   │   ├── EditableLabelRow_old.js
+│   │   │   ├── EditEquipmentModal.js
+│   │   │   ├── EditFolderModal.js
+│   │   │   ├── EditInstanceModal.js
+│   │   │   ├── EditRackModal.js
+│   │   │   ├── EditUserEquipmentModal.js
+│   │   │   ├── EditUserFolderModal.js
+│   │   │   ├── EmailTimesheetModal.js
+│   │   │   ├── EquipmentLibrarySidebar.js
+│   │   │   ├── FeatureRestrictionManager_OLD.js
+│   │   │   ├── FeedbackModal.js
+│   │   │   ├── FolderOptions.js
+│   │   │   ├── GenerateScriptModal.js
+│   │   │   ├── GhostEquipmentItem.js
+│   │   │   ├── HoursModal.js
+│   │   │   ├── ImpersonationBanner.js
+│   │   │   ├── InputField.js
+│   │   │   ├── LabelManagerView.js
+│   │   │   ├── LibrarySidebar.js
+│   │   │   ├── LocationSelector.js
+│   │   │   ├── ManageFieldsModal.js
+│   │   │   ├── Modal.js
+│   │   │   ├── MultiSelect.js
+│   │   │   ├── NamePromptModal.js
+│   │   │   ├── Navbar.js
+│   │   │   ├── NewEquipmentModal.js
+│   │   │   ├── NewLabelModal.js
+│   │   │   ├── NewRackModal.js
+│   │   │   ├── NewSheetModal.js
+│   │   │   ├── NewShowModal.js
+│   │   │   ├── NewUserEquipmentModal.js
+│   │   │   ├── NewUserFolderModal.js
+│   │   │   ├── NewVlanModal.js
+│   │   │   ├── PayPeriodSettingsModal.js
+│   │   │   ├── PdfPreviewModal.js
+│   │   │   ├── PlacedEquipmentItem.js
+│   │   │   ├── PortConfigModal.js
+│   │   │   ├── PortManagerModal.js
+│   │   │   ├── PrintHours.js
+│   │   │   ├── ProtectedRoute.js
+│   │   │   ├── PushConfigModal.js
+│   │   │   ├── RackComponent.js
+│   │   │   ├── RackLibraryModal.js
+│   │   │   ├── RackList.js
+│   │   │   ├── RackPdfModal.js
+│   │   │   ├── RosterModal.js
+│   │   │   ├── SelectField.js
+│   │   │   ├── ShortcutsModal.css
+│   │   │   ├── ShortcutsModal.js
+│   │   │   ├── ShowCard.js
+│   │   │   ├── ShowSidebar.js
+│   │   │   ├── SwitchConfigSidebar.js
+│   │   │   ├── Toast.js
+│   │   │   ├── ToggleSwitch.js
+│   │   │   ├── UserTreeView.js
+│   │   │   ├── VlanInstructionsModal.js
+│   │   │   ├── wire
+│   │   │   │   └── ExportWirePdfButton.jsx
+│   │   │   └── WireDiagramPdfModal.js
+│   │   ├── contexts
+│   │   │   ├── AuthContext.js
+│   │   │   ├── LayoutContext.js
+│   │   │   ├── LibraryContext.js
+│   │   │   ├── ModalContext.js
+│   │   │   ├── ShowContext.js
+│   │   │   ├── ShowsContext.js
+│   │   │   └── ToastContext.js
+│   │   ├── hooks
+│   │   │   └── useHotkeys.js
+│   │   ├── index.css
+│   │   ├── index.js
+│   │   ├── layouts
+│   │   │   ├── AdminLayout.js
+│   │   │   └── ShowLayout.js
+│   │   └── views
+│   │       ├── AccountView.js
+│   │       ├── admin
+│   │       │   ├── EmailView.js
+│   │       │   ├── EquipmentLibraryView.js
+│   │       │   ├── MetricsView.js
+│   │       │   ├── RbacView.js
+│   │       │   ├── SwitchModelView.js
+│   │       │   └── UserManagementView.js
+│   │       ├── AdvancedSSOView.js
+│   │       ├── Auth.js
+│   │       ├── CaseLabelView.js
+│   │       ├── DashboardView.js
+│   │       ├── EquipmentLibraryView.js
+│   │       ├── HoursTrackingView.js
+│   │       ├── LoomBuilderView.js
+│   │       ├── LoomLabelView.js
+│   │       ├── RackBuilderView.js
+│   │       ├── RadioLabelView.js
+│   │       ├── RosterView.js
+│   │       ├── ShowCrewView.js
+│   │       ├── ShowInfoView.js
+│   │       ├── ShowView.js
+│   │       ├── SwitchConfigView.js
+│   │       ├── UserLibraryView.js
+│   │       ├── UserRackBuilderView.js
+│   │       ├── VLANView.js
+│   │       └── WireDiagramView.js
+│   └── tailwind.config.js
+├── package.json
+├── package-lock.json
+├── README.md
+├── requirements.txt
+├── service-account.json
+├── ShowReady.code-workspace
+├── supabase
+│   ├── config.toml
+│   └── migrations
+├── tests
+│   ├── __init__.py
+│   └── test_wire_export.py
+└── tree.txt
+
+27 directories, 191 files

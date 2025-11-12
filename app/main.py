@@ -26,6 +26,9 @@ from app.routers.hours import router as hours_router
 from app.routers.pdf import router as pdf_router
 from app.routers.user_settings import router as user_settings_router
 from app.routers.show_settings import router as show_settings_router
+from app.routers.switch_admin import router as switch_admin_router
+from app.routers.switch_config import router as switch_config_router
+from app.routers.switch_agent import router as switch_agent_router
 
 
 app = FastAPI(
@@ -62,6 +65,12 @@ app.include_router(hours_router, prefix="/api")
 app.include_router(pdf_router, prefix="/api")
 app.include_router(user_settings_router, prefix="/api")
 app.include_router(show_settings_router, prefix="/api")
+
+# Version 1 API for new features
+app.include_router(switch_admin_router, prefix="/api/v1")
+app.include_router(switch_config_router, prefix="/api/v1")
+app.include_router(switch_agent_router, prefix="/api/v1")
+
 app.include_router(api_router, prefix="/api")
 
 # --- Static Files Configuration ---

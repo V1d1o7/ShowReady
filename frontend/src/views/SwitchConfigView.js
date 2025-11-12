@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useContext } from 'react';
 import SwitchConfigSidebar from '../components/SwitchConfigSidebar';
 import { api } from '../api/api';
-import { useShow } from '../contexts/ShowContext';
+// CORRECTED: Import useShow hook instead of ShowContext
+import { useShow } from '../contexts/ShowContext'; 
 import Card from '../components/Card';
 import PortConfigModal from '../components/PortConfigModal';
 import PushConfigModal from '../components/PushConfigModal';
@@ -41,7 +42,8 @@ const PortGrid = ({ switchDetails, portConfigs, onPortClick }) => {
 
 
 const SwitchConfigView = () => {
-    const { showId } = useShow();
+    // CORRECTED: Use the useShow hook
+    const { showId } = useShow(); 
     const [selectedSwitch, setSelectedSwitch] = useState(null);
     const [switchDetails, setSwitchDetails] = useState(null);
     const [portConfigs, setPortConfigs] = useState([]);

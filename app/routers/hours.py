@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from supabase import Client
-from app.api import get_supabase_client, get_user, get_branding_visibility, SUPABASE_URL
+from app.api import get_user, get_branding_visibility, get_supabase_client
 from app.models import (
     TimesheetEntryCreate, WeeklyTimesheet, 
     CrewMemberHours, TimesheetEmailPayload

@@ -30,20 +30,20 @@ from .email_utils import create_email_html, send_email
 from typing import List, Dict, Optional
 from .models import HoursPDFPayload
 
-router = APIRouter()
 
-# --- Supabase Configuration ---
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def get_supabase_client() -> Client:
+    return supabase
+
+router = APIRouter()
+
 BUCKET_NAME = "logos"
 
-# --- Supabase Client Dependency ---
-def get_supabase_client():
-    """Dependency to create a Supabase client."""
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
 # --- User Authentication Dependency ---
-async def get_user(request: Request, supabase: Client = Depends(get_supabase_client)):
+async def get_user(request: Request):
     """Dependency to get user from Supabase JWT in Authorization header."""
     auth_header = request.headers.get("Authorization")
     if not auth_header:
@@ -60,7 +60,7 @@ async def get_user(request: Request, supabase: Client = Depends(get_supabase_cli
         raise HTTPException(status_code=401, detail="Invalid token")
 
 # --- Token Dependency for File Uploads ---
-async def get_user_from_token(authorization: str = Header(...), supabase: Client = Depends(get_supabase_client)):
+async def get_user_from_token(authorization: str = Header(...)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
     token = authorization.split(" ")[1]
@@ -72,7 +72,7 @@ async def get_user_from_token(authorization: str = Header(...), supabase: Client
 
 
 # --- Admin Authentication Dependency ---
-async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+async def get_admin_user(user = Depends(get_user)):
     """Dependency that checks if the user has the 'admin' role."""
     try:
         # Check if the user has the 'admin' role in the user_roles table
@@ -489,6 +489,7 @@ ALL_FEATURES = [
     {"key": "crew", "name": "Crew Management"},
     {"key": "hours_tracking", "name": "Hours Tracking"},
     {"key": "global_feedback_button", "name": "Global Feedback Button"},
+    {"key": "switch_config", "name": "Switch Configuration"},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
@@ -504,7 +505,7 @@ def feature_check(feature_name: str):
     Raises HTTPException 403 if a feature has a defined, non-empty list of permitted
     roles and the user does not have any of those roles.
     """
-    async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    async def checker(user = Depends(get_user)):
         user_roles = get_user_roles_sync(user.id, supabase)
         
         restriction_res = supabase.table('feature_restrictions').select('permitted_roles').eq('feature_name', feature_name).maybe_single().execute()
@@ -519,7 +520,7 @@ def feature_check(feature_name: str):
         # If no restrictions are set, or the list is empty, access is allowed by default.
     return checker
 
-async def get_branding_visibility(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)) -> bool:
+async def get_branding_visibility(user = Depends(get_user)) -> bool:
     """Dependency that returns True if the ShowReady branding should be visible for the user."""
     user_roles = get_user_roles_sync(user.id, supabase)
     
@@ -1205,7 +1206,7 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     return racks
 
 @router.get("/shows/{show_id}/racks/export-list", tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
-async def export_racks_list_pdf(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client), show_branding: bool = Depends(get_branding_visibility)):
+async def export_racks_list_pdf(show_id: int, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility), supabase: Client = Depends(get_supabase_client)):
     """Exports a list of all equipment across all racks in a show to a PDF file."""
     
     # 1. Get Show Info
@@ -1882,7 +1883,7 @@ class CaseLabelPayload(BaseModel):
     placement: Optional[Dict[str, int]] = None
 
 @router.post("/pdf/loom_builder-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("loom_builder"))])
-async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client), show_branding: bool = Depends(get_branding_visibility)):
+async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility), supabase: Client = Depends(get_supabase_client)):
     loom_ids = [loom.id for loom in payload.looms]
     looms_res = supabase.table('looms').select('id, user_id').in_('id', loom_ids).execute()
     for loom in looms_res.data:
@@ -1909,7 +1910,7 @@ async def create_loom_builder_pdf(payload: LoomBuilderPDFPayload, user = Depends
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
 @router.post("/pdf/loom-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("loom_labels"))])
-async def create_loom_label_pdf(payload: LoomLabelPayload, user = Depends(get_user)):
+async def create_loom_label_pdf(payload: LoomLabelPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     pdf_buffer = generate_loom_label_pdf(payload.labels, payload.placement)
     return Response(content=pdf_buffer.getvalue(), media_type="application/pdf")
 
@@ -1930,7 +1931,7 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
 
 
 @router.post("/pdf/racks", tags=["PDF Generation"], dependencies=[Depends(feature_check("rack_builder"))])
-async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility)):
+async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility), supabase: Client = Depends(get_supabase_client)):
     """Generates a PDF for the rack builder view."""
     try:
         pdf_buffer = generate_racks_pdf(payload, show_branding=show_branding)
@@ -1941,7 +1942,7 @@ async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), sh
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
 @router.post("/pdf/hours-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("hours_tracking"))])
-async def create_hours_pdf(payload: HoursPDFPayload, user = Depends(get_user)):
+async def create_hours_pdf(payload: HoursPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Generates a PDF for the hours tracking view."""
     try:
         pdf_buffer = generate_hours_pdf(payload.model_dump())

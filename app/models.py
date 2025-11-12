@@ -540,3 +540,125 @@ class UserSMTPSettingsResponse(BaseModel):
     smtp_port: int
     smtp_username: str
     created_at: datetime
+
+# --- Switch Configuration Models ---
+
+# --- Switch Models (Templates) ---
+class SwitchModelBase(BaseModel):
+    manufacturer: Optional[str] = None
+    model_name: str
+    port_count: int
+    netmiko_driver_type: str
+
+class SwitchModelCreate(SwitchModelBase):
+    pass
+
+class SwitchModel(SwitchModelBase):
+    id: uuid.UUID
+    created_at: datetime
+
+class SwitchModelUpdate(BaseModel):
+    manufacturer: Optional[str] = None
+    model_name: Optional[str] = None
+    port_count: Optional[int] = None
+    netmiko_driver_type: Optional[str] = None
+
+# For linking a model to equipment
+class EquipmentLinkModel(BaseModel):
+    switch_model_id: uuid.UUID
+
+# --- Switch (Instances) ---
+class SwitchBase(BaseModel):
+    show_id: int
+    model_id: uuid.UUID
+    rack_item_id: uuid.UUID
+    name: Optional[str] = None
+
+class SwitchCreate(BaseModel):
+    rack_item_id: uuid.UUID
+
+class Switch(SwitchBase):
+    id: uuid.UUID
+    created_at: datetime
+
+class SwitchDetails(Switch):
+    port_count: int
+    model_name: str
+
+# For the sidebar API response
+class SwitchSidebarItem(BaseModel):
+    rack_item_id: uuid.UUID
+    switch_name: str
+    switch_config_id: Optional[uuid.UUID] = None
+
+class SwitchSidebarGroup(BaseModel):
+    rack_id: uuid.UUID
+    rack_name: str
+    items: List[SwitchSidebarItem]
+
+# --- Port Configuration ---
+class PortConfig(BaseModel):
+    port_name: Optional[str] = None
+    pvid: Optional[int] = None
+    tagged_vlans: List[int] = Field(default_factory=list)
+    igmp_enabled: bool = False
+
+class SwitchPortConfigBase(BaseModel):
+    switch_id: uuid.UUID
+    port_number: int
+    config: PortConfig
+
+class SwitchPortConfigCreate(BaseModel):
+    port_number: int
+    config: PortConfig
+
+class SwitchPortConfig(SwitchPortConfigBase):
+    id: uuid.UUID
+    created_at: datetime
+
+# --- Push Jobs ---
+class PushJobCreate(BaseModel):
+    target_ip: str
+    username: str
+    password: str
+
+class PushJob(BaseModel):
+    id: uuid.UUID
+    show_id: int
+    switch_id: uuid.UUID
+    user_id: uuid.UUID
+    status: str
+    target_ip: str
+    result_log: Optional[str] = None
+    created_at: datetime
+
+class PushJobStatus(BaseModel):
+    status: str
+    result_log: Optional[str] = None
+
+class EncryptedCredentials(BaseModel):
+    target_ip: str
+    credentials: str # base64 encoded bytes
+
+class AgentCliResponse(BaseModel):
+    commands: List[str]
+    driver_type: str
+
+# --- Agent API Keys ---
+class AgentApiKeyBase(BaseModel):
+    name: str
+
+class AgentApiKeyCreate(AgentApiKeyBase):
+    pass
+
+class AgentApiKey(AgentApiKeyBase):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    key_prefix: str
+    created_at: datetime
+
+class AgentApiKeyWithKey(AgentApiKey):
+    key: str # The full key, only shown on creation
+
+class AgentPublicKeyUpload(BaseModel):
+    public_key: str
