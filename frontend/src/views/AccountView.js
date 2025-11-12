@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Save, Trash2, KeyRound, UploadCloud } from 'lucide-react';
+import { Save, Trash2, KeyRound, UploadCloud, Download } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
@@ -29,6 +29,8 @@ const AccountView = () => {
         smtp_username: '',
         smtp_password: '' // Note: password is write-only
     });
+    const [agentKey, setAgentKey] = useState(null);
+    const [apiKeyName, setApiKeyName] = useState('');
 
     // Effect to control page scrolling
     useEffect(() => {
@@ -98,6 +100,15 @@ const AccountView = () => {
             alert("Profile updated successfully!");
         } catch (error) {
             alert(`Failed to update profile: ${error.message}`);
+        }
+    };
+    
+    const handleGenerateApiKey = async () => {
+        try {
+            const result = await api.generateAgentApiKey(apiKeyName);
+            setAgentKey(result.key);
+        } catch (error) {
+            alert(`Failed to generate API key: ${error.message}`);
         }
     };
 
@@ -177,6 +188,28 @@ const AccountView = () => {
                 </div>
             </header>
             <main className="space-y-8">
+                 <Card>
+                    <h2 className="text-xl font-bold mb-4 text-white">ShowReady Local Agent</h2>
+                    <p className="text-gray-400 mb-4">
+                        To push configurations to your network switches, you need to run the Local Agent application on a computer on the same network.
+                    </p>
+                    {agentKey ? (
+                        <div>
+                             <p className="text-gray-400">Your new API Key. Please copy this into the Local Agent application. This key will only be shown once.</p>
+                             <div className="mt-2 p-3 bg-gray-900 rounded-lg font-mono text-amber-400 break-all">{agentKey}</div>
+                        </div>
+                    ) : (
+                        <div className="flex items-end gap-2">
+                             <InputField label="API Key Name" value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="e.g., My Laptop" />
+                             <button onClick={handleGenerateApiKey} disabled={!apiKeyName} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white h-10 disabled:bg-gray-500">
+                                 <KeyRound size={16} /> Generate API Key
+                             </button>
+                        </div>
+                    )}
+                     <a href="#" onClick={(e) => { e.preventDefault(); alert("Download link will be available soon."); }} className="mt-4 w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">
+                        <Download size={16} /> Download Local Agent
+                    </a>
+                </Card>
                 <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">Profile Details</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

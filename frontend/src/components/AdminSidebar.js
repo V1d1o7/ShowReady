@@ -18,6 +18,7 @@ const AdminSidebar = () => {
     const tabs = [
         { path: 'email', label: 'Email Sending', icon: Mail },
         { path: 'equipment-library', label: 'Equipment Library', icon: HardDrive },
+        { path: 'switch-models', label: 'Switch Models', icon: HardDrive },
         { path: 'user-management', label: 'User Management', icon: Users },
         { path: 'metrics', label: 'Metrics', icon: BarChart2 },
         { path: 'rbac', label: 'RBAC', icon: Shield },

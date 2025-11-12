@@ -3,7 +3,7 @@ import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive } from 'lucide-react';
 import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
@@ -35,6 +35,7 @@ const ShowSidebar = () => {
         { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
+        { path: 'switchconfig', label: 'Switch Config', icon: HardDrive, feature: 'switch_config' },
         { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },
         { path: 'loombuilder', label: 'Loom Builder', icon: Combine, feature: 'loom_builder' },
         { path: 'vlan', label: 'VLAN', icon: Network, feature: 'vlan_management' },

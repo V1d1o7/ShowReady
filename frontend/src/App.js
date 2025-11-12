@@ -36,6 +36,7 @@ import VLANView from './views/VLANView';
 import RosterView from './views/RosterView';
 import ShowCrewView from './views/ShowCrewView';
 import HoursTrackingView from './views/HoursTrackingView';
+import SwitchConfigView from './views/SwitchConfigView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -147,6 +148,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
                                                 <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
+                                                <Route path="switchconfig" element={<ProtectedRoute feature="switch_config"><SwitchConfigView /></ProtectedRoute>} />
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
                                                 <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
                                                 <Route path="vlan" element={<ProtectedRoute feature="vlan_management"><VLANView /></ProtectedRoute>} />

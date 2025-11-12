@@ -115,10 +115,60 @@ export const api = {
         method: 'DELETE',
         headers: await getAuthHeader()
     }),
+
+    // --- Admin Switch Config ---
+    getSwitchModels: async () => fetch('/api/v1/admin/switch_models', { headers: await getAuthHeader() }).then(handleResponse),
+    createSwitchModel: async (modelData) => fetch('/api/v1/admin/switch_models', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(modelData),
+    }).then(handleResponse),
+    updateSwitchModel: async (modelId, modelData) => fetch(`/api/v1/admin/switch_models/${modelId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(modelData),
+    }).then(handleResponse),
+    deleteSwitchModel: async (modelId) => fetch(`/api/v1/admin/switch_models/${modelId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }),
+    linkEquipmentToModel: async (equipmentId, modelId) => fetch(`/api/v1/admin/equipment/${equipmentId}/link_model`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ switch_model_id: modelId }),
+    }).then(handleResponse),
     deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, {
         method: 'DELETE',
         headers: await getAuthHeader()
     }),
+
+    // --- User Switch Config ---
+    getConfigurableSwitches: async (showId) => fetch(`/api/v1/switches?show_id=${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    createSwitchConfig: async (rackItemId) => fetch('/api/v1/switches', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ rack_item_id: rackItemId }),
+    }).then(handleResponse),
+    getSwitchDetails: async (switchId) => fetch(`/api/v1/switches/${switchId}/details`, { headers: await getAuthHeader() }).then(handleResponse),
+    getSwitchPortConfig: async (switchId) => fetch(`/api/v1/switches/${switchId}/config`, { headers: await getAuthHeader() }).then(handleResponse),
+    saveSwitchPortConfig: async (switchId, portConfigData) => fetch(`/api/v1/switches/${switchId}/config`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(portConfigData),
+    }).then(handleResponse),
+    pushSwitchConfig: async (switchId, pushData) => fetch(`/api/v1/switches/${switchId}/push_config`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(pushData),
+    }).then(handleResponse),
+    getPushJobStatus: async (jobId) => fetch(`/api/v1/switches/push_jobs/${jobId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    
+    // --- Agent API Keys ---
+    generateAgentApiKey: async (name) => fetch('/api/v1/agent/api-keys', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ name }),
+    }).then(handleResponse),
     
     getConnectionsForShow: async (showId) => fetch(`/api/shows/${showId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
     getConnectionsForDevice: async (instanceId) => fetch(`/api/equipment/${instanceId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
