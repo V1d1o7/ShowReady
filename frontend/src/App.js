@@ -23,6 +23,7 @@ import AdminEquipmentLibraryView from './views/admin/EquipmentLibraryView';
 import UserManagementView from './views/admin/UserManagementView';
 import MetricsView from './views/admin/MetricsView';
 import RbacView from './views/admin/RbacView';
+import SwitchModelView from './views/admin/SwitchModelView';
 import UserLibraryView from './views/UserLibraryView';
 import EquipmentLibraryView from './views/EquipmentLibraryView';
 import UserRackBuilderView from './views/UserRackBuilderView';
@@ -177,6 +178,7 @@ const MainLayout = ({ session }) => {
                                         <Route path="user-management" element={<UserManagementView />} />
                                         <Route path="metrics" element={<MetricsView />} />
                                         <Route path="rbac" element={<RbacView />} />
+                                        <Route path="switch-models" element={<SwitchModelView />} />
                                     </Route>
                                 </Routes>
                             </main>

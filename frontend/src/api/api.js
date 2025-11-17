@@ -150,7 +150,7 @@ export const api = {
         body: JSON.stringify({ rack_item_id: rackItemId }),
     }).then(handleResponse),
     getSwitchDetails: async (switchId) => fetch(`/api/v1/switches/${switchId}/details`, { headers: await getAuthHeader() }).then(handleResponse),
-    getSwitchPortConfig: async (switchId) => fetch(`/api/v1/switches/${switchId}/config`, { headers: await getAuthHeader() }).then(handleResponse),
+    getSwitchConfig: async (switchId) => fetch(`/api/v1/switches/${switchId}/config`, { headers: await getAuthHeader() }).then(handleResponse),
     saveSwitchPortConfig: async (switchId, portConfigData) => fetch(`/api/v1/switches/${switchId}/config`, {
         method: 'PUT',
         headers: await getAuthHeader(),

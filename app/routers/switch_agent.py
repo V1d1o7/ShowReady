@@ -1,161 +1,118 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Body
 from supabase import Client
-from app.api import get_supabase_client, get_user
-from app.models import (
-    AgentPublicKeyUpload, PushJob, PushJobStatus,
-    EncryptedCredentials, AgentCliResponse,
-    AgentApiKeyCreate, AgentApiKeyWithKey
-)
-from app.services.switch_generator import generate_netgear_cli
-import uuid
-import secrets
-from typing import List, Annotated
+from app.api import get_supabase_client
+from pydantic import BaseModel
 import hashlib
+import base64
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
+from cryptography.hazmat.primitives import hashes
 
-router = APIRouter(tags=["Agent"])
+router = APIRouter()
 
-@router.post("/agent/api-keys", response_model=AgentApiKeyWithKey)
-def create_agent_api_key(
-    key_data: AgentApiKeyCreate,
-    supabase: Client = Depends(get_supabase_client),
-    user=Depends(get_user)
-):
+class AgentRegistration(BaseModel):
+    public_key: str
+
+class DiscoveredDevice(BaseModel):
+    hostname: str
+    ip_address: str
+    model: str
+    serial_number: str
+
+@router.post("/agent/register", status_code=201, tags=["Local Agent"])
+def agent_register(registration: AgentRegistration, x_api_key: str = Header(...), supabase: Client = Depends(get_supabase_client)):
     """
-    Creates a new API key for a local agent. The key is returned only once.
+    Called by a local agent to register itself with the system.
+    Stores the public key and associates it with the API key.
     """
-    # 1. Generate a new secure key
-    new_key = f"sr_{secrets.token_urlsafe(32)}"
-    key_prefix = new_key[:11] # sr_ + 8 chars
-    key_hash = hashlib.sha256(new_key.encode('utf-8')).hexdigest()
+    if not x_api_key.startswith("SRLA-"):
+        raise HTTPException(status_code=400, detail="Invalid API Key format")
 
-    # 2. Prepare data for insertion
-    insert_data = {
-        "user_id": str(user.id),
-        "name": key_data.name,
-        "key_hash": key_hash,
-        "key_prefix": key_prefix,
-    }
+    token = x_api_key.split("SRLA-")[1]
+    hashed_token = hashlib.sha256(token.encode()).hexdigest()
 
-    # 3. Insert into the database
-    response = supabase.table("agent_api_keys").insert(insert_data).execute()
+    # Find the local_agent record by the hashed token
+    response = supabase.table("local_agents").select("id").eq("hashed_token", hashed_token).maybe_single().execute()
 
-    if response.error or not response.data:
-        raise HTTPException(status_code=500, detail="Failed to create API key.")
+    if not response.data:
+        raise HTTPException(status_code=404, detail="API Key not found or invalid")
 
-    created_key_record = response.data[0]
+    agent_id = response.data['id']
+
+    # Update the agent with its public key
+    update_response = supabase.table("local_agents").update({"public_key": registration.public_key}).eq("id", agent_id).execute()
     
-    # 4. Return the full key to the user
-    return AgentApiKeyWithKey(
-        **created_key_record,
-        key=new_key
-    )
+    return {"message": "Agent registered successfully"}
 
-async def get_agent_user(x_api_key: Annotated[str, Header()], supabase: Client = Depends(get_supabase_client)):
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="API Key is missing")
+@router.post("/agent/discover", status_code=200, tags=["Local Agent"])
+def agent_discover(devices: list[DiscoveredDevice], x_api_key: str = Header(...), supabase: Client = Depends(get_supabase_client)):
+    """
+    Called by a local agent to report discovered network devices.
+    """
+    response = supabase.table("local_agents").select("id, show_id").eq("hashed_token", hashlib.sha256(x_api_key.split('SRLA-')[1]).hexdigest()).maybe_single().execute()
     
-    key_hash = hashlib.sha256(x_api_key.encode('utf-8')).hexdigest()
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Agent not found")
     
-    response = supabase.table("agent_api_keys").select("user_id").eq("key_hash", key_hash).single().execute()
+    agent = response.data
     
-    if response.error or not response.data:
-        raise HTTPException(status_code=401, detail="Invalid API Key")
+    # Here you would typically process the list of devices,
+    # for example, by adding them to a 'discovered_devices' table associated with the show.
+    # For this example, we'll just return a success message.
+    print(f"Agent {agent['id']} for show {agent['show_id']} discovered {len(devices)} devices.")
+    
+    return {"message": "Discovery data received"}
+
+@router.get("/agent/credentials", tags=["Local Agent"])
+def get_credentials_for_agent(target_ip: str, x_api_key: str = Header(...), supabase: Client = Depends(get_supabase_client)):
+    """
+    Provides encrypted credentials for a specific device to the local agent.
+    """
+    # 1. Authenticate the agent
+    agent_response = supabase.table("local_agents").select("id, show_id, public_key").eq("hashed_token", hashlib.sha256(x_api_key.split('SRLA-')[1]).hexdigest()).maybe_single().execute()
+    
+    if not agent_response.data or not agent_response.data.get('public_key'):
+        raise HTTPException(status_code=404, detail="Agent not found or not registered with a public key")
+
+    agent = agent_response.data
+    public_key_str = agent['public_key']
+
+    # 2. Find the target device and its credentials for the agent's show
+    # This logic assumes you have a way to map an IP to a rack_equipment_instance
+    # and that credentials are stored (securely) with the instance.
+    # This is a simplified example.
+    
+    # For demonstration, we'll find a piece of equipment with matching IP in the agent's show
+    credential_response = supabase.rpc('get_credentials_for_ip', {
+        'show_id_param': agent['show_id'],
+        'ip_param': target_ip
+    }).maybe_single().execute()
+
+    if not credential_response.data or not credential_response.data.get('target_credentials'):
+        raise HTTPException(status_code=404, detail="No credentials found for the target device in this show")
+
+    credentials = credential_response.data['target_credentials'] # Expects { "username": "...", "password": "..." }
+
+    # 3. Encrypt the credentials with the agent's public key
+    try:
+        public_key = serialization.load_pem_public_key(
+            public_key_str.encode('utf-8')
+        )
+
+        encrypted_credentials = {}
+        for key, value in credentials.items():
+            encrypted_value = public_key.encrypt(
+                value.encode('utf-8'),
+                asym_padding.OAEP(
+                    mgf=asym_padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None
+                )
+            )
+            encrypted_credentials[key] = base64.b64encode(encrypted_value).decode('utf-8')
         
-    return response.data
+        return encrypted_credentials
 
-@router.post("/agent/register")
-async def register_agent_public_key(key_upload: AgentPublicKeyUpload, x_api_key: Annotated[str, Header()], supabase: Client = Depends(get_supabase_client)):
-    """
-    Allows the agent to upload its public key after initial authentication.
-    """
-    key_hash = hashlib.sha256(x_api_key.encode('utf-8')).hexdigest()
-    response = supabase.table("agent_api_keys").update({"public_key": key_upload.public_key}).eq("key_hash", key_hash).execute()
-    
-    if response.error or not response.data:
-        raise HTTPException(status_code=404, detail="Agent API Key not found.")
-        
-    return {"message": "Public key registered successfully"}
-
-@router.get("/agent/jobs", response_model=List[PushJob])
-async def get_pending_jobs(agent_user: dict = Depends(get_agent_user), supabase: Client = Depends(get_supabase_client)):
-    """
-    Pollable endpoint for the agent to find pending jobs.
-    """
-    user_id = agent_user['user_id']
-    response = supabase.table("switch_push_jobs").select("*").eq("user_id", user_id).eq("status", "pending").limit(1).execute()
-    if response.error:
-        raise HTTPException(status_code=500, detail=response.error.message)
-    return response.data if response.data else []
-
-@router.get("/agent/jobs/{job_id}/cli", response_model=AgentCliResponse)
-async def get_job_cli(job_id: uuid.UUID, agent_user: dict = Depends(get_agent_user), supabase: Client = Depends(get_supabase_client)):
-    """
-    Generates and returns the CLI commands for a specific job.
-    """
-    user_id = agent_user['user_id']
-    # 1. Get job and verify ownership
-    job_res = supabase.table("switch_push_jobs").select("*, switches(*, switch_models(*))").eq("id", str(job_id)).eq("user_id", user_id).single().execute()
-    if job_res.error or not job_res.data:
-        raise HTTPException(status_code=404, detail="Job not found or not authorized.")
-    job = job_res.data
-
-    switch = job.get('switches')
-    if not switch:
-        raise HTTPException(status_code=404, detail="Switch associated with job not found.")
-    
-    switch_model = switch.get('switch_models')
-    if not switch_model:
-        raise HTTPException(status_code=404, detail="Switch model not found.")
-
-    # 2. Get necessary data for CLI generation
-    port_configs_res = supabase.table("switch_port_configs").select("*").eq("switch_id", switch['id']).execute()
-    vlans_res = supabase.table("vlans").select("*").eq("show_id", job['show_id']).execute()
-
-    port_configs = port_configs_res.data if port_configs_res.data else []
-    vlans = vlans_res.data if vlans_res.data else []
-
-    # 3. Generate commands
-    driver_type = switch_model.get('netmiko_driver_type')
-    commands = []
-    if driver_type == 'netgear_prosafe':
-         commands = generate_netgear_cli(port_configs, vlans, switch_model)
-    else:
-        raise HTTPException(status_code=501, detail=f"Driver type '{driver_type}' not implemented.")
-
-    return {"commands": commands, "driver_type": driver_type}
-
-
-@router.get("/agent/jobs/{job_id}/credentials", response_model=EncryptedCredentials)
-async def get_job_credentials(job_id: uuid.UUID, agent_user: dict = Depends(get_agent_user), supabase: Client = Depends(get_supabase_client)):
-    """
-    Securely sends the encrypted credentials to the agent.
-    """
-    import base64
-    user_id = agent_user['user_id']
-    response = supabase.table("switch_push_jobs").select("target_ip, target_credentials").eq("id", str(job_id)).eq("user_id", user_id).single().execute()
-    
-    if response.error or not response.data or not response.data.get('target_credentials'):
-        raise HTTPException(status_code=404, detail="Credentials not found for this job.")
-
-    creds_bytes = bytes.fromhex(response.data['target_credentials'][2:])
-    creds_b64 = base64.b64encode(creds_bytes).decode('utf-8')
-
-    return {
-        "target_ip": response.data['target_ip'],
-        "credentials": creds_b64
-    }
-
-@router.put("/agent/jobs/{job_id}/status")
-async def update_job_status(job_id: uuid.UUID, status_update: PushJobStatus, agent_user: dict = Depends(get_agent_user), supabase: Client = Depends(get_supabase_client)):
-    """
-    Updates the status and result log of a job.
-    """
-    user_id = agent_user['user_id']
-    update_data = status_update.model_dump()
-
-    response = supabase.table("switch_push_jobs").update(update_data).eq("id", str(job_id)).eq("user_id", user_id).execute()
-
-    if response.error or not response.data:
-        raise HTTPException(status_code=404, detail="Job not found or failed to update.")
-
-    return {"message": "Status updated successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Encryption failed: {str(e)}")

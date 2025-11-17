@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import SwitchConfigSidebar from '../components/SwitchConfigSidebar';
 import { api } from '../api/api';
-// CORRECTED: Import useShow hook instead of ShowContext
-import { useShow } from '../contexts/ShowContext'; 
+import { useShow } from '../contexts/ShowContext';
 import Card from '../components/Card';
 import PortConfigModal from '../components/PortConfigModal';
 import PushConfigModal from '../components/PushConfigModal';
@@ -12,19 +11,15 @@ const PortGrid = ({ switchDetails, portConfigs, onPortClick }) => {
     if (!switchDetails) return null;
 
     const ports = Array.from({ length: switchDetails.port_count }, (_, i) => i + 1);
-    const configsByPort = portConfigs.reduce((acc, conf) => {
-        acc[conf.port_number] = conf.config;
-        return acc;
-    }, {});
 
     return (
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-12 gap-4">
             {ports.map(portNumber => {
-                const config = configsByPort[portNumber];
+                const config = portConfigs ? portConfigs[portNumber] : null;
                 const hasConfig = config && (config.port_name || config.pvid || (config.tagged_vlans && config.tagged_vlans.length > 0));
-                
+
                 return (
-                    <div 
+                    <div
                         key={portNumber}
                         onClick={() => onPortClick(portNumber, config)}
                         className={`p-2 rounded-lg text-center cursor-pointer transition-all duration-200 
@@ -42,16 +37,16 @@ const PortGrid = ({ switchDetails, portConfigs, onPortClick }) => {
 
 
 const SwitchConfigView = () => {
-    // CORRECTED: Use the useShow hook
-    const { showId } = useShow(); 
+    const { showId } = useShow();
     const [selectedSwitch, setSelectedSwitch] = useState(null);
     const [switchDetails, setSwitchDetails] = useState(null);
-    const [portConfigs, setPortConfigs] = useState([]);
+    const [portConfigs, setPortConfigs] = useState({});
     const [isLoading, setIsLoading] = useState(false);
-    
+    const [isSaving, setIsSaving] = useState(false);
+
     const [isPortModalOpen, setIsPortModalOpen] = useState(false);
     const [selectedPort, setSelectedPort] = useState({ number: null, config: null });
-    
+
     const [isPushModalOpen, setIsPushModalOpen] = useState(false);
     const [isPushing, setIsPushing] = useState(false);
 
@@ -59,19 +54,18 @@ const SwitchConfigView = () => {
         const fetchDetails = async () => {
             if (!selectedSwitch || !selectedSwitch.switch_config_id) {
                 setSwitchDetails(null);
-                setPortConfigs([]);
+                setPortConfigs({});
                 return;
             }
-            
+
             setIsLoading(true);
             try {
-                const detailsPromise = api.getSwitchDetails(selectedSwitch.switch_config_id);
-                const configPromise = api.getSwitchPortConfig(selectedSwitch.switch_config_id);
-                
-                const [details, configs] = await Promise.all([detailsPromise, configPromise]);
-                
+                // The new API for details includes the port_config
+                const details = await api.getSwitchDetails(selectedSwitch.switch_config_id);
                 setSwitchDetails(details);
-                setPortConfigs(configs);
+                // The config is now a nested object on the switch_configs record
+                const fullConfig = await api.getSwitchConfig(selectedSwitch.switch_config_id);
+                setPortConfigs(fullConfig.port_config || {});
 
             } catch (error) {
                 console.error("Failed to fetch switch details:", error);
@@ -88,35 +82,37 @@ const SwitchConfigView = () => {
         setSelectedPort({ number: portNumber, config: portConfig });
         setIsPortModalOpen(true);
     };
-    
+
     const handleClosePortModal = () => {
         setIsPortModalOpen(false);
         setSelectedPort({ number: null, config: null });
     };
 
-    const handleSavePortConfig = async (portNumber, configData) => {
+    // This now updates the local state, not the API
+    const handleUpdatePortConfig = (portNumber, configData) => {
+        setPortConfigs(prev => ({
+            ...prev,
+            [portNumber]: configData
+        }));
+        toast.success(`Port ${portNumber} updated locally.`, { duration: 2000 });
+        handleClosePortModal();
+    };
+    
+    // New function to save all changes at once
+    const handleSaveChanges = async () => {
         if (!switchDetails) return;
+        setIsSaving(true);
         try {
-            const updatedConfig = await api.saveSwitchPortConfig(switchDetails.id, {
-                port_number: portNumber,
-                config: configData
-            });
-
-            setPortConfigs(prev => {
-                const existingIndex = prev.findIndex(p => p.port_number === portNumber);
-                if (existingIndex > -1) {
-                    return prev.map((p, i) => i === existingIndex ? updatedConfig : p);
-                } else {
-                    return [...prev, updatedConfig];
-                }
-            });
-            toast.success(`Port ${portNumber} configuration saved!`);
-            handleClosePortModal();
+            await api.saveSwitchPortConfig(switchDetails.id, portConfigs);
+            toast.success("All port configurations saved!");
         } catch (error) {
-            console.error("Failed to save port config:", error);
-            toast.error(`Error saving port config: ${error.message}`);
+            console.error("Failed to save port configs:", error);
+            toast.error(`Error saving changes: ${error.message}`);
+        } finally {
+            setIsSaving(false);
         }
     };
+
 
     const handlePush = async (pushData) => {
         if (!switchDetails) return;
@@ -126,8 +122,7 @@ const SwitchConfigView = () => {
         try {
             const job = await api.pushSwitchConfig(switchDetails.id, pushData);
             setIsPushModalOpen(false);
-            
-            // Poll for job status
+
             const pollStatus = async (jobId) => {
                 try {
                     const statusRes = await api.getPushJobStatus(jobId);
@@ -148,7 +143,7 @@ const SwitchConfigView = () => {
                     setIsPushing(false);
                 }
             };
-            
+
             setTimeout(() => pollStatus(job.id), 2000);
 
         } catch (error) {
@@ -179,17 +174,26 @@ const SwitchConfigView = () => {
                                     <h2 className="text-2xl font-bold">{switchDetails.name}</h2>
                                     <p className="text-gray-400">{switchDetails.model_name}</p>
                                 </div>
-                                <button 
-                                    onClick={() => setIsPushModalOpen(true)}
-                                    className="px-4 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-400"
-                                >
-                                    Push Config
-                                </button>
+                                <div className="flex items-center gap-4">
+                                     <button
+                                        onClick={handleSaveChanges}
+                                        disabled={isSaving}
+                                        className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-400 disabled:bg-gray-500"
+                                    >
+                                        {isSaving ? 'Saving...' : 'Save Changes'}
+                                    </button>
+                                    <button
+                                        onClick={() => setIsPushModalOpen(true)}
+                                        className="px-4 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-400"
+                                    >
+                                        Push Config
+                                    </button>
+                                </div>
                             </div>
-                            <PortGrid 
-                                switchDetails={switchDetails} 
-                                portConfigs={portConfigs} 
-                                onPortClick={handlePortClick} 
+                            <PortGrid
+                                switchDetails={switchDetails}
+                                portConfigs={portConfigs}
+                                onPortClick={handlePortClick}
                             />
                         </div>
                     )}
@@ -203,7 +207,7 @@ const SwitchConfigView = () => {
                     portNumber={selectedPort.number}
                     portConfig={selectedPort.config}
                     switchId={switchDetails?.id}
-                    onSave={handleSavePortConfig}
+                    onSave={handleUpdatePortConfig}
                 />
             )}
 

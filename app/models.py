@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Union
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 
 # --- Sender Identity Model ---
 class SenderIdentity(BaseModel):
@@ -185,8 +185,6 @@ class ShowCrewMemberUpdate(BaseModel):
     rate_type: Optional[str] = None
 
 # --- Hours Tracking Models ---
-from datetime import date
-
 class TimesheetEntryBase(BaseModel):
     show_crew_id: uuid.UUID
     date: str
@@ -225,7 +223,6 @@ class WeeklyTimesheet(BaseModel):
     pay_period_start_day: Optional[int] = 0
     crew_hours: List[CrewMemberHours]
 
-from typing import List
 # Model for the email endpoint payload
 class TimesheetEmailPayload(BaseModel):
     recipient_emails: List[str]
@@ -567,34 +564,25 @@ class SwitchModelUpdate(BaseModel):
 class EquipmentLinkModel(BaseModel):
     switch_model_id: uuid.UUID
 
-# --- Switch (Instances) ---
-class SwitchBase(BaseModel):
-    show_id: int
-    model_id: uuid.UUID
-    rack_item_id: uuid.UUID
-    name: Optional[str] = None
-
-class SwitchCreate(BaseModel):
+# --- Switch Configurations (Instances) ---
+class SwitchConfigCreate(BaseModel):
     rack_item_id: uuid.UUID
 
-class Switch(SwitchBase):
+class SwitchConfig(BaseModel):
     id: uuid.UUID
+    rack_item_id: uuid.UUID
+    show_id: int
+    port_config: Optional[Dict[str, 'PortConfig']] = None
     created_at: datetime
 
-class SwitchDetails(Switch):
-    port_count: int
-    model_name: str
-
-# For the sidebar API response
-class SwitchSidebarItem(BaseModel):
+class SwitchDetails(BaseModel):
+    id: uuid.UUID
     rack_item_id: uuid.UUID
-    switch_name: str
-    switch_config_id: Optional[uuid.UUID] = None
-
-class SwitchSidebarGroup(BaseModel):
-    rack_id: uuid.UUID
-    rack_name: str
-    items: List[SwitchSidebarItem]
+    show_id: int
+    name: str
+    model_name: str
+    port_count: int
+    created_at: datetime
 
 # --- Port Configuration ---
 class PortConfig(BaseModel):
@@ -602,19 +590,6 @@ class PortConfig(BaseModel):
     pvid: Optional[int] = None
     tagged_vlans: List[int] = Field(default_factory=list)
     igmp_enabled: bool = False
-
-class SwitchPortConfigBase(BaseModel):
-    switch_id: uuid.UUID
-    port_number: int
-    config: PortConfig
-
-class SwitchPortConfigCreate(BaseModel):
-    port_number: int
-    config: PortConfig
-
-class SwitchPortConfig(SwitchPortConfigBase):
-    id: uuid.UUID
-    created_at: datetime
 
 # --- Push Jobs ---
 class PushJobCreate(BaseModel):
@@ -636,13 +611,20 @@ class PushJobStatus(BaseModel):
     status: str
     result_log: Optional[str] = None
 
-class EncryptedCredentials(BaseModel):
-    target_ip: str
-    credentials: str # base64 encoded bytes
+# For the sidebar API response
+class SwitchSidebarItem(BaseModel):
+    rack_item_id: uuid.UUID
+    switch_name: str
+    switch_config_id: Optional[uuid.UUID] = None
 
-class AgentCliResponse(BaseModel):
-    commands: List[str]
-    driver_type: str
+class SwitchSidebarGroup(BaseModel):
+    rack_id: uuid.UUID
+    rack_name: str
+    items: List[SwitchSidebarItem]
+
+class SwitchConfiguration(BaseModel):
+    hostname: str
+    config_commands: List[str]
 
 # --- Agent API Keys ---
 class AgentApiKeyBase(BaseModel):

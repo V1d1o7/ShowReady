@@ -13,8 +13,6 @@ def get_switch_models(supabase: Client = Depends(get_supabase_client), user = De
     Retrieve all switch models. Admin only.
     """
     response = supabase.table("switch_models").select("*").order("manufacturer").order("model_name").execute()
-    if response.error:
-        raise HTTPException(status_code=500, detail=response.error.message)
     return response.data
 
 @router.post("/admin/switch_models", response_model=SwitchModel, status_code=201, tags=["Admin"])
@@ -22,20 +20,20 @@ def create_switch_model(model_data: SwitchModelCreate, supabase: Client = Depend
     """
     Create a new switch model. Admin only.
     """
-    response = supabase.table("switch_models").insert(model_data.model_dump()).execute()
-    if response.error or not response.data:
+    response = supabase.table("switch_models").insert(model_data.model_dump()).select("*").single().execute()
+    if not response.data:
         raise HTTPException(status_code=400, detail="Failed to create switch model")
-    return response.data[0]
+    return response.data
 
 @router.put("/admin/switch_models/{model_id}", response_model=SwitchModel, tags=["Admin"])
 def update_switch_model(model_id: uuid.UUID, model_data: SwitchModelUpdate, supabase: Client = Depends(get_supabase_client), user = Depends(get_admin_user)):
     """
     Update an existing switch model. Admin only.
     """
-    response = supabase.table("switch_models").update(model_data.model_dump(exclude_unset=True)).eq("id", str(model_id)).execute()
-    if response.error or not response.data:
+    response = supabase.table("switch_models").update(model_data.model_dump(exclude_unset=True)).eq("id", str(model_id)).select("*").single().execute()
+    if not response.data:
         raise HTTPException(status_code=404, detail="Switch model not found or failed to update")
-    return response.data[0]
+    return response.data
 
 @router.delete("/admin/switch_models/{model_id}", status_code=204, tags=["Admin"])
 def delete_switch_model(model_id: uuid.UUID, supabase: Client = Depends(get_supabase_client), user = Depends(get_admin_user)):
@@ -43,7 +41,7 @@ def delete_switch_model(model_id: uuid.UUID, supabase: Client = Depends(get_supa
     Delete a switch model. Admin only.
     """
     response = supabase.table("switch_models").delete().eq("id", str(model_id)).execute()
-    if response.error or not response.data :
+    if not response.data :
         raise HTTPException(status_code=404, detail="Switch model not found")
     return
 
@@ -53,7 +51,7 @@ def link_model_to_equipment(equipment_id: uuid.UUID, switch_model_id: Optional[u
     Link a switch model to a piece of equipment, or unlink it by providing a null ID. Admin only.
     """
     update_data = {"switch_model_id": str(switch_model_id) if switch_model_id else None}
-    response = supabase.table("equipment_templates").update(update_data).eq("id", str(equipment_id)).execute()
-    if response.error or not response.data:
+    response = supabase.table("equipment_templates").update(update_data).eq("id", str(equipment_id)).select("*").single().execute()
+    if not response.data:
         raise HTTPException(status_code=404, detail="Equipment not found or failed to link model")
-    return response.data[0]
+    return response.data

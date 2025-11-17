@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { DndContext, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
-import { Plus, Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, GripVertical, Edit } from 'lucide-react';
+import { Plus, Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, GripVertical, Edit, Settings } from 'lucide-react';
 import { api } from '../../api/api';
 import Card from '../../components/Card';
 import Modal from '../../components/Modal';
@@ -9,6 +9,7 @@ import NewEquipmentModal from '../../components/NewEquipmentModal';
 import FolderOptions from '../../components/FolderOptions';
 import EditFolderModal from '../../components/EditFolderModal';
 import EditEquipmentModal from '../../components/EditEquipmentModal';
+import LinkSwitchModelModal from '../../components/LinkSwitchModelModal';
 import toast, { Toaster } from 'react-hot-toast';
 import InputField from '../../components/InputField';
 import ConfirmationModal from '../../components/ConfirmationModal';
@@ -127,10 +128,13 @@ const AdminTreeView = ({ folders, equipment, onDeleteFolder, onDeleteEquipment, 
                             <p className="text-xs text-gray-400">{node.manufacturer} - {node.ru_height}RU</p>
                         </div>
                         <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => onEditItem(node, 'equipment')} className="p-1 text-gray-500 hover:text-amber-400">
+                             <button onClick={() => onEditItem(node, 'configure')} className="p-1 text-gray-500 hover:text-cyan-400" title="Make Configurable">
+                                <Settings size={14} />
+                            </button>
+                            <button onClick={() => onEditItem(node, 'equipment')} className="p-1 text-gray-500 hover:text-amber-400" title="Edit Equipment">
                                 <Edit size={14} />
                             </button>
-                            <button onClick={() => onDeleteEquipment(node.id)} className="p-1 text-gray-500 hover:text-red-400">
+                            <button onClick={() => onDeleteEquipment(node.id)} className="p-1 text-gray-500 hover:text-red-400" title="Delete Equipment">
                                 <Trash2 size={14} />
                             </button>
                         </div>
@@ -184,6 +188,7 @@ const EquipmentLibraryView = () => {
     const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
     const [activeDragItem, setActiveDragItem] = useState(null);
     const [editingItem, setEditingItem] = useState(null);
+    const [configuringItem, setConfiguringItem] = useState(null);
     const [itemToDelete, setItemToDelete] = useState(null);
     const sensors = useSensors(useSensor(PointerSensor));
 
@@ -320,7 +325,16 @@ const EquipmentLibraryView = () => {
     };
     
     const handleEditItem = (item, type) => {
-        setEditingItem({ ...item, type });
+        if (type === 'configure') {
+            setConfiguringItem(item);
+        } else {
+            setEditingItem({ ...item, type });
+        }
+    };
+
+    const handleLinkModel = async (equipmentId, modelId) => {
+        await api.linkModelToEquipment(equipmentId, modelId);
+        fetchData();
     };
 
     const handleUpdateItem = async (updatedData) => {
@@ -425,6 +439,14 @@ const EquipmentLibraryView = () => {
                     onClose={() => setEditingItem(null)} 
                     onSubmit={handleUpdateItem} 
                     equipment={editingItem} 
+                />
+            )}
+            {configuringItem && (
+                <LinkSwitchModelModal
+                    isOpen={!!configuringItem}
+                    onClose={() => setConfiguringItem(null)}
+                    equipment={configuringItem}
+                    onLink={handleLinkModel}
                 />
             )}
         </>
