@@ -45,18 +45,24 @@ def create_switch_config(
     show_id = rack_item_res.data['racks']['show_id']
 
     # 2. Insert new switch_config
+    new_uuid = uuid.uuid4()
     insert_payload = {
+        "id": str(new_uuid),
         "rack_item_id": rack_item_id_str,
         "show_id": show_id,
         "port_config": {}
     }
     
-    insert_res = supabase.table("switch_configs").insert(insert_payload).select("*").single().execute()
+    # Supabase-py does not support .select() after .insert()
+    supabase.table("switch_configs").insert(insert_payload).execute()
     
-    if not insert_res.data:
-        raise HTTPException(status_code=500, detail="Failed to create switch configuration.")
+    # Fetch the newly created record
+    select_res = supabase.table("switch_configs").select("*").eq("id", str(new_uuid)).single().execute()
 
-    return insert_res.data
+    if not select_res.data:
+        raise HTTPException(status_code=500, detail="Failed to create or retrieve switch configuration.")
+
+    return select_res.data
 
 @router.get("/switches/{switch_id}/details", response_model=SwitchDetails)
 def get_switch_details(switch_id: uuid.UUID, supabase: Client = Depends(get_supabase_client), user=Depends(get_user)):
@@ -95,8 +101,11 @@ def save_switch_port_config(switch_id: uuid.UUID, port_configs: Dict[str, PortCo
     # Convert Pydantic models to dict for JSONB storage
     config_dict = {port: config.model_dump() for port, config in port_configs.items()}
     
-    response = supabase.table("switch_configs").update({"port_config": config_dict}).eq("id", str(switch_id)).select("*").single().execute()
+    supabase.table("switch_configs").update({"port_config": config_dict}).eq("id", str(switch_id)).execute()
     
+    # Fetch the updated record
+    response = supabase.table("switch_configs").select("*").eq("id", str(switch_id)).single().execute()
+
     if not response.data:
         raise HTTPException(status_code=404, detail="Switch configuration not found or update failed.")
 
@@ -138,7 +147,9 @@ def create_push_job(switch_id: uuid.UUID, job_data: PushJobCreate, supabase: Cli
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to encrypt credentials: {str(e)}")
 
+    new_job_id = uuid.uuid4()
     job_insert_data = {
+        "id": str(new_job_id),
         "show_id": show_id,
         "switch_id": switch_id_str,
         "user_id": str(user_id),
@@ -147,7 +158,9 @@ def create_push_job(switch_id: uuid.UUID, job_data: PushJobCreate, supabase: Cli
         "status": "pending"
     }
 
-    job_res = supabase.table("switch_push_jobs").insert(job_insert_data).select("*").single().execute()
+    supabase.table("switch_push_jobs").insert(job_insert_data).execute()
+    
+    job_res = supabase.table("switch_push_jobs").select("*").eq("id", str(new_job_id)).single().execute()
 
     if not job_res.data:
         raise HTTPException(status_code=500, detail="Failed to create push job.")

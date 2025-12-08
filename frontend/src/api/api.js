@@ -75,6 +75,11 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(body),
     }).then(handleResponse),
+    submitFeedback: async (data) => fetch('/api/feedback', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
     getProfile: async () => fetch('/api/profile', { headers: await getAuthHeader() }).then(handleResponse),
     updateProfile: async (profileData) => fetch('/api/profile', {
         method: 'POST',
