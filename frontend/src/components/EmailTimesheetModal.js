@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { api } from '../api/api';
 import useHotkeys from '../hooks/useHotkeys';
 import { useToast } from '../contexts/ToastContext';
@@ -55,7 +56,12 @@ const EmailTimesheetModal = ({ isOpen, onClose, showId, weekStartDate }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md">
-                <h2 className="text-xl font-bold text-white mb-4">Email Timesheet</h2>
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold text-white">Email Timesheet</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                        <X size={24} />
+                    </button>
+                </div>
                 <div className="space-y-4">
                     <input type="email" value={to} onChange={e => setTo(e.target.value)} placeholder="To:" className="w-full p-2 bg-gray-700 border border-gray-600 rounded" />
                     <input type="text" value={subject} onChange={e => setSubject(e.target.value)} placeholder="Subject:" className="w-full p-2 bg-gray-700 border border-gray-600 rounded" />

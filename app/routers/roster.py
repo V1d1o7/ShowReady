@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 from app.api import get_supabase_client, get_user
-from app.models import RosterMember, RosterMemberCreate, ShowCrewMember, RosterMemberAndShowCrewCreate, ShowCrewMemberUpdate
+from app.models import RosterMember, RosterMemberCreate, ShowCrewMember, RosterMemberAndShowCrewCreate, ShowCrewMemberUpdate, ShowCrewMemberCreate
 import uuid
 from typing import List
 
@@ -34,8 +34,27 @@ async def update_roster_member(roster_id: uuid.UUID, roster_data: RosterMemberCr
 
 @router.delete("/roster/{roster_id}", status_code=204, tags=["Roster"])
 async def delete_roster_member(roster_id: uuid.UUID, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Deletes a member from the user's global roster."""
+    """
+    Deletes a member from the user's global roster.
+    This is a destructive action that also removes them from all shows and deletes their timesheets.
+    """
+    # First, find all show_crew entries linked to this roster member.
+    # RLS policies will ensure we only get entries the user is allowed to see.
+    show_crew_res = supabase.table('show_crew').select('id').eq('roster_id', str(roster_id)).execute()
+
+    if show_crew_res.data:
+        show_crew_ids = [item['id'] for item in show_crew_res.data]
+        
+        # If there are show_crew entries, delete associated timesheet entries first.
+        if show_crew_ids:
+            supabase.table('timesheet_entries').delete().in_('show_crew_id', show_crew_ids).execute()
+        
+        # Then, delete the show_crew entries themselves.
+        supabase.table('show_crew').delete().eq('roster_id', str(roster_id)).execute()
+
+    # Finally, delete the roster member. The user_id check here is a critical security measure.
     supabase.table('roster').delete().eq('id', str(roster_id)).eq('user_id', str(user.id)).execute()
+    
     return
 
 # --- Show Crew Endpoints ---
@@ -52,7 +71,11 @@ async def create_roster_member_and_add_to_show(data: RosterMemberAndShowCrewCrea
     new_roster_member = roster_response.data[0]
     
     # Add the new member to the show crew
-    show_crew_insert_data = {'show_id': data.show_id, 'roster_id': new_roster_member['id']}
+    show_crew_insert_data = {
+        'show_id': data.show_id, 
+        'roster_id': new_roster_member['id'],
+        'position': data.position # Make sure position is passed here
+    }
     show_crew_response = supabase.table('show_crew').insert(show_crew_insert_data).execute()
     if not show_crew_response.data:
         # Rollback roster creation
@@ -67,10 +90,13 @@ async def get_show_crew(show_id: int, user=Depends(get_user), supabase: Client =
     response = supabase.table('show_crew').select('*, roster(*)').eq('show_id', show_id).execute()
     return response.data
 
-@router.post("/shows/{show_id}/crew", response_model=ShowCrewMember, tags=["Show Crew"])
-async def add_crew_to_show(show_id: int, roster_id: uuid.UUID, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Adds a roster member to a show's crew."""
-    insert_data = {'show_id': show_id, 'roster_id': str(roster_id)}
+@router.post("/shows/{show_id}/crew/{roster_id}", response_model=ShowCrewMember, tags=["Show Crew"])
+async def add_crew_to_show(show_id: int, roster_id: uuid.UUID, crew_data: ShowCrewMemberCreate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Adds a roster member to a show's crew with specific details."""
+    insert_data = crew_data.model_dump()
+    insert_data['show_id'] = show_id
+    insert_data['roster_id'] = str(roster_id)
+    
     response = supabase.table('show_crew').insert(insert_data).execute()
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to add crew to show.")
@@ -79,16 +105,20 @@ async def add_crew_to_show(show_id: int, roster_id: uuid.UUID, user=Depends(get_
     member_res = supabase.table('show_crew').select('*, roster(*)').eq('id', response.data[0]['id']).single().execute()
     return member_res.data
 
-@router.delete("/shows/{show_id}/crew/{roster_id}", status_code=204, tags=["Show Crew"])
-async def remove_crew_from_show(show_id: int, roster_id: uuid.UUID, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Removes a crew member from a show."""
-    supabase.table('show_crew').delete().eq('show_id', show_id).eq('roster_id', str(roster_id)).execute()
+@router.delete("/shows/{show_id}/crew/{show_crew_id}", status_code=204, tags=["Show Crew"])
+async def remove_crew_from_show(show_id: int, show_crew_id: uuid.UUID, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Removes a crew member from a show and their associated timesheet entries."""
+    # First, delete any timesheet entries associated with this show_crew member
+    supabase.table('timesheet_entries').delete().eq('show_crew_id', str(show_crew_id)).execute()
+    
+    # Then, delete the show_crew member
+    supabase.table('show_crew').delete().eq('show_id', show_id).eq('id', str(show_crew_id)).execute()
     return
 
 @router.put("/show_crew/{show_crew_id}", response_model=ShowCrewMember, tags=["Show Crew"])
 async def update_show_crew_member(show_crew_id: uuid.UUID, data: ShowCrewMemberUpdate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates a show crew member's rate information."""
-    update_data = data.model_dump()
+    update_data = data.model_dump(exclude_unset=True)
     response = supabase.table('show_crew').update(update_data).eq('id', str(show_crew_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="Show crew member not found or update failed.")

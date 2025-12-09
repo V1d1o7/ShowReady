@@ -167,19 +167,26 @@ class RosterMember(RosterMemberBase):
 
 class RosterMemberAndShowCrewCreate(RosterMemberCreate):
     show_id: int
+    position: Optional[str] = None
 
 class ShowCrewMember(BaseModel):
     id: uuid.UUID
     show_id: int
     roster_id: uuid.UUID
-    role: Optional[str] = None
+    position: Optional[str] = None
     hourly_rate: Optional[float] = None
     daily_rate: Optional[float] = None
     rate_type: Optional[str] = None
     roster: RosterMember
 
+class ShowCrewMemberCreate(BaseModel):
+    position: Optional[str] = None
+    rate_type: Optional[str] = 'hourly'
+    hourly_rate: Optional[float] = 0.0
+    daily_rate: Optional[float] = 0.0
+
 class ShowCrewMemberUpdate(BaseModel):
-    role: Optional[str] = None
+    position: Optional[str] = None
     hourly_rate: Optional[float] = None
     daily_rate: Optional[float] = None
     rate_type: Optional[str] = None
@@ -203,8 +210,10 @@ class BulkTimesheetUpdate(BaseModel):
 # Model for a single crew member's week
 class CrewMemberHours(BaseModel):
     show_crew_id: uuid.UUID
+    roster_id: Optional[uuid.UUID] = None # Added for grouping
     first_name: str
     last_name: str
+    position: Optional[str] = None
     rate_type: Optional[str] = None
     hourly_rate: Optional[float] = 0.0
     daily_rate: Optional[float] = 0.0

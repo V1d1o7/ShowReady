@@ -2,10 +2,10 @@ import React from 'react';
 import { X } from 'lucide-react';
 import useHotkeys from '../hooks/useHotkeys';
 
-const PdfPreviewModal = ({ url, onClose }) => {
+const PdfPreviewModal = ({ isOpen, url, onClose }) => {
     useHotkeys({ 'escape': onClose });
 
-    if (!url) return null;
+    if (!isOpen || !url) return null;
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">

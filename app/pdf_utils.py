@@ -1,9 +1,9 @@
 import io
 import os
+import pprint
 from typing import List, Dict, Optional, Union
-from datetime import datetime, timedelta
-import urllib.request
-from io import BytesIO
+from datetime import datetime, timedelta, date
+import uuid
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
@@ -15,9 +15,6 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-import base64
-from svglib.svglib import svg2rlg
-import xml.etree.ElementTree as ET
 
 from .models import LoomLabel, CaseLabel, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables, WeeklyTimesheet
 
@@ -266,381 +263,6 @@ def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], sho
     buffer.seek(0)
     return buffer
 
-def draw_timesheet_footer(canvas, doc):
-    canvas.saveState()
-    canvas.setFont('SpaceMono', 8)
-    canvas.drawString(0.5 * inch, 0.5 * inch, "Created using ShowReady")
-    canvas.restoreState()
-
-def generate_timesheet_pdf(timesheet_data: WeeklyTimesheet, logo_bytes: Optional[bytes] = None, show_branding: bool = True) -> io.BytesIO:
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
-    elements = []
-    styles = getSampleStyleSheet()
-
-    # Logo
-    if logo_bytes:
-        logo = Image(io.BytesIO(logo_bytes), width=1.5*inch, height=1*inch)
-        logo.preserveAspectRatio = True
-        logo.hAlign = 'LEFT'
-        elements.append(logo)
-
-    # Title
-    title_style = ParagraphStyle(name='Title', fontSize=18, alignment=TA_CENTER, fontName='SpaceMono-Bold')
-    title_text = f"{timesheet_data.show_name} | Timesheet for week of {timesheet_data.week_start_date.strftime('%m/%d/%y')}"
-    elements.append(Paragraph(title_text, title_style))
-    elements.append(Paragraph("<br/><br/>", styles['Normal']))
-
-    # Table Data
-    dates = [timesheet_data.week_start_date + timedelta(days=i) for i in range(7)]
-    header_style = ParagraphStyle(name='Header', fontSize=8, alignment=TA_CENTER, fontName='SpaceMono-Bold')
-    date_headers = [Paragraph(f"{d.strftime('%m/%d/%y')}<br/>{d.strftime('%a')}", header_style) for d in dates]
-    
-    header = [
-        Paragraph("Crew Member", header_style),
-        Paragraph("Rate", header_style),
-        *date_headers,
-        Paragraph("Regular", header_style),
-        Paragraph("OT", header_style),
-        Paragraph("Total Cost", header_style)
-    ]
-    data = [header]
-
-    # Table Body
-    cell_style = ParagraphStyle(name='Cell', fontSize=8, alignment=TA_CENTER, fontName='SpaceMono')
-    for member in timesheet_data.crew_hours:
-        rate_str = f"${member.daily_rate}/day" if member.rate_type == 'daily' else f"${member.hourly_rate}/hr"
-        row = [Paragraph(f"{member.first_name} {member.last_name}", cell_style), Paragraph(rate_str, cell_style)]
-        
-        for d in dates:
-            hours = member.hours_by_date.get(d, 0)
-            row.append(Paragraph(str(hours) if hours else "0", cell_style))
-
-        weekly_total = sum(member.hours_by_date.values())
-        
-        daily_ot_hours = 0
-        daily_regular_hours = 0
-        for hours in member.hours_by_date.values():
-            if hours > timesheet_data.ot_daily_threshold:
-                daily_ot_hours += hours - timesheet_data.ot_daily_threshold
-                daily_regular_hours += timesheet_data.ot_daily_threshold
-            else:
-                daily_regular_hours += hours
-        
-        weekly_ot_hours = max(0, daily_regular_hours - timesheet_data.ot_weekly_threshold)
-        ot_hours = daily_ot_hours + weekly_ot_hours
-        regular_hours = weekly_total - ot_hours
-        
-        cost = (member.daily_rate * len([h for h in member.hours_by_date.values() if h > 0])) if member.rate_type == 'daily' else (regular_hours * member.hourly_rate) + (ot_hours * member.hourly_rate * 1.5)
-
-        row.append(Paragraph(f"{regular_hours:.2f}", cell_style))
-        row.append(Paragraph(f"{ot_hours:.2f}", cell_style))
-        row.append(Paragraph(f"${cost:.2f}", cell_style))
-        
-        data.append(row)
-
-    table = Table(data, hAlign='CENTER')
-    style = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('FONTNAME', (0, 0), (-1, 0), 'SpaceMono-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-    ])
-    table.setStyle(style)
-    elements.append(table)
-
-    if show_branding:
-        doc.build(elements, onFirstPage=draw_timesheet_footer, onLaterPages=draw_timesheet_footer)
-    else:
-        doc.build(elements)
-        
-    buffer.seek(0)
-    return buffer
-
-# --- NEW HOURS PDF HELPER FUNCTION ---
-def _build_header_table(show, user, generation_date, show_logo_bytes, company_logo_bytes, styles):
-    """
-    Builds a flexible header table with show/company logos and info.
-    """
-    MAX_LOGO_HEIGHT = 50  # Max height in points (72 points = 1 inch)
-    MAX_LOGO_WIDTH = 180
-
-    show_logo_img = None
-    company_logo_img = None
-
-    # --- Try to load Show Logo ---
-    if show_logo_bytes:
-        try:
-            img_file = BytesIO(show_logo_bytes)
-            show_logo_img = Image(img_file, hAlign="LEFT")
-            # Resize image while maintaining aspect ratio
-            width, height = show_logo_img.drawWidth, show_logo_img.drawHeight
-            aspect_ratio = height / width
-            new_width = MAX_LOGO_WIDTH
-            new_height = new_width * aspect_ratio
-            if new_height > MAX_LOGO_HEIGHT:
-                new_height = MAX_LOGO_HEIGHT
-                new_width = new_height / aspect_ratio
-            show_logo_img.drawWidth = new_width
-            show_logo_img.drawHeight = new_height
-        except Exception as e:
-            print(f"Warning: Could not load show logo bytes: {e}")
-            show_logo_img = None
-
-    # --- Try to load Company Logo ---
-    if company_logo_bytes:
-        try:
-            img_file = BytesIO(company_logo_bytes)
-            company_logo_img = Image(img_file, hAlign="RIGHT")
-            # Resize image while maintaining aspect ratio
-            width, height = company_logo_img.drawWidth, company_logo_img.drawHeight
-            aspect_ratio = height / width
-            new_width = MAX_LOGO_WIDTH
-            new_height = new_width * aspect_ratio
-            if new_height > MAX_LOGO_HEIGHT:
-                new_height = MAX_LOGO_HEIGHT
-                new_width = new_height / aspect_ratio
-            company_logo_img.drawWidth = new_width
-            company_logo_img.drawHeight = new_height
-        except Exception as e:
-            print(f"Warning: Could not load company logo bytes: {e}")
-            company_logo_img = None
-
-    # --- Build Left Column (Show Info) ---
-    header_left = []
-    if show_logo_img:
-        header_left.append(show_logo_img)
-        header_left.append(Spacer(1, 12))
-    header_left.append(Paragraph(show.get("name", "Show Name"), styles["HeaderShowName"]))
-
-    # --- Build Right Column (User/Company Info) ---
-    header_right = []
-    if company_logo_img:
-        header_right.append(company_logo_img)
-        header_right.append(Spacer(1, 12))
-        
-    header_right.append(
-        Paragraph(user.get("full_name", "User Name"), styles["HeaderUserName"])
-    )
-    if user.get("position"):
-        header_right.append(
-            Paragraph(user.get("position"), styles["HeaderCompanyName"])
-        )
-    if user.get("company"):
-        header_right.append(
-            Paragraph(user.get("company"), styles["HeaderCompanyName"])
-        )
-    header_right.append(Spacer(1, 6))
-    header_right.append(
-        Paragraph(f"Generated: {generation_date}", styles["HeaderDate"])
-    )
-
-    # --- Create Table ---
-    header_table = Table(
-        [[header_left, header_right]], colWidths=["60%", "40%"]
-    )
-    header_table.setStyle(
-        TableStyle(
-            [
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ALIGN", (1, 0), (1, 0), "RIGHT"), # Align the whole right cell block
-            ]
-        )
-    )
-    return header_table
-
-# --- REPLACED/UPDATED HOURS PDF FUNCTION ---
-# This function now accepts the full payload from the frontend
-# and builds a timesheet grid, matching the original logic.
-def generate_hours_pdf(user: dict, show: dict, payload: dict, ot_weekly_threshold: int, ot_daily_threshold: int, show_logo_bytes: Optional[bytes], company_logo_bytes: Optional[bytes], show_branding: bool = True):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(letter), # Changed to landscape for timesheet grid
-        rightMargin=0.25*inch,
-        leftMargin=0.25*inch,
-        topMargin=0.5*inch,
-        bottomMargin=0.5*inch,
-    )
-    styles = getSampleStyleSheet()
-    styles['Normal'].fontName = "SpaceMono"
-    styles['Normal'].fontSize = 9
-    
-    styles['Title'].fontName = "SpaceMono-Bold"
-    styles['Title'].fontSize = 16
-    styles['Title'].spaceAfter = 12
-    styles['Title'].alignment = TA_CENTER
-
-    styles.add(ParagraphStyle(name="HeaderShowName", parent=styles["Normal"], fontName="SpaceMono-Bold", fontSize=14, alignment=TA_LEFT))
-    styles.add(ParagraphStyle(name="HeaderUserName", parent=styles["Normal"], fontName="SpaceMono-Bold", fontSize=14, alignment=TA_RIGHT))
-    styles.add(ParagraphStyle(name="HeaderCompanyName", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT, spaceBefore=4))
-    styles.add(ParagraphStyle(name="HeaderDate", parent=styles["Normal"], fontSize=8, alignment=TA_RIGHT, textColor=colors.grey, spaceBefore=4))
-    styles.add(ParagraphStyle(name="DateRange", parent=styles["Normal"], fontSize=12, spaceAfter=12, alignment=TA_CENTER))
-    
-    # --- Cell Styles for Readability and Control ---
-    styles.add(ParagraphStyle(name="CrewName", parent=styles["Normal"], alignment=TA_LEFT))
-    styles.add(ParagraphStyle(name="CellCenter", parent=styles["Normal"], alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name="TotalsLabel", parent=styles["Normal"], fontName="SpaceMono-Bold", alignment=TA_LEFT))
-    styles.add(ParagraphStyle(name="TotalsValue", parent=styles["Normal"], fontName="SpaceMono-Bold", alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name="HeaderCenter", parent=styles["Normal"], fontName="SpaceMono-Bold", alignment=TA_CENTER, textColor=colors.whitesmoke))
-
-
-    story = []
-
-    # --- Build New Header ---
-    generation_date = datetime.now().strftime("%B %d, %Y %I:%M %p")
-    header = _build_header_table(
-        show, user, generation_date, show_logo_bytes, company_logo_bytes, styles
-    )
-    story.append(header)
-    story.append(Spacer(1, 24))
-    
-    # --- Add Title and Date Range ---
-    story.append(Paragraph(f"{show.get('name', 'Show')} - Weekly Timesheet", styles["Title"]))
-    
-    dates = payload.get('dates', [])
-    if dates:
-        story.append(Paragraph(f"{dates[0]} to {dates[-1]}", styles["DateRange"]))
-    else:
-        story.append(Paragraph("Date range not specified", styles["DateRange"]))
-
-
-    # --- Table Data (Grid Logic from ORIGINAL function) ---
-    
-    # Add day of the week to dates
-    date_objects = [datetime.strptime(d, '%m/%d/%y') for d in dates]
-    # Format date as: MON<br/>mm/dd/yy
-    header_row_text = ['Crew Member', 'Rate'] + [f"{d.strftime('%a').upper()}<br/>{d.strftime('%m/%d/%y')}" for d in date_objects] + ['Regular', 'OT', 'Cost']
-    table_data = [[Paragraph(text, styles["HeaderCenter"]) for text in header_row_text]]
-    
-    crew_list = payload.get('crew', [])
-    hours_by_date = payload.get('hoursByDate', {})
-
-    total_regular_hours = 0
-    total_ot_hours = 0
-    total_cost = 0
-
-    for c in crew_list:
-        crew_hours_map = hours_by_date.get(str(c['id']), {}).get('hours', {})
-        
-        # Skip crew members with no hours
-        if not any(float(h) > 0 for h in crew_hours_map.values()):
-            continue
-            
-        rate_str = f"${c.get('daily_rate', 0)}/day" if c.get('rate_type') == 'daily' else f"${c.get('hourly_rate', 0)}/hr"
-        row = [Paragraph(f"{c['roster']['first_name']} {c['roster']['last_name']}", styles['CrewName']), Paragraph(rate_str, styles['CellCenter'])]
-        
-        weekly_total = 0
-        daily_ot_total = 0
-        for d_str in dates:
-            try:
-                hours_for_day = float(crew_hours_map.get(d_str, 0))
-            except (ValueError, TypeError):
-                hours_for_day = 0
-            
-            if hours_for_day > ot_daily_threshold:
-                daily_ot_total += hours_for_day - ot_daily_threshold
-
-            # Use CellCenter style for data
-            row.append(Paragraph(str(hours_for_day), styles['CellCenter']))
-            weekly_total += hours_for_day
-        
-        daily_regular_hours = 0
-        for d_str in dates:
-            try:
-                hours_for_day = float(crew_hours_map.get(d_str, 0))
-            except (ValueError, TypeError):
-                hours_for_day = 0
-            
-            if hours_for_day > ot_daily_threshold:
-                daily_regular_hours += ot_daily_threshold
-            else:
-                daily_regular_hours += hours_for_day
-
-        weekly_ot_hours = max(0, daily_regular_hours - ot_weekly_threshold)
-        ot_hours = daily_ot_total + weekly_ot_hours
-        regular_hours = weekly_total - ot_hours
-        
-        cost = 0
-        if c['rate_type'] == 'daily':
-            days_worked = sum(1 for d_str in dates if float(crew_hours_map.get(d_str, 0)) > 0)
-            cost = days_worked * (c.get('daily_rate', 0) or 0)
-        else:
-            cost = (regular_hours * (c.get('hourly_rate', 0) or 0)) + (ot_hours * (c.get('hourly_rate', 0) or 0) * 1.5)
-
-        total_regular_hours += regular_hours
-        total_ot_hours += ot_hours
-        total_cost += cost
-
-        row.append(Paragraph(f"{regular_hours:.2f}", styles['CellCenter']))
-        row.append(Paragraph(f"{ot_hours:.2f}", styles['CellCenter']))
-        row.append(Paragraph(f"${cost:.2f}", styles['CellCenter']))
-        
-        table_data.append(row)
-
-    # --- Totals Row ---
-    totals_row = [
-        Paragraph("Totals", styles['TotalsLabel']),
-    ] + [""] * (len(dates) + 1) + [ # +1 for the new Rate column
-        Paragraph(f"{total_regular_hours:.2f}", styles['TotalsValue']),
-        Paragraph(f"{total_ot_hours:.2f}", styles['TotalsValue']),
-        Paragraph(f"${total_cost:.2f}", styles['TotalsValue']),
-    ]
-    table_data.append(totals_row)
-
-
-    # --- Table Style (New Cleaner Look) ---
-    
-    # Dynamically set column widths
-    num_dates = len(dates)
-    if num_dates > 0:
-        # Crew Member (14%), Rate (8%), Dates (53% total), Regular (8%), OT (8%), Cost (9%)
-        col_widths = ['14%', '8%'] + [f'{53 / num_dates}%'] * num_dates + ['8%', '8%', '9%']
-    else:
-        col_widths = ['25%', '15%', '15%', '15%', '15%'] # Fallback if no dates
-
-    # The header row is already composed of Paragraphs with the correct style.
-    # We no longer need to process it separately.
-    
-    table = Table(table_data, colWidths=col_widths, hAlign='CENTER')
-    table.setStyle(
-        TableStyle(
-            [
-                # General
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                
-                # Header
-                ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
-                # Alignment, Font, and Color are handled by the Paragraph Style now
-
-                # Body
-                # Alignment is handled by Paragraph Styles now
-                
-                # Lines
-                ("LINEBELOW", (0, 0), (-1, -2), 1, colors.lightgrey),
-                ("LINEABOVE", (0, -1), (-1, -1), 2, colors.black),
-                
-                # Totals Row
-                ("FONTNAME", (0, -1), (-1, -1), "SpaceMono-Bold"),
-                ("ALIGN", (0, -1), (0, -1), "LEFT"), # "Totals" text
-                ("ALIGN", (1, -1), (-1, -1), "CENTER"), # Total values
-            ]
-        )
-    )
-
-    story.append(table)
-    
-    if show_branding:
-        doc.build(story, onFirstPage=draw_timesheet_footer, onLaterPages=draw_timesheet_footer)
-    else:
-        doc.build(story)
-
-    buffer.seek(0)
-    return buffer
 
 def generate_loom_builder_pdf(payload: "LoomBuilderPDFPayload", show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
@@ -870,5 +492,340 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
         c.showPage()
 
     c.save()
+    buffer.seek(0)
+    return buffer
+
+# --- Timesheet Footer ---
+def draw_timesheet_footer(canvas: canvas.Canvas, doc: SimpleDocTemplate):
+    canvas.saveState()
+    canvas.setFont('SpaceMono', 8)
+    canvas.setFillColor(colors.grey)
+    page_number_text = f"Page {doc.page}"
+    canvas.drawCentredString(doc.width / 2 + doc.leftMargin, 0.25 * inch, page_number_text)
+    canvas.drawString(doc.leftMargin, 0.25 * inch, "Created using ShowReady")
+    canvas.restoreState()
+
+# --- Shared Header ---
+def _build_header_table(show, user, generation_date, show_logo_bytes, company_logo_bytes, styles):
+    """
+    Builds a flexible header table with show/company logos and info.
+    """
+    MAX_LOGO_HEIGHT = 50  # Max height in points (72 points = 1 inch)
+    MAX_LOGO_WIDTH = 180
+
+    show_logo_img = None
+    company_logo_img = None
+
+    # --- Try to load Show Logo ---
+    if show_logo_bytes:
+        try:
+            img_file = io.BytesIO(show_logo_bytes)
+            show_logo_img = Image(img_file, hAlign="LEFT")
+            # Resize image while maintaining aspect ratio
+            width, height = show_logo_img.drawWidth, show_logo_img.drawHeight
+            aspect_ratio = height / width
+            new_width = MAX_LOGO_WIDTH
+            new_height = new_width * aspect_ratio
+            if new_height > MAX_LOGO_HEIGHT:
+                new_height = MAX_LOGO_HEIGHT
+                new_width = new_height / aspect_ratio
+            show_logo_img.drawWidth = new_width
+            show_logo_img.drawHeight = new_height
+        except Exception as e:
+            print(f"Warning: Could not load show logo bytes: {e}")
+            show_logo_img = None
+
+    # --- Try to load Company Logo ---
+    if company_logo_bytes:
+        try:
+            img_file = io.BytesIO(company_logo_bytes)
+            company_logo_img = Image(img_file, hAlign="RIGHT")
+            # Resize image while maintaining aspect ratio
+            width, height = company_logo_img.drawWidth, company_logo_img.drawHeight
+            aspect_ratio = height / width
+            new_width = MAX_LOGO_WIDTH
+            new_height = new_width * aspect_ratio
+            if new_height > MAX_LOGO_HEIGHT:
+                new_height = MAX_LOGO_HEIGHT
+                new_width = new_height / aspect_ratio
+            company_logo_img.drawWidth = new_width
+            company_logo_img.drawHeight = new_height
+        except Exception as e:
+            print(f"Warning: Could not load company logo bytes: {e}")
+            company_logo_img = None
+
+    # --- Build Left Column (Show Info) ---
+    header_left = []
+    if show_logo_img:
+        header_left.append(show_logo_img)
+        header_left.append(Spacer(1, 12))
+    header_left.append(Paragraph(show.get("name", "Show Name"), styles["HeaderShowName"]))
+
+    # --- Build Right Column (User/Company Info) ---
+    header_right = []
+    if company_logo_img:
+        header_right.append(company_logo_img)
+        header_right.append(Spacer(1, 12))
+        
+    header_right.append(
+        Paragraph(user.get("full_name", "User Name"), styles["HeaderUserName"])
+    )
+    if user.get("position"):
+        header_right.append(
+            Paragraph(user.get("position"), styles["HeaderCompanyName"])
+        )
+    if user.get("company"):
+        header_right.append(
+            Paragraph(user.get("company"), styles["HeaderCompanyName"])
+        )
+    header_right.append(Spacer(1, 6))
+    header_right.append(
+        Paragraph(f"Generated: {generation_date}", styles["HeaderDate"])
+    )
+
+    # --- Create Table ---
+    header_table = Table(
+        [[header_left, header_right]], colWidths=["60%", "40%"]
+    )
+    header_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 0), (1, 0), "RIGHT"), # Align the whole right cell block
+            ]
+        )
+    )
+    return header_table
+
+# --- NEW HOURS PDF FUNCTION WITH WATERFALL LOGIC ---
+def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_bytes: Optional[bytes], company_logo_bytes: Optional[bytes], show_branding: bool = True):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        rightMargin=0.25*inch, leftMargin=0.25*inch,
+        topMargin=0.5*inch, bottomMargin=0.5*inch,
+    )
+    styles = getSampleStyleSheet()
+    styles['Normal'].fontName = "SpaceMono"
+    styles['Normal'].fontSize = 8
+
+    styles['Title'].fontName = "SpaceMono-Bold"
+    styles['Title'].fontSize = 16
+    styles['Title'].alignment = TA_CENTER
+
+    styles.add(ParagraphStyle(name="HeaderShowName", parent=styles["Normal"], fontName="SpaceMono-Bold", fontSize=14, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(name="HeaderUserName", parent=styles["Normal"], fontName="SpaceMono-Bold", fontSize=14, alignment=TA_RIGHT))
+    styles.add(ParagraphStyle(name="HeaderCompanyName", parent=styles["Normal"], fontSize=10, alignment=TA_RIGHT, spaceBefore=4))
+    styles.add(ParagraphStyle(name="HeaderDate", parent=styles["Normal"], fontSize=8, alignment=TA_RIGHT, textColor=colors.grey, spaceBefore=4))
+    styles.add(ParagraphStyle(name="DateRange", parent=styles["Normal"], fontSize=12, spaceAfter=12, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="CrewName", parent=styles["Normal"], alignment=TA_LEFT, leading=10))
+    styles.add(ParagraphStyle(name="CellCenter", parent=styles["Normal"], alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="TotalsLabel", parent=styles["Normal"], fontName="SpaceMono-Bold", alignment=TA_LEFT))
+    styles.add(ParagraphStyle(name="TotalsValue", parent=styles["Normal"], fontName="SpaceMono-Bold", alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="HeaderCenter", parent=styles["Normal"], fontName="SpaceMono-Bold", alignment=TA_CENTER, textColor=colors.whitesmoke))
+
+    story = []
+
+    # --- Header ---
+    generation_date = datetime.now().strftime("%B %d, %Y %I:%M %p")
+    header = _build_header_table(show, user, generation_date, show_logo_bytes, company_logo_bytes, styles)
+    story.append(header)
+    story.append(Spacer(1, 12))
+    
+    story.append(Paragraph(f"{show.get('name', 'Show')} - Weekly Timesheet", styles["Title"]))
+    
+    week_start_date = timesheet_data['week_start_date']
+    week_end_date = timesheet_data['week_end_date']
+    # Ensure they are date objects, not strings
+    if isinstance(week_start_date, str):
+        week_start_date = datetime.strptime(week_start_date, '%Y-%m-%d').date()
+    if isinstance(week_end_date, str):
+        week_end_date = datetime.strptime(week_end_date, '%Y-%m-%d').date()
+
+    story.append(Paragraph(f"{week_start_date.strftime('%m/%d/%y')} to {week_end_date.strftime('%m/%d/%y')}", styles["DateRange"]))
+    
+    dates = [(week_start_date + timedelta(days=i)) for i in range(7)]
+    
+    header_row_text = ['Crew Member', 'Rate'] + [f"{d.strftime('%a').upper()}<br/>{d.strftime('%m/%d')}" for d in dates] + ['Regular', 'OT', 'Cost']
+    table_data = [[Paragraph(text, styles["HeaderCenter"]) for text in header_row_text]]
+    
+    crew_hours = timesheet_data.get('crew_hours', [])
+    ot_daily_threshold = timesheet_data.get('ot_daily_threshold', 10)
+    ot_weekly_threshold = timesheet_data.get('ot_weekly_threshold', 40)
+
+    # --- WATERFALL LOGIC PRE-CALCULATION ---
+    grouped_crew = {}
+    for c in crew_hours:
+        roster_id = c.get('roster_id') or str(uuid.uuid4())
+        if roster_id not in grouped_crew:
+            grouped_crew[roster_id] = []
+        grouped_crew[roster_id].append(c)
+
+    total_cost_grand = 0
+
+    for roster_id, members in grouped_crew.items():
+        members.sort(key=lambda x: (x.get('rate_type') != 'daily', -1 * (x.get('hourly_rate') or 0)))
+        
+        weekly_regular_hours_tracker = 0
+
+        for m in members:
+            m['calc_stats'] = {'regular': 0.0, 'ot': 0.0, 'cost': 0.0, 'daily_breakdown': {}}
+
+        # Daily Calculations
+        for day in dates:
+            day_entries = []
+            for m in members:
+                # *** THE FIX IS HERE: use the 'day' object directly for lookup ***
+                raw_hours = m.get('hours_by_date', {}).get(day, 0)
+                h_val = float(raw_hours) if raw_hours else 0
+                if h_val > 0:
+                    day_entries.append({'member': m, 'hours': h_val})
+            
+            if not day_entries: continue
+
+            hours_consumed_in_daily_bucket = 0
+            has_day_rate_on_day = any(e['member'].get('rate_type') == 'daily' for e in day_entries)
+
+            for entry in day_entries:
+                m = entry['member']
+                worked = entry['hours']
+                entry_cost = 0
+                regular_h = 0
+                ot_h = 0
+
+                if m.get('rate_type') == 'daily':
+                    entry_cost += (m.get('daily_rate') or 0)
+                    if worked <= ot_daily_threshold:
+                        regular_h = worked
+                    else:
+                        regular_h = ot_daily_threshold
+                        ot_h = worked - ot_daily_threshold
+                        implied_rate = (m.get('daily_rate') or 0) / (ot_daily_threshold if ot_daily_threshold > 0 else 10)
+                        entry_cost += ot_h * (implied_rate * 1.5)
+                    hours_consumed_in_daily_bucket += ot_daily_threshold
+                else: # Hourly Rate
+                    current_rate = m.get('hourly_rate') or 0
+                    remaining_bucket = max(0, ot_daily_threshold - hours_consumed_in_daily_bucket)
+                    
+                    if has_day_rate_on_day:
+                        absorbed_hours = min(worked, remaining_bucket)
+                        overflow_hours = worked - absorbed_hours
+                        regular_h = absorbed_hours
+                        ot_h = overflow_hours
+                        entry_cost += overflow_hours * (current_rate * 1.5)
+                        hours_consumed_in_daily_bucket += absorbed_hours
+                    else:
+                        straight_portion = min(worked, remaining_bucket)
+                        ot_portion = worked - straight_portion
+                        entry_cost += straight_portion * current_rate
+                        entry_cost += ot_portion * (current_rate * 1.5)
+                        regular_h = straight_portion
+                        ot_h = ot_portion
+                        hours_consumed_in_daily_bucket += straight_portion
+                
+                m['calc_stats']['regular'] += regular_h
+                m['calc_stats']['ot'] += ot_h
+                m['calc_stats']['cost'] += entry_cost
+                if m.get('rate_type') == 'hourly':
+                    weekly_regular_hours_tracker += regular_h
+
+        # Weekly OT Calculation
+        if weekly_regular_hours_tracker > ot_weekly_threshold:
+            weekly_ot_hours = weekly_regular_hours_tracker - ot_weekly_threshold
+            
+            # Distribute OT back to hourly positions
+            for m in reversed(members): # Start from last hourly to apply OT
+                if m.get('rate_type') == 'hourly' and weekly_ot_hours > 0:
+                    current_rate = m.get('hourly_rate') or 0
+                    # This needs to be the sum of regular hours for this member across the week
+                    regular_hours_in_member = m['calc_stats']['regular']
+
+                    ot_to_apply = min(weekly_ot_hours, regular_hours_in_member)
+                    
+                    m['calc_stats']['regular'] -= ot_to_apply
+                    m['calc_stats']['ot'] += ot_to_apply
+                    
+                    # Adjust cost: remove regular pay, add OT pay
+                    m['calc_stats']['cost'] -= ot_to_apply * current_rate
+                    m['calc_stats']['cost'] += ot_to_apply * (current_rate * 1.5)
+                    
+                    weekly_ot_hours -= ot_to_apply
+        
+    # --- Render Rows ---
+    all_crew_sorted = sorted(crew_hours, key=lambda c: (
+        (c.get('first_name') or '').lower(),
+        (c.get('last_name') or '').lower()
+    ))
+    
+    grand_total_regular = 0
+    grand_total_ot = 0
+
+    for c in all_crew_sorted:
+        crew_hours_map = c.get('hours_by_date', {}) or {}
+        if not any(float(h or 0) > 0 for h in crew_hours_map.values()):
+            continue
+
+        rate_val = c.get('daily_rate') or 0 if c.get('rate_type') == 'daily' else c.get('hourly_rate') or 0
+        rate_suffix = "/day" if c.get('rate_type') == 'daily' else "/hr"
+        rate_str = f"${rate_val:,.2f}{rate_suffix}"
+        
+        first_name = c.get('first_name') or 'N/A'
+        last_name = c.get('last_name') or ''
+        name_p = Paragraph(f"{first_name} {last_name}", styles['CrewName'])
+        position_p = Paragraph(f"<font size=7 color=grey>{c.get('position', 'N/A')}</font>", styles['CrewName'])
+
+        row = [[name_p, position_p], Paragraph(rate_str, styles['CellCenter'])]
+        
+        for day in dates:
+            h_val = float(crew_hours_map.get(day) or 0)
+            row.append(Paragraph(str(h_val) if h_val > 0 else "-", styles['CellCenter']))
+
+        stats = c.get('calc_stats', {'regular': 0, 'ot': 0, 'cost': 0})
+        row.append(Paragraph(f"{stats['regular']:.2f}", styles['CellCenter']))
+        row.append(Paragraph(f"{stats['ot']:.2f}", styles['CellCenter']))
+        row.append(Paragraph(f"${stats['cost']:,.2f}", styles['CellCenter']))
+        
+        table_data.append(row)
+
+        grand_total_regular += stats['regular']
+        grand_total_ot += stats['ot']
+        total_cost_grand += stats['cost']
+
+    # --- Totals Row ---
+    totals_row = [
+        Paragraph("Totals", styles['TotalsLabel']), "",
+    ] + [""] * len(dates) + [
+        Paragraph(f"{grand_total_regular:.2f}", styles['TotalsValue']),
+        Paragraph(f"{grand_total_ot:.2f}", styles['TotalsValue']),
+        Paragraph(f"${total_cost_grand:,.2f}", styles['TotalsValue']),
+    ]
+    table_data.append(totals_row)
+
+    # --- Table Style ---
+    col_widths = ['16%', '10%'] + ['6%'] * len(dates) + ['8%', '8%', '10%']
+    table = Table(table_data, colWidths=col_widths, hAlign='CENTER')
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.lightgrey),
+        ("LINEABOVE", (0, -1), (-1, -1), 1.5, colors.black),
+        ('SPAN', (0, -1), (1, -1)), # Span totals label
+    ]))
+    
+    # Apply span for multi-line name/position
+    for i, row_data in enumerate(table_data):
+        if i > 0 and i < len(table_data) -1: # Exclude header and footer
+            if isinstance(row_data[0], list):
+                 table.setStyle(TableStyle([('SPAN', (0, i), (0, i))]))
+
+
+    story.append(table)
+
+    if show_branding:
+        doc.build(story, onFirstPage=draw_timesheet_footer, onLaterPages=draw_timesheet_footer)
+    else:
+        doc.build(story)
+
     buffer.seek(0)
     return buffer

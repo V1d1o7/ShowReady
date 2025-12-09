@@ -431,11 +431,12 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify(settings),
     }).then(handleResponse),
-    addCrewToShow: async (showId, rosterId) => fetch(`/api/shows/${showId}/crew?roster_id=${rosterId}`, {
+    addCrewToShow: async (showId, rosterId, details) => fetch(`/api/shows/${showId}/crew/${rosterId}`, {
         method: 'POST',
         headers: await getAuthHeader(),
+        body: JSON.stringify(details),
     }).then(handleResponse),
-    removeCrewFromShow: async (showId, rosterId) => fetch(`/api/shows/${showId}/crew/${rosterId}`, {
+    removeCrewFromShow: async (showId, showCrewId) => fetch(`/api/shows/${showId}/crew/${showCrewId}`, {
         method: 'DELETE',
         headers: await getAuthHeader(),
     }),
