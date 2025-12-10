@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
-import { Plus, Library, HardDrive, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Plus, HardDrive, PanelLeftOpen } from 'lucide-react';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
+import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import NamePromptModal from '../components/NamePromptModal';
@@ -13,9 +14,11 @@ import PdfPreviewModal from '../components/PdfPreviewModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
+import { useAuth } from '../contexts/AuthContext';
 
 const RackBuilderView = () => {
     const { showId, showData } = useShow();
+    const { user } = useAuth();
     const showName = showData?.info?.show_name;
     const [racks, setRacks] = useState([]);
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
@@ -34,6 +37,13 @@ const RackBuilderView = () => {
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
+    const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
+    const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
+
+    const openNotesDrawer = (entityType, entityId) => {
+        setNotesContext({ entityType, entityId });
+        setIsNotesDrawerOpen(true);
+    };
 
     const handleExportListPdf = async () => {
         if (!showId) return;
@@ -515,6 +525,7 @@ const RackBuilderView = () => {
                     onExportEquipmentList={handleExportListPdf}
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
+                    onOpenNotes={(rackId) => openNotesDrawer('rack', rackId)}
                 />
             )}
 
@@ -533,6 +544,7 @@ const RackBuilderView = () => {
                                 draggedItem={draggedItem}
                                 dragOverData={dragOverData}
                                 onDragOverRack={setDragOverData}
+                                onOpenNotes={openNotesDrawer}
                             />
                             <RackComponent
                                 key={`${activeRack.id}-rear`}
@@ -545,6 +557,7 @@ const RackBuilderView = () => {
                                 draggedItem={draggedItem}
                                 dragOverData={dragOverData}
                                 onDragOverRack={setDragOverData}
+                                onOpenNotes={openNotesDrawer}
                             />
                         </>
                     ) : (
@@ -608,6 +621,14 @@ const RackBuilderView = () => {
                     }}
                 />
             )}
+            <ContextualNotesDrawer
+                entityType={notesContext.entityType}
+                entityId={notesContext.entityId}
+                showId={showId}
+                isOpen={isNotesDrawerOpen}
+                onClose={() => setIsNotesDrawerOpen(false)}
+                isOwner={showData?.user_id === user?.id}
+            />
         </div>
     );
 };

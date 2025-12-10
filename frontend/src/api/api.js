@@ -468,6 +468,16 @@ export const api = {
 
     emailTimesheet: async (showId, weekStartDate, emailPayload) =>
         fetch(`/api/shows/${showId}/timesheet/email?week_start_date=${weekStartDate}`, { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(emailPayload) }).then(handleResponse),
+
+    // --- Contextual Notes ---
+    getNotesForEntity: async (entityType, entityId) => 
+        fetch(`/api/v1/notes/${entityType}/${entityId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    createNote: async (noteData) => 
+        fetch('/api/v1/notes', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(noteData) }).then(handleResponse),
+    updateNote: async (noteId, updateData) =>
+        fetch(`/api/v1/notes/${noteId}`, { method: 'PATCH', headers: await getAuthHeader(), body: JSON.stringify(updateData) }).then(handleResponse),
+    deleteNote: async (noteId) =>
+        fetch(`/api/v1/notes/${noteId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
         
     // --- Old Hours (can be deprecated) ---
     getDailyHours: async (showId) => fetch(`/api/shows/${showId}/daily_hours`, { headers: await getAuthHeader() }).then(handleResponse),

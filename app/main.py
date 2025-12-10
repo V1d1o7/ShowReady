@@ -29,6 +29,7 @@ from app.routers.show_settings import router as show_settings_router
 from app.routers.switch_admin import router as switch_admin_router
 from app.routers.switch_config import router as switch_config_router
 from app.routers.switch_agent import router as switch_agent_router
+from app.routers.notes import router as notes_router
 
 
 app = FastAPI(
@@ -70,6 +71,7 @@ app.include_router(show_settings_router, prefix="/api")
 app.include_router(switch_admin_router, prefix="/api/v1")
 app.include_router(switch_config_router, prefix="/api/v1")
 app.include_router(switch_agent_router, prefix="/api/v1")
+app.include_router(notes_router, prefix="/api/v1")
 
 app.include_router(api_router, prefix="/api")
 

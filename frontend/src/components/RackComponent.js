@@ -23,6 +23,7 @@ const RackComponent = ({
     draggedItem,
     dragOverData,
     onDragOverRack,
+    onOpenNotes,
 }) => {
     const equipmentInView = useMemo(() =>
         (rack.equipment || []).filter(item => item.rack_side.startsWith(view)),
@@ -102,6 +103,7 @@ const RackComponent = ({
                                 onDelete={onDelete}
                                 onUpdate={onUpdate}
                                 onDragStart={onDragStart}
+                                onOpenNotes={() => onOpenNotes('equipment_instance', item.id)}
                             />
                         ))}
                         

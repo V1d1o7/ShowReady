@@ -1,16 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/api';
-import { Plus } from 'lucide-react';
+import { Plus, MessageSquare } from 'lucide-react';
 import RosterModal from '../components/RosterModal';
 import useHotkeys from '../hooks/useHotkeys';
+import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
 import ConfirmationModal from '../components/ConfirmationModal';
+import { useShow } from '../contexts/ShowContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const RosterView = () => {
+    const { showId, showData } = useShow();
+    const { user } = useAuth();
     const [roster, setRoster] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
+    const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
+    const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
+
+    const openNotesDrawer = (entityType, entityId) => {
+        setNotesContext({ entityType, entityId });
+        setIsNotesDrawerOpen(true);
+    };
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -97,6 +109,7 @@ const RosterView = () => {
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.email}</td>
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.phone_number}</td>
                                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                                            <button onClick={() => openNotesDrawer('roster_member', member.id)} className="text-blue-500 hover:text-blue-400 mr-4">Notes</button>
                                             <button onClick={() => handleOpenModal(member)} className="text-amber-500 hover:text-amber-400">Edit</button>
                                             <button onClick={() => handleDeleteMember(member)} className="text-red-500 hover:text-red-400 ml-4">Delete</button>
                                         </td>
@@ -121,6 +134,14 @@ const RosterView = () => {
                     onCancel={() => setConfirmModal({ isOpen: false, message: '', onConfirm: null })}
                 />
             )}
+            <ContextualNotesDrawer
+                entityType={notesContext.entityType}
+                entityId={notesContext.entityId}
+                showId={showId}
+                isOpen={isNotesDrawerOpen}
+                onClose={() => setIsNotesDrawerOpen(false)}
+                isOwner={showData?.user_id === user?.id}
+            />
         </div>
     );
 };

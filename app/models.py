@@ -256,6 +256,30 @@ class VLAN(VLANBase):
     show_id: int
     created_at: datetime
 
+
+# --- Contextual Note Models ---
+class NoteBase(BaseModel):
+    show_id: int
+    parent_entity_id: uuid.UUID
+    parent_entity_type: str
+    content: str
+    is_resolved: bool = False
+
+class NoteCreate(NoteBase):
+    pass
+
+class NoteUpdate(BaseModel):
+    content: Optional[str] = None
+    is_resolved: Optional[bool] = None
+
+class Note(NoteBase):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    user_first_name: Optional[str] = None
+    user_last_name: Optional[str] = None
+
 # --- AV Rack Builder Models ---
 
 class ConnectorTemplate(BaseModel):
@@ -653,3 +677,4 @@ class AgentApiKeyWithKey(AgentApiKey):
 
 class AgentPublicKeyUpload(BaseModel):
     public_key: str
+

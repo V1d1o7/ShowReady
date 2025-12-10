@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Library, Download, PanelLeftClose, FileText } from 'lucide-react';
+import { Plus, Edit, Trash2, Library, Download, PanelLeftClose, FileText, MessageSquare } from 'lucide-react';
 import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, onLoadFromRackLibrary, onExportPdf, onExportEquipmentList, title = 'Show Racks', onCollapse }) => {
+const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, onLoadFromRackLibrary, onExportPdf, onExportEquipmentList, title = 'Show Racks', onCollapse, onOpenNotes }) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -43,6 +43,7 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                                 <p className="text-xs text-gray-400">{rack.ru_height}RU</p>
                             </div>
                             <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                {onOpenNotes && <button onClick={(e) => { e.stopPropagation(); onOpenNotes(rack.id); }} className="p-1 text-gray-400 hover:text-blue-400"><MessageSquare size={16} /></button>}
                                 <button onClick={(e) => { e.stopPropagation(); setEditingRack(rack); }} className="p-1 text-gray-400 hover:text-amber-400"><Edit size={16} /></button>
                                 <button onClick={(e) => { e.stopPropagation(); onDeleteRack(rack.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
                             </div>

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { Trash2, Edit } from 'lucide-react';
+import { Trash2, Edit, MessageSquare } from 'lucide-react';
 import EditInstanceModal from './EditInstanceModal';
 
-const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate }) => {
+const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNotes }) => {
     const [isDragging, setIsDragging] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const template = item.equipment_templates || {};
@@ -46,6 +46,12 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate }) => {
             >
                 <span className="flex-grow text-center truncate px-2">{item.instance_name}</span>
                 <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
+                        className="p-1 text-gray-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                        <MessageSquare size={14} />
+                    </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();

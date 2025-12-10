@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { UploadCloud, Save } from 'lucide-react';
+import { UploadCloud, Save, MessageSquare } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
 import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
+import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
 
 const ShowInfoView = () => {
-    const { showData, onSave, isLoading } = useShow();
-    const { profile } = useAuth();
+    const { showData, onSave, isLoading, showId } = useShow();
+    const { profile, user } = useAuth();
     const [formData, setFormData] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
     const [logoUrl, setLogoUrl] = useState(null);
     const [logoError, setLogoError] = useState(false);
+    const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
   
     useEffect(() => {
       if (showData && showData.info) {
@@ -108,9 +110,20 @@ const ShowInfoView = () => {
             </button>
           </Card>
         </div>
-        <div className="mt-8 flex justify-end">
+        <div className="mt-8 flex justify-end space-x-4">
+            <button onClick={() => setIsNotesDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
+                <MessageSquare size={16} /> Show Notes
+            </button>
           <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Changes</button>
         </div>
+        <ContextualNotesDrawer
+            entityType="show"
+            entityId={showId}
+            showId={showId}
+            isOpen={isNotesDrawerOpen}
+            onClose={() => setIsNotesDrawerOpen(false)}
+            isOwner={showData?.user_id === user?.id}
+        />
       </div>
     );
   }

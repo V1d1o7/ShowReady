@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useShow } from '../contexts/ShowContext';
 import { useModal } from '../contexts/ModalContext';
-import { Plus, Edit, Copy, Trash2, Download, Printer, Spline } from 'lucide-react';
+import { Plus, Edit, Copy, Trash2, Download, Printer, Spline, MessageSquare } from 'lucide-react';
 import Card from '../components/Card';
 import NamePromptModal from '../components/NamePromptModal';
+import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
+import { useAuth } from '../contexts/AuthContext';
 import CableManagerModal from '../components/CableManagerModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import { api } from '../api/api';
@@ -11,6 +13,7 @@ import useHotkeys from '../hooks/useHotkeys';
 
 const LoomBuilderView = () => {
     const { showId, showData } = useShow();
+    const { user } = useAuth();
     const showName = showData?.info?.show_name;
     const { showConfirmationModal } = useModal();
     const [looms, setLooms] = useState([]);
@@ -20,6 +23,13 @@ const LoomBuilderView = () => {
     const [managingLoom, setManagingLoom] = useState(null);
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
     const [loomToCopy, setLoomToCopy] = useState(null);
+    const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
+    const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
+
+    const openNotesDrawer = (entityType, entityId) => {
+        setNotesContext({ entityType, entityId });
+        setIsNotesDrawerOpen(true);
+    };
 
     useHotkeys({
         'n': () => {
@@ -161,6 +171,7 @@ const LoomBuilderView = () => {
                                         <td className="p-3 truncate max-w-xs">{loom.name}</td>
                                         <td className="p-3 truncate">{longestCable}ft</td>
                                         <td className="p-3 flex justify-end gap-3">
+                                            <button onClick={() => openNotesDrawer('loom', loom.id)} title="Notes" className="text-gray-400 hover:text-blue-400"><MessageSquare size={16} /></button>
                                             <button onClick={() => setManagingLoom(loom)} title="Edit Cables" className="text-blue-400 hover:text-blue-300"><Spline size={16} /></button>
                                             <button onClick={() => handleStartEditLoom(loom)} title="Edit Loom Name" className="text-gray-400 hover:text-gray-300"><Edit size={16} /></button>
                                             <button onClick={() => setLoomToCopy(loom)} title="Copy Loom" className="text-gray-400 hover:text-gray-300"><Copy size={16} /></button>
@@ -220,6 +231,14 @@ const LoomBuilderView = () => {
                 />
             )}
             <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
+            <ContextualNotesDrawer
+                entityType={notesContext.entityType}
+                entityId={notesContext.entityId}
+                showId={showId}
+                isOpen={isNotesDrawerOpen}
+                onClose={() => setIsNotesDrawerOpen(false)}
+                isOwner={showData?.user_id === user?.id}
+            />
         </>
     );
 };
