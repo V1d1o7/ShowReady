@@ -259,8 +259,8 @@ class VLAN(VLANBase):
 
 # --- Contextual Note Models ---
 class NoteBase(BaseModel):
-    show_id: int
-    parent_entity_id: uuid.UUID
+    show_id: Optional[int] = None
+    parent_entity_id: str
     parent_entity_type: str
     content: str
     is_resolved: bool = False

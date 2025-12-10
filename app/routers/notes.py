@@ -10,21 +10,28 @@ router = APIRouter()
 @router.get("/notes/{parent_entity_type}/{parent_entity_id}", response_model=List[models.Note])
 def get_notes_for_entity(
     parent_entity_type: str,
-    parent_entity_id: uuid.UUID,
-    show_id: int = Query(...),
+    parent_entity_id: str,
+    show_id: Optional[int] = Query(None),
     supabase=Depends(get_supabase_client),
     user=Depends(get_user)
 ):
     """
-    Fetch all notes for a specific parent entity within a show.
+    Fetch all notes for a specific parent entity.
+    If show_id is provided, it fetches notes for that show.
+    If show_id is None, it fetches global notes (where show_id is NULL).
     """
-    response: APIResponse = supabase.table("notes") \
+    query = supabase.table("notes") \
         .select("*, profiles(first_name, last_name)") \
-        .eq("show_id", show_id) \
         .eq("parent_entity_type", parent_entity_type) \
         .eq("parent_entity_id", parent_entity_id) \
-        .order("created_at", desc=True) \
-        .execute()
+        .order("created_at", desc=True)
+
+    if show_id is not None:
+        query = query.eq("show_id", show_id)
+    else:
+        query = query.is_("show_id", "null")
+
+    response: APIResponse = query.execute()
 
     notes = []
     if response.data:
@@ -51,6 +58,8 @@ def create_note(
     """
     note_dict = note.model_dump()
     note_dict['user_id'] = str(user.id)
+    # Ensure parent_entity_id is a string to avoid JSON serialization errors
+    note_dict['parent_entity_id'] = str(note.parent_entity_id)
 
     response: APIResponse = supabase.table("notes").insert(note_dict).execute()
 
@@ -79,7 +88,7 @@ def create_note(
 
 @router.patch("/notes/{note_id}", response_model=models.Note)
 def update_note(
-    note_id: uuid.UUID,
+    note_id: str,
     note_update: models.NoteUpdate,
     supabase=Depends(get_supabase_client),
     user=Depends(get_user)
@@ -121,7 +130,7 @@ def update_note(
 
 @router.delete("/notes/{note_id}", status_code=204)
 def delete_note(
-    note_id: uuid.UUID,
+    note_id: str,
     supabase=Depends(get_supabase_client),
     user=Depends(get_user)
 ):

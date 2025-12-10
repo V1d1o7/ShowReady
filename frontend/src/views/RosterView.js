@@ -9,7 +9,7 @@ import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
 
 const RosterView = () => {
-    const { showId, showData } = useShow();
+    const { showId, showData } = useShow() || {};
     const { user } = useAuth();
     const [roster, setRoster] = useState([]);
     const [isLoading, setIsLoading] = useState(true);

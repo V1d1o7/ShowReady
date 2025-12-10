@@ -6,7 +6,7 @@ import { useModal } from '../contexts/ModalContext';
 import { X, MessageSquare, Trash2, Edit, CheckSquare, Square } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, isOwner }) => {
+const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, isOwner = false }) => {
     const { user } = useAuth();
     const { showConfirmationModal } = useModal();
     const [notes, setNotes] = useState([]);
@@ -14,7 +14,7 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
     const [editingNoteId, setEditingNoteId] = useState(null);
     const [editingContent, setEditingContent] = useState('');
     const [isLoading, setIsLoading] = useState(false);
-    
+
     const fetchNotes = useCallback(async () => {
         if (!entityId || !entityType) {
             setNotes([]);
@@ -22,7 +22,7 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
         }
         setIsLoading(true);
         try {
-            const fetchedNotes = await api.getNotesForEntity(entityType, entityId);
+            const fetchedNotes = await api.getNotesForEntity(entityType, entityId, showId);
             setNotes(fetchedNotes);
         } catch (error) {
             console.error('Failed to fetch notes:', error);
@@ -30,7 +30,7 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
         } finally {
             setIsLoading(false);
         }
-    }, [entityType, entityId]);
+    }, [entityType, entityId, showId]);
 
     useEffect(() => {
         if (isOpen) {
@@ -45,11 +45,13 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
         }
         try {
             const noteData = {
-                show_id: showId,
-                parent_entity_id: entityId,
+                parent_entity_id: String(entityId),
                 parent_entity_type: entityType,
                 content: newNoteContent,
             };
+            if (showId) {
+                noteData.show_id = showId;
+            }
             const newNote = await api.createNote(noteData);
             setNotes([newNote, ...notes]);
             setNewNoteContent('');
@@ -171,7 +173,7 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
                                         <button onClick={() => handleToggleResolve(note)} title={note.is_resolved ? 'Mark as unresolved' : 'Mark as resolved'}>
                                             {note.is_resolved ? <CheckSquare className="text-green-400" /> : <Square className="text-gray-400" />}
                                         </button>
-                                        {(note.user_id === user.id || isOwner) && (
+                                        {(user && note.user_id === user.id || isOwner) && (
                                             <>
                                                 <button onClick={() => startEditing(note)} title="Edit Note" className="hover:text-yellow-400">
                                                     <Edit size={16} />
