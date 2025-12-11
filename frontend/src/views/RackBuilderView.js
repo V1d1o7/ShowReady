@@ -18,7 +18,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const RackBuilderView = () => {
     const { showId, showData } = useShow();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const showName = showData?.info?.show_name;
     const [racks, setRacks] = useState([]);
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
@@ -525,7 +525,7 @@ const RackBuilderView = () => {
                     onExportEquipmentList={handleExportListPdf}
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
-                    onOpenNotes={(rackId) => openNotesDrawer('rack', rackId)}
+                    onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? (rackId) => openNotesDrawer('rack', rackId) : undefined}
                 />
             )}
 
@@ -544,7 +544,7 @@ const RackBuilderView = () => {
                                 draggedItem={draggedItem}
                                 dragOverData={dragOverData}
                                 onDragOverRack={setDragOverData}
-                                onOpenNotes={openNotesDrawer}
+                                onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
                             />
                             <RackComponent
                                 key={`${activeRack.id}-rear`}
@@ -557,7 +557,7 @@ const RackBuilderView = () => {
                                 draggedItem={draggedItem}
                                 dragOverData={dragOverData}
                                 onDragOverRack={setDragOverData}
-                                onOpenNotes={openNotesDrawer}
+                                onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
                             />
                         </>
                     ) : (

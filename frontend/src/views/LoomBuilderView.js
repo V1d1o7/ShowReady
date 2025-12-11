@@ -13,7 +13,7 @@ import useHotkeys from '../hooks/useHotkeys';
 
 const LoomBuilderView = () => {
     const { showId, showData } = useShow();
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const showName = showData?.info?.show_name;
     const { showConfirmationModal } = useModal();
     const [looms, setLooms] = useState([]);
@@ -171,7 +171,9 @@ const LoomBuilderView = () => {
                                         <td className="p-3 truncate max-w-xs">{loom.name}</td>
                                         <td className="p-3 truncate">{longestCable}ft</td>
                                         <td className="p-3 flex justify-end gap-3">
-                                            <button onClick={() => openNotesDrawer('loom', loom.id)} title="Notes" className="text-gray-400 hover:text-blue-400"><MessageSquare size={16} /></button>
+                                            {profile?.permitted_features?.includes('contextual_notes') && (
+                                                <button onClick={() => openNotesDrawer('loom', loom.id)} title="Notes" className="text-gray-400 hover:text-blue-400"><MessageSquare size={16} /></button>
+                                            )}
                                             <button onClick={() => setManagingLoom(loom)} title="Edit Cables" className="text-blue-400 hover:text-blue-300"><Spline size={16} /></button>
                                             <button onClick={() => handleStartEditLoom(loom)} title="Edit Loom Name" className="text-gray-400 hover:text-gray-300"><Edit size={16} /></button>
                                             <button onClick={() => setLoomToCopy(loom)} title="Copy Loom" className="text-gray-400 hover:text-gray-300"><Copy size={16} /></button>

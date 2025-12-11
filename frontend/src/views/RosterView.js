@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const RosterView = () => {
     const { showId, showData } = useShow() || {};
-    const { user } = useAuth();
+    const { user, profile } = useAuth();
     const [roster, setRoster] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -109,7 +109,9 @@ const RosterView = () => {
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.email}</td>
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.phone_number}</td>
                                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                                            <button onClick={() => openNotesDrawer('roster_member', member.id)} className="text-blue-500 hover:text-blue-400 mr-4">Notes</button>
+                                            {profile?.permitted_features?.includes('contextual_notes') && (
+                                                <button onClick={() => openNotesDrawer('roster_member', member.id)} className="text-blue-500 hover:text-blue-400 mr-4">Notes</button>
+                                            )}
                                             <button onClick={() => handleOpenModal(member)} className="text-amber-500 hover:text-amber-400">Edit</button>
                                             <button onClick={() => handleDeleteMember(member)} className="text-red-500 hover:text-red-400 ml-4">Delete</button>
                                         </td>
