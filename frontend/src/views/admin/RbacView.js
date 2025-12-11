@@ -23,7 +23,9 @@ const RbacView = () => {
             ]);
             setRestrictions(restrictionsData);
             setOriginalRestrictions(JSON.parse(JSON.stringify(restrictionsData)));
-            setRoles(rolesData.roles || []);
+            // The MultiSelect component expects an array of objects with value and label properties.
+            const formattedRoles = (rolesData.roles || []).map(role => ({ value: role, label: role }));
+            setRoles(formattedRoles);
         } catch (error) {
             toast.error("Failed to load restriction settings.");
             console.error(error);

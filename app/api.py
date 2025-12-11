@@ -480,6 +480,7 @@ async def stop_impersonation(user=Depends(get_user), supabase: Client = Depends(
 # A list of all manageable features in the system.
 ALL_FEATURES = [
     {"key": "pdf_logo", "name": "PDF Logo"},
+    {"key": "contextual_notes", "name": "Contextual Notes"},
     {"key": "loom_labels", "name": "Loom Labels"},
     {"key": "case_labels", "name": "Case Labels"},
     {"key": "rack_builder", "name": "Rack Builder"},

@@ -7,7 +7,7 @@ import { X, MessageSquare, Trash2, Edit, CheckSquare, Square } from 'lucide-reac
 import toast from 'react-hot-toast';
 
 const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, isOwner = false }) => {
-    const { user } = useAuth();
+    const { user, permitted_features } = useAuth();
     const { showConfirmationModal } = useModal();
     const [notes, setNotes] = useState([]);
     const [newNoteContent, setNewNoteContent] = useState('');
@@ -173,15 +173,15 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
                                         <button onClick={() => handleToggleResolve(note)} title={note.is_resolved ? 'Mark as unresolved' : 'Mark as resolved'}>
                                             {note.is_resolved ? <CheckSquare className="text-green-400" /> : <Square className="text-gray-400" />}
                                         </button>
-                                        {(user && note.user_id === user.id || isOwner) && (
-                                            <>
-                                                <button onClick={() => startEditing(note)} title="Edit Note" className="hover:text-yellow-400">
-                                                    <Edit size={16} />
-                                                </button>
-                                                <button onClick={() => handleDeleteNote(note.id)} title="Delete Note" className="hover:text-red-400">
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </>
+                                        {((user && note.user_id === user.id) || isOwner || permitted_features.includes('notes_edit')) && (
+                                            <button onClick={() => startEditing(note)} title="Edit Note" className="hover:text-yellow-400">
+                                                <Edit size={16} />
+                                            </button>
+                                        )}
+                                        {((user && note.user_id === user.id) || isOwner || permitted_features.includes('notes_delete')) && (
+                                            <button onClick={() => handleDeleteNote(note.id)} title="Delete Note" className="hover:text-red-400">
+                                                <Trash2 size={16} />
+                                            </button>
                                         )}
                                     </div>
                                 </>

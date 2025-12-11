@@ -260,7 +260,7 @@ class VLAN(VLANBase):
 # --- Contextual Note Models ---
 class NoteBase(BaseModel):
     show_id: Optional[int] = None
-    parent_entity_id: str
+    parent_entity_id: Union[str, int]
     parent_entity_type: str
     content: str
     is_resolved: bool = False

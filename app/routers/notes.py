@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 import uuid
 from .. import models
-from app.api import get_supabase_client, get_user
+from app.api import get_supabase_client, get_user, feature_check
 from postgrest import APIResponse
 
 router = APIRouter()
 
-@router.get("/notes/{parent_entity_type}/{parent_entity_id}", response_model=List[models.Note])
+@router.get("/notes/{parent_entity_type}/{parent_entity_id}", response_model=List[models.Note], dependencies=[Depends(feature_check("contextual_notes"))])
 def get_notes_for_entity(
     parent_entity_type: str,
     parent_entity_id: str,
@@ -47,7 +47,7 @@ def get_notes_for_entity(
     return notes
 
 
-@router.post("/notes", response_model=models.Note, status_code=201)
+@router.post("/notes", response_model=models.Note, status_code=201, dependencies=[Depends(feature_check("contextual_notes"))])
 def create_note(
     note: models.NoteCreate,
     supabase=Depends(get_supabase_client),
@@ -58,8 +58,9 @@ def create_note(
     """
     note_dict = note.model_dump()
     note_dict['user_id'] = str(user.id)
-    # Ensure parent_entity_id is a string to avoid JSON serialization errors
-    note_dict['parent_entity_id'] = str(note.parent_entity_id)
+    # The parent_entity_id can be an int (show_id) or a string (UUID).
+    # The database stores it as a string, so we ensure the conversion here.
+    note_dict['parent_entity_id'] = str(note_dict['parent_entity_id'])
 
     response: APIResponse = supabase.table("notes").insert(note_dict).execute()
 

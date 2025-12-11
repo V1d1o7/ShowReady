@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
 
 const ShowInfoView = () => {
-    const { showData, onSave, isLoading, showId } = useShow();
+    const { showData, onSave, isLoading: isShowLoading, showId } = useShow();
     const { profile, user } = useAuth();
     const [formData, setFormData] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
@@ -67,7 +67,7 @@ const ShowInfoView = () => {
       }
     };
 
-    if (isLoading || !formData) {
+    if (isShowLoading || !formData) {
       return (
         <div className="flex justify-center items-center h-full">
           <p>Loading show information...</p>
@@ -111,9 +111,11 @@ const ShowInfoView = () => {
           </Card>
         </div>
         <div className="mt-8 flex justify-end space-x-4">
-            <button onClick={() => setIsNotesDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
-                <MessageSquare size={16} /> Show Notes
-            </button>
+            {profile?.permitted_features?.includes('contextual_notes') && (
+                <button onClick={() => setIsNotesDrawerOpen(true)} aria-label="Open Notes Drawer" className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
+                    <MessageSquare size={16} /> Show Notes
+                </button>
+            )}
           <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Changes</button>
         </div>
         <ContextualNotesDrawer
