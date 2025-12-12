@@ -47,7 +47,8 @@ const ShowInfoView = () => {
         const checkNotesStatus = async () => {
             if (showId) {
                 try {
-                    const notes = await api.getNotesForEntity('show', showId);
+                    // Pass showId as third argument so backend knows to filter by show_id
+                    const notes = await api.getNotesForEntity('show', showId, showId);
                     if (notes && notes.length > 0) {
                         setHasNotes(true);
                     }

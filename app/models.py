@@ -166,6 +166,7 @@ class RosterMember(RosterMemberBase):
     id: uuid.UUID
     user_id: uuid.UUID
     created_at: datetime
+    has_notes: Optional[bool] = False
 
 class RosterMemberAndShowCrewCreate(RosterMemberCreate):
     show_id: int
@@ -682,4 +683,3 @@ class AgentApiKeyWithKey(AgentApiKey):
 
 class AgentPublicKeyUpload(BaseModel):
     public_key: str
-
