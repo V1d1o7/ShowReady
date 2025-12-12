@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
-import { Plus, MessageSquare } from 'lucide-react';
+import { Plus, MessageSquare, Edit, Trash2 } from 'lucide-react';
 import RosterModal from '../components/RosterModal';
 import useHotkeys from '../hooks/useHotkeys';
 import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
@@ -146,8 +146,8 @@ const RosterView = () => {
                                                     )}
                                                 </button>
                                             )}
-                                            <button onClick={() => handleOpenModal(member)} className="text-amber-500 hover:text-amber-400">Edit</button>
-                                            <button onClick={() => handleDeleteMember(member)} className="text-red-500 hover:text-red-400 ml-4">Delete</button>
+                                            <button onClick={() => handleOpenModal(member)} className="p-1 text-gray-400 hover:text-amber-400"><Edit size={16} /></button>
+                                            <button onClick={() => handleDeleteMember(member)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
                                         </td>
                                     </tr>
                                 ))}

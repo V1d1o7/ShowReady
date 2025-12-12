@@ -1136,10 +1136,26 @@ async def list_library_racks(from_library: bool = False, user = Depends(get_user
 
 @router.get("/shows/{show_id}/racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def list_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    query = supabase.table('racks').select('*').eq('user_id', user.id).eq('show_id', show_id)
+    """Retrieves all racks for a show, including a flag indicating if they have notes."""
+    # 1. Get all racks for the show
+    racks_res = supabase.table('racks').select('*').eq('user_id', user.id).eq('show_id', show_id).execute()
+    if not racks_res.data:
+        return []
     
-    response = query.execute()
-    return response.data
+    racks = racks_res.data
+    rack_ids = [str(rack['id']) for rack in racks]
+
+    # 2. Fetch notes for all racks in one query
+    notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').in_('parent_entity_id', rack_ids).execute()
+    
+    # 3. Create a set of rack IDs that have notes for efficient lookup
+    racks_with_notes = {note['parent_entity_id'] for note in notes_res.data}
+    
+    # 4. Attach the has_notes flag to each rack object
+    for rack in racks:
+        rack['has_notes'] = str(rack['id']) in racks_with_notes
+        
+    return racks
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

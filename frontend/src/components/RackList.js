@@ -42,7 +42,7 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                                 <p className="font-bold truncate">{rack.rack_name}</p>
                                 <p className="text-xs text-gray-400">{rack.ru_height}RU</p>
                             </div>
-                            <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center transition-opacity">
                                 {typeof onOpenNotes === 'function' && (
                                     <div className="relative">
                                         <button 
