@@ -110,7 +110,12 @@ const RosterView = () => {
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.phone_number}</td>
                                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                             {profile?.permitted_features?.includes('contextual_notes') && (
-                                                <button onClick={() => openNotesDrawer('roster_member', member.id)} className="text-blue-500 hover:text-blue-400 mr-4">Notes</button>
+                                                <button onClick={() => openNotesDrawer('roster_member', member.id)} className="text-blue-500 hover:text-blue-400 mr-4 inline-flex items-center">
+                                                    Notes
+                                                    {member.has_notes && (
+                                                        <span className="ml-2 h-2 w-2 bg-red-500 rounded-full"></span>
+                                                    )}
+                                                </button>
                                             )}
                                             <button onClick={() => handleOpenModal(member)} className="text-amber-500 hover:text-amber-400">Edit</button>
                                             <button onClick={() => handleDeleteMember(member)} className="text-red-500 hover:text-red-400 ml-4">Delete</button>

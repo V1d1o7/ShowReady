@@ -91,6 +91,7 @@ class ShowFile(BaseModel):
     info: ShowInfo = Field(default_factory=ShowInfo)
     loom_sheets: Dict[str, List[LoomLabel]] = Field(default_factory=dict)
     case_sheets: Dict[str, List[CaseLabel]] = Field(default_factory=dict)
+    has_notes: Optional[bool] = False
 
 # --- Loom Builder Models ---
 # A Cable is an individual cable within a Loom.
@@ -148,6 +149,7 @@ class Loom(LoomBase):
     id: uuid.UUID
     user_id: uuid.UUID
     created_at: datetime
+    has_notes: Optional[bool] = False
 
 # --- Roster Models ---
 class RosterMemberBase(BaseModel):
@@ -374,6 +376,7 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     y_pos: Optional[int] = None
     page_number: Optional[int] = 1
     equipment_templates: Optional[EquipmentTemplate] = None
+    has_notes: Optional[bool] = False
 
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -383,6 +386,7 @@ class Rack(BaseModel):
     ru_height: int
     saved_to_library: bool = False
     equipment: List[RackEquipmentInstanceWithTemplate] = Field(default_factory=list)
+    has_notes: Optional[bool] = False
 
 class RackCreate(BaseModel):
     rack_name: str
@@ -525,6 +529,7 @@ class RackPDFPayload(BaseModel):
 
 class LoomWithCables(Loom):
     cables: List[Cable] = []
+    has_notes: Optional[bool] = False
 
 class LoomBuilderPDFPayload(BaseModel):
     looms: List[LoomWithCables]

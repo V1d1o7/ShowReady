@@ -112,9 +112,14 @@ const ShowInfoView = () => {
         </div>
         <div className="mt-8 flex justify-end space-x-4">
             {profile?.permitted_features?.includes('contextual_notes') && (
-                <button onClick={() => setIsNotesDrawerOpen(true)} aria-label="Open Notes Drawer" className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
-                    <MessageSquare size={16} /> Show Notes
-                </button>
+                <div className="relative">
+                    <button onClick={() => setIsNotesDrawerOpen(true)} aria-label="Open Notes Drawer" className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
+                        <MessageSquare size={16} /> Show Notes
+                    </button>
+                    {showData?.has_notes && (
+                        <div className="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-gray-800"></div>
+                    )}
+                </div>
             )}
           <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Changes</button>
         </div>

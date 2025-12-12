@@ -103,7 +103,7 @@ const RackComponent = ({
                                 onDelete={onDelete}
                                 onUpdate={onUpdate}
                                 onDragStart={onDragStart}
-                                onOpenNotes={() => onOpenNotes('equipment_instance', item.id)}
+                                onOpenNotes={typeof onOpenNotes === 'function' ? () => onOpenNotes('equipment_instance', item.id) : undefined}
                             />
                         ))}
                         

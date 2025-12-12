@@ -172,7 +172,14 @@ const LoomBuilderView = () => {
                                         <td className="p-3 truncate">{longestCable}ft</td>
                                         <td className="p-3 flex justify-end gap-3">
                                             {profile?.permitted_features?.includes('contextual_notes') && (
-                                                <button onClick={() => openNotesDrawer('loom', loom.id)} title="Notes" className="text-gray-400 hover:text-blue-400"><MessageSquare size={16} /></button>
+                                                <div className="relative">
+                                                    <button onClick={() => openNotesDrawer('loom', loom.id)} title="Notes" className="text-gray-400 hover:text-blue-400">
+                                                        <MessageSquare size={16} />
+                                                    </button>
+                                                    {loom.has_notes && (
+                                                        <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></div>
+                                                    )}
+                                                </div>
                                             )}
                                             <button onClick={() => setManagingLoom(loom)} title="Edit Cables" className="text-blue-400 hover:text-blue-300"><Spline size={16} /></button>
                                             <button onClick={() => handleStartEditLoom(loom)} title="Edit Loom Name" className="text-gray-400 hover:text-gray-300"><Edit size={16} /></button>

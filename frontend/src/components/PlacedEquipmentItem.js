@@ -47,12 +47,17 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                 <span className="flex-grow text-center truncate px-2">{item.instance_name}</span>
                 <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2">
                     {onOpenNotes && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
-                            className="p-1 text-gray-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                            <MessageSquare size={14} />
-                        </button>
+                        <div className="relative">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
+                                className="p-1 text-gray-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                                <MessageSquare size={14} />
+                            </button>
+                            {item.has_notes && (
+                                <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></div>
+                            )}
+                        </div>
                     )}
                     <button
                         onClick={(e) => {

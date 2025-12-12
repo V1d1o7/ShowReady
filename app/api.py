@@ -776,10 +776,19 @@ async def update_show(show_id: int, show_data: ShowFile, user = Depends(get_user
 async def get_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves a specific show for the authenticated user."""
     try:
-        response = supabase.table('shows').select('*').eq('id', show_id).eq('user_id', user.id).maybe_single().execute()
-        if response.data:
-            return response.data
-        raise HTTPException(status_code=404, detail="Show not found")
+        show_response = supabase.table('shows').select('*').eq('id', show_id).eq('user_id', user.id).maybe_single().execute()
+        if not show_response.data:
+            raise HTTPException(status_code=404, detail="Show not found")
+
+        show_data = show_response.data
+        
+        # Check for associated notes
+        notes_response = supabase.table('notes').select('id', count='exact').eq('parent_entity_type', 'show').eq('parent_entity_id', str(show_id)).execute()
+        
+        # Add the has_notes flag to the response
+        show_data['has_notes'] = notes_response.count > 0
+
+        return show_data
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=404, detail=f"Show with id '{show_id}' not found.")
@@ -853,11 +862,16 @@ async def get_looms_for_show(show_id: int, user = Depends(get_user), supabase: C
             cables_by_loom_id[loom_id] = []
         cables_by_loom_id[loom_id].append(cable)
 
-    # 4. Attach cables to their respective looms
+    # 4. Fetch notes for all looms
+    notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'loom').in_('parent_entity_id', loom_ids).execute()
+    looms_with_notes = {note['parent_entity_id'] for note in notes_res.data}
+
+    # 5. Attach cables and notes status to their respective looms
     looms_with_cables = []
     for loom in looms:
         loom_dict = loom.copy()
         loom_dict['cables'] = cables_by_loom_id.get(loom['id'], [])
+        loom_dict['has_notes'] = loom['id'] in looms_with_notes
         looms_with_cables.append(LoomWithCables(**loom_dict))
 
     return looms_with_cables
@@ -1154,9 +1168,18 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     # 5. Create a lookup map for easy access
     template_map = {template['id']: template for template in templates_data}
     
-    # 6. Attach the full template data to each equipment instance
+    # 6. Fetch notes for the rack and its equipment
+    rack_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').eq('parent_entity_id', str(rack_id)).execute()
+    rack_data['has_notes'] = bool(rack_notes_res.data)
+
+    equipment_ids = [str(instance['id']) for instance in equipment_instances]
+    equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', equipment_ids).execute()
+    equipment_with_notes = {note['parent_entity_id'] for note in equipment_notes_res.data}
+
+    # 7. Attach the full template data and notes status to each equipment instance
     for instance in equipment_instances:
         instance['equipment_templates'] = template_map.get(instance['template_id'])
+        instance['has_notes'] = str(instance['id']) in equipment_with_notes
         
     rack_data['equipment'] = equipment_instances
     return rack_data
@@ -1200,9 +1223,22 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
             rack_equipment_map[rack_id] = []
         rack_equipment_map[rack_id].append(instance)
         
-    # 7. Attach the equipment lists to their parent racks
+    # 7. Fetch notes for all racks and equipment
+    rack_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').in_('parent_entity_id', rack_ids).execute()
+    racks_with_notes = {note['parent_entity_id'] for note in rack_notes_res.data}
+
+    equipment_ids = [str(instance['id']) for instance in equipment_instances]
+    equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', equipment_ids).execute()
+    equipment_with_notes = {note['parent_entity_id'] for note in equipment_notes_res.data}
+
+    # 8. Attach notes status to equipment instances
+    for instance in equipment_instances:
+        instance['has_notes'] = str(instance['id']) in equipment_with_notes
+        
+    # 9. Attach the equipment lists and notes status to their parent racks
     for rack in racks:
         rack['equipment'] = rack_equipment_map.get(rack['id'], [])
+        rack['has_notes'] = str(rack['id']) in racks_with_notes
         
     return racks
 

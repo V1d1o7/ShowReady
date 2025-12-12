@@ -43,7 +43,22 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                                 <p className="text-xs text-gray-400">{rack.ru_height}RU</p>
                             </div>
                             <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                {onOpenNotes && <button onClick={(e) => { e.stopPropagation(); onOpenNotes(rack.id); }} className="p-1 text-gray-400 hover:text-blue-400"><MessageSquare size={16} /></button>}
+                                {typeof onOpenNotes === 'function' && (
+                                    <div className="relative">
+                                        <button 
+                                            onClick={(e) => { 
+                                                e.stopPropagation(); 
+                                                onOpenNotes(rack.id);
+                                            }} 
+                                            className="p-1 text-gray-400 hover:text-blue-400"
+                                        >
+                                            <MessageSquare size={16} />
+                                        </button>
+                                        {rack.has_notes && (
+                                            <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></div>
+                                        )}
+                                    </div>
+                                )}
                                 <button onClick={(e) => { e.stopPropagation(); setEditingRack(rack); }} className="p-1 text-gray-400 hover:text-amber-400"><Edit size={16} /></button>
                                 <button onClick={(e) => { e.stopPropagation(); onDeleteRack(rack.id); }} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
                             </div>

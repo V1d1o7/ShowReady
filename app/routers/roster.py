@@ -10,8 +10,21 @@ router = APIRouter()
 @router.get("/roster", response_model=List[RosterMember], tags=["Roster"])
 async def get_roster(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Gets all members of the user's global roster."""
-    response = supabase.table('roster').select('*').eq('user_id', str(user.id)).execute()
-    return response.data
+    roster_response = supabase.table('roster').select('*').eq('user_id', str(user.id)).execute()
+    if not roster_response.data:
+        return []
+
+    roster_members = roster_response.data
+    roster_ids = [str(member['id']) for member in roster_members]
+
+    notes_response = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'roster_member').in_('parent_entity_id', roster_ids).execute()
+    
+    notes_by_roster_id = {note['parent_entity_id'] for note in notes_response.data}
+
+    for member in roster_members:
+        member['has_notes'] = str(member['id']) in notes_by_roster_id
+
+    return roster_members
 
 @router.post("/roster", response_model=RosterMember, tags=["Roster"])
 async def create_roster_member(roster_data: RosterMemberCreate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):

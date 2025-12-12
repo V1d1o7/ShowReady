@@ -121,7 +121,7 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
             <div className="flex justify-between items-center p-4 border-b border-gray-700">
                 <h2 className="text-lg font-semibold flex items-center">
                     <MessageSquare className="mr-2" />
-                    Contextual Notes
+                    Notes
                 </h2>
                 <button onClick={onClose} className="p-1 hover:bg-gray-700 rounded">
                     <X />
