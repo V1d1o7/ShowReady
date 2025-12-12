@@ -41,6 +41,23 @@ const ShowInfoView = () => {
         }
       }
     }, [showData]);
+
+    // Independent check for notes on mount to ensure bubble appears even if showData is stale
+    useEffect(() => {
+        const checkNotesStatus = async () => {
+            if (showId) {
+                try {
+                    const notes = await api.getNotesForEntity('show', showId);
+                    if (notes && notes.length > 0) {
+                        setHasNotes(true);
+                    }
+                } catch (error) {
+                    console.error("Failed to check notes status:", error);
+                }
+            }
+        };
+        checkNotesStatus();
+    }, [showId]);
   
     const handleChange = (e) => setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   
@@ -119,13 +136,18 @@ const ShowInfoView = () => {
         <div className="mt-8 flex justify-end space-x-4">
             {profile?.permitted_features?.includes('contextual_notes') && (
                 <div className="relative">
-                    <button onClick={() => setIsNotesDrawerOpen(true)} aria-label="Open Notes Drawer" className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
+                    <button 
+                        onClick={() => setIsNotesDrawerOpen(true)} 
+                        aria-label="Open Notes Drawer" 
+                        className="relative flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors"
+                    >
                         <MessageSquare size={16} /> Show Notes
+                        {hasNotes && (
+                            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                            </span>
+                        )}
                     </button>
-                    {/* Using local state 'hasNotes' instead of stale 'showData.has_notes' */}
-                    {hasNotes && (
-                        <div className="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-gray-800" style={{ transform: 'translate(50%, -50%)' }}></div>
-                    )}
                 </div>
             )}
           <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Changes</button>

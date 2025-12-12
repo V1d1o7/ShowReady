@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
 import { Plus, MessageSquare } from 'lucide-react';
 import RosterModal from '../components/RosterModal';
@@ -77,16 +77,27 @@ const RosterView = () => {
     };
 
     // Callback function to update the specific roster member's note status in local state
-    const handleNotesUpdated = (count) => {
+    const handleNotesUpdated = useCallback((count) => {
         if (!notesContext.entityId) return;
         
-        setRoster(prevRoster => prevRoster.map(member => {
-            if (member.id === notesContext.entityId) {
-                return { ...member, has_notes: count > 0 };
+        setRoster(prevRoster => {
+            const hasNotes = count > 0;
+            // Check if update is actually needed to prevent unnecessary re-renders
+            // We use String() comparison to be safe against number/string mismatches
+            const memberToUpdate = prevRoster.find(m => String(m.id) === String(notesContext.entityId));
+            
+            if (!memberToUpdate || memberToUpdate.has_notes === hasNotes) {
+                return prevRoster;
             }
-            return member;
-        }));
-    };
+
+            return prevRoster.map(member => {
+                if (String(member.id) === String(notesContext.entityId)) {
+                    return { ...member, has_notes: hasNotes };
+                }
+                return member;
+            });
+        });
+    }, [notesContext.entityId]);
 
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
@@ -122,10 +133,16 @@ const RosterView = () => {
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.phone_number}</td>
                                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                             {profile?.permitted_features?.includes('contextual_notes') && (
-                                                <button onClick={() => openNotesDrawer('roster_member', member.id)} className="relative text-blue-500 hover:text-blue-400 mr-4 inline-flex items-center">
-                                                    Notes
+                                                <button 
+                                                    onClick={() => openNotesDrawer('roster_member', member.id)} 
+                                                    className="relative text-gray-400 hover:text-blue-400 mr-4 inline-flex items-center transition-colors"
+                                                    title="Notes"
+                                                >
+                                                    <MessageSquare size={20} />
                                                     {member.has_notes && (
-                                                        <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full" style={{ transform: 'translate(50%, -50%)' }}></div>
+                                                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                                                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                                                        </span>
                                                     )}
                                                 </button>
                                             )}
