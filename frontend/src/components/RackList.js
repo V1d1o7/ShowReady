@@ -54,7 +54,7 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                                         >
                                             <MessageSquare size={16} />
                                         </button>
-                                        {rack.has_notes && (
+                                        {(rack.has_notes || (rack.notes && rack.notes.length > 0)) && (
                                             <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></div>
                                         )}
                                     </div>
