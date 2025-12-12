@@ -15,10 +15,16 @@ const ShowInfoView = () => {
     const [logoUrl, setLogoUrl] = useState(null);
     const [logoError, setLogoError] = useState(false);
     const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
+    
+    // Local state to track note existence immediately without waiting for full show refresh
+    const [hasNotes, setHasNotes] = useState(false);
   
     useEffect(() => {
       if (showData && showData.info) {
         setFormData(showData.info);
+        // Initialize the local hasNotes state from the show data
+        setHasNotes(showData.has_notes || false);
+
         if (showData.info.logo_path) {
           setLogoError(false);
           supabase.storage.from('logos').createSignedUrl(showData.info.logo_path, 3600)
@@ -116,8 +122,9 @@ const ShowInfoView = () => {
                     <button onClick={() => setIsNotesDrawerOpen(true)} aria-label="Open Notes Drawer" className="flex items-center gap-2 px-5 py-2.5 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white transition-colors">
                         <MessageSquare size={16} /> Show Notes
                     </button>
-                    {showData?.has_notes && (
-                        <div className="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-gray-800"></div>
+                    {/* Using local state 'hasNotes' instead of stale 'showData.has_notes' */}
+                    {hasNotes && (
+                        <div className="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-gray-800" style={{ transform: 'translate(50%, -50%)' }}></div>
                     )}
                 </div>
             )}
@@ -130,6 +137,7 @@ const ShowInfoView = () => {
             isOpen={isNotesDrawerOpen}
             onClose={() => setIsNotesDrawerOpen(false)}
             isOwner={showData?.user_id === user?.id}
+            onNotesUpdated={(count) => setHasNotes(count > 0)}
         />
       </div>
     );

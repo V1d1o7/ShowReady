@@ -259,11 +259,13 @@ const ShowWrapper = ({ onShowUpdate }) => {
     };
     
     const showId = showData ? showData.id : null;
+    const has_notes = showData ? showData.has_notes : false;
+    const showOwnerId = showData ? showData.user_id : null;
     // Pass the nested 'data' object to the provider for backward compatibility
     const providerShowData = showData ? showData.data : null;
 
     return (
-        <ShowProvider value={{ showData: providerShowData, racks, onSave: handleSaveShowData, isLoading, showId, refreshRacks: fetchShowData }}>
+        <ShowProvider value={{ showData: providerShowData, racks, onSave: handleSaveShowData, isLoading, showId, refreshRacks: fetchShowData, has_notes, showOwnerId }}>
             <Outlet />
         </ShowProvider>
     );

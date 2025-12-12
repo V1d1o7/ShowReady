@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
-import { useParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useModal } from '../contexts/ModalContext';
 import { X, MessageSquare, Trash2, Edit, CheckSquare, Square } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, isOwner = false }) => {
-    const { user, permitted_features } = useAuth();
+const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, isOwner = false, onNotesUpdated }) => {
+    const { user, profile } = useAuth();
     const { showConfirmationModal } = useModal();
     const [notes, setNotes] = useState([]);
     const [newNoteContent, setNewNoteContent] = useState('');
@@ -24,13 +23,18 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
         try {
             const fetchedNotes = await api.getNotesForEntity(entityType, entityId, showId);
             setNotes(fetchedNotes);
+            
+            // Notify parent of the current count immediately after fetching
+            if (onNotesUpdated) {
+                onNotesUpdated(fetchedNotes.length);
+            }
         } catch (error) {
             console.error('Failed to fetch notes:', error);
             toast.error('Failed to load notes.');
         } finally {
             setIsLoading(false);
         }
-    }, [entityType, entityId, showId]);
+    }, [entityType, entityId, showId, onNotesUpdated]);
 
     useEffect(() => {
         if (isOpen) {
@@ -53,9 +57,15 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
                 noteData.show_id = showId;
             }
             const newNote = await api.createNote(noteData);
-            setNotes([newNote, ...notes]);
+            const updatedNotes = [newNote, ...notes];
+            setNotes(updatedNotes);
             setNewNoteContent('');
             toast.success('Note added!');
+
+            // Notify parent of count change
+            if (onNotesUpdated) {
+                onNotesUpdated(updatedNotes.length);
+            }
         } catch (error) {
             console.error('Failed to create note:', error);
             toast.error('Failed to add note.');
@@ -68,8 +78,14 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
             async () => {
                 try {
                     await api.deleteNote(noteId);
-                    setNotes(notes.filter(note => note.id !== noteId));
+                    const updatedNotes = notes.filter(note => note.id !== noteId);
+                    setNotes(updatedNotes);
                     toast.success('Note deleted!');
+
+                    // Notify parent of count change
+                    if (onNotesUpdated) {
+                        onNotesUpdated(updatedNotes.length);
+                    }
                 } catch (error) {
                     console.error('Failed to delete note:', error);
                     toast.error('Failed to delete note.');
@@ -173,12 +189,12 @@ const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, 
                                         <button onClick={() => handleToggleResolve(note)} title={note.is_resolved ? 'Mark as unresolved' : 'Mark as resolved'}>
                                             {note.is_resolved ? <CheckSquare className="text-green-400" /> : <Square className="text-gray-400" />}
                                         </button>
-                                        {((user && note.user_id === user.id) || isOwner || permitted_features.includes('notes_edit')) && (
+                                        {((user && note.user_id === user.id) || isOwner || profile?.permitted_features?.includes('notes_edit')) && (
                                             <button onClick={() => startEditing(note)} title="Edit Note" className="hover:text-yellow-400">
                                                 <Edit size={16} />
                                             </button>
                                         )}
-                                        {((user && note.user_id === user.id) || isOwner || permitted_features.includes('notes_delete')) && (
+                                        {((user && note.user_id === user.id) || isOwner || profile?.permitted_features?.includes('notes_delete')) && (
                                             <button onClick={() => handleDeleteNote(note.id)} title="Delete Note" className="hover:text-red-400">
                                                 <Trash2 size={16} />
                                             </button>

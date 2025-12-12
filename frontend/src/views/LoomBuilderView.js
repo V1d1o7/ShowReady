@@ -12,7 +12,7 @@ import { api } from '../api/api';
 import useHotkeys from '../hooks/useHotkeys';
 
 const LoomBuilderView = () => {
-    const { showId, showData } = useShow();
+    const { showId, showData, showOwnerId } = useShow();
     const { user, profile } = useAuth();
     const showName = showData?.info?.show_name;
     const { showConfirmationModal } = useModal();
@@ -246,7 +246,7 @@ const LoomBuilderView = () => {
                 showId={showId}
                 isOpen={isNotesDrawerOpen}
                 onClose={() => setIsNotesDrawerOpen(false)}
-                isOwner={showData?.user_id === user?.id}
+                isOwner={showOwnerId === user?.id}
             />
         </>
     );

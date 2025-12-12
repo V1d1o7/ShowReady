@@ -76,6 +76,18 @@ const RosterView = () => {
         });
     };
 
+    // Callback function to update the specific roster member's note status in local state
+    const handleNotesUpdated = (count) => {
+        if (!notesContext.entityId) return;
+        
+        setRoster(prevRoster => prevRoster.map(member => {
+            if (member.id === notesContext.entityId) {
+                return { ...member, has_notes: count > 0 };
+            }
+            return member;
+        }));
+    };
+
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
             <header className="flex items-center justify-between pb-8 border-b border-gray-700">
@@ -110,10 +122,10 @@ const RosterView = () => {
                                         <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.phone_number}</td>
                                         <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                             {profile?.permitted_features?.includes('contextual_notes') && (
-                                                <button onClick={() => openNotesDrawer('roster_member', member.id)} className="text-blue-500 hover:text-blue-400 mr-4 inline-flex items-center">
+                                                <button onClick={() => openNotesDrawer('roster_member', member.id)} className="relative text-blue-500 hover:text-blue-400 mr-4 inline-flex items-center">
                                                     Notes
                                                     {member.has_notes && (
-                                                        <span className="ml-2 h-2 w-2 bg-red-500 rounded-full"></span>
+                                                        <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full" style={{ transform: 'translate(50%, -50%)' }}></div>
                                                     )}
                                                 </button>
                                             )}
@@ -148,6 +160,7 @@ const RosterView = () => {
                 isOpen={isNotesDrawerOpen}
                 onClose={() => setIsNotesDrawerOpen(false)}
                 isOwner={showData?.user_id === user?.id}
+                onNotesUpdated={handleNotesUpdated}
             />
         </div>
     );

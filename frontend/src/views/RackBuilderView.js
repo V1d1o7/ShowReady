@@ -17,7 +17,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import { useAuth } from '../contexts/AuthContext';
 
 const RackBuilderView = () => {
-    const { showId, showData } = useShow();
+    const { showId, showData, showOwnerId } = useShow();
     const { user, profile } = useAuth();
     const showName = showData?.info?.show_name;
     const [racks, setRacks] = useState([]);
@@ -627,7 +627,7 @@ const RackBuilderView = () => {
                 showId={showId}
                 isOpen={isNotesDrawerOpen}
                 onClose={() => setIsNotesDrawerOpen(false)}
-                isOwner={showData?.user_id === user?.id}
+                isOwner={showOwnerId === user?.id}
             />
         </div>
     );
