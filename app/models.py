@@ -698,6 +698,12 @@ class EmailTemplate(BaseModel):
     name: str
     subject: str
     body: str
+
+class BulkEmailRequest(BaseModel):
+    recipient_ids: List[uuid.UUID]
+    category: str
+    subject: str
+    body: str
     is_default: bool
     created_at: datetime
 

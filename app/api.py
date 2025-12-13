@@ -491,6 +491,7 @@ ALL_FEATURES = [
     {"key": "hours_tracking", "name": "Hours Tracking"},
     {"key": "global_feedback_button", "name": "Global Feedback Button"},
     {"key": "switch_config", "name": "Switch Configuration"},
+    {"key": "communications", "name": "Communications Suite"},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:

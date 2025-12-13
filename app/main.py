@@ -30,6 +30,7 @@ from app.routers.switch_admin import router as switch_admin_router
 from app.routers.switch_config import router as switch_config_router
 from app.routers.switch_agent import router as switch_agent_router
 from app.routers.notes import router as notes_router
+from app.routers.communications import router as communications_router
 
 
 app = FastAPI(
@@ -72,6 +73,7 @@ app.include_router(switch_admin_router, prefix="/api/v1")
 app.include_router(switch_config_router, prefix="/api/v1")
 app.include_router(switch_agent_router, prefix="/api/v1")
 app.include_router(notes_router, prefix="/api/v1")
+app.include_router(communications_router, prefix="/api/communications", tags=["Communications"])
 
 app.include_router(api_router, prefix="/api")
 
