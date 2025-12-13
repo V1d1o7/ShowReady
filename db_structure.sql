@@ -6881,3 +6881,25 @@ WITH CHECK (
      JOIN public.shows s ON sc.show_id = s.id
   WHERE ((sc.id = daily_hours.show_crew_id) AND (s.user_id = auth.uid()))))
 );
+-- 1. Add tags to roster
+ALTER TABLE public.roster ADD COLUMN tags text[] DEFAULT '{}';
+
+-- 2. Create Email Templates table
+CREATE TABLE public.email_templates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    category text NOT NULL CHECK (category IN ('ROSTER', 'CREW', 'HOURS', 'GENERAL')),
+    name text NOT NULL,
+    subject text NOT NULL,
+    body text NOT NULL, -- Stores the Full HTML string
+    is_default boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT email_templates_pkey PRIMARY KEY (id),
+    CONSTRAINT email_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
+);
+
+-- 3. RLS Policies
+ALTER TABLE public.email_templates ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage their own templates" ON public.email_templates
+    USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

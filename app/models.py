@@ -65,10 +65,16 @@ class ShowInfo(BaseModel):
     logo_path: Optional[str] = None
     production_video: Optional[str] = None
     show_pm_name: Optional[str] = None
+    show_pm_first_name: Optional[str] = None
+    show_pm_last_name: Optional[str] = None
     show_pm_email: Optional[str] = None
     show_td_name: Optional[str] = None
+    show_td_first_name: Optional[str] = None
+    show_td_last_name: Optional[str] = None
     show_td_email: Optional[str] = None
     show_designer_name: Optional[str] = None
+    show_designer_first_name: Optional[str] = None
+    show_designer_last_name: Optional[str] = None
     show_designer_email: Optional[str] = None
     ot_daily_threshold: Optional[float] = 10.0
     ot_weekly_threshold: Optional[float] = 40.0
@@ -158,6 +164,7 @@ class RosterMemberBase(BaseModel):
     phone_number: Optional[str] = None
     email: Optional[str] = None
     position: Optional[str] = None
+    tags: List[str] = []
 
 class RosterMemberCreate(RosterMemberBase):
     pass
@@ -683,3 +690,20 @@ class AgentApiKeyWithKey(AgentApiKey):
 
 class AgentPublicKeyUpload(BaseModel):
     public_key: str
+# --- Email Template Models ---
+class EmailTemplate(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    category: str
+    name: str
+    subject: str
+    body: str
+    is_default: bool
+    created_at: datetime
+
+class EmailTemplateCreate(BaseModel):
+    category: str
+    name: str
+    subject: str
+    body: str
+
