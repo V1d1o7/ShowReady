@@ -699,17 +699,15 @@ class EmailTemplate(BaseModel):
     subject: str
     body: str
 
+# FIX: Removed is_default and created_at to match frontend payload
 class BulkEmailRequest(BaseModel):
     recipient_ids: List[uuid.UUID]
     category: str
     subject: str
     body: str
-    is_default: bool
-    created_at: datetime
 
 class EmailTemplateCreate(BaseModel):
     category: str
     name: str
     subject: str
     body: str
-

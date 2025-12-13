@@ -16,6 +16,8 @@ const TemplateManager = () => {
     const [activeTab, setActiveTab] = useState(TABS[0]);
     const [templates, setTemplates] = useState([]);
     const [selectedTemplate, setSelectedTemplate] = useState(null);
+    // Fix: Add a dedicated flag for creation mode so renaming doesn't close the view
+    const [isCreating, setIsCreating] = useState(false);
     const [templateName, setTemplateName] = useState('');
     const [templateSubject, setTemplateSubject] = useState('');
     const [templateBody, setTemplateBody] = useState('');
@@ -25,7 +27,12 @@ const TemplateManager = () => {
         try {
             const data = await api.getEmailTemplates(activeTab);
             setTemplates(data);
+            // Reset states when fetching/refreshing
             setSelectedTemplate(null);
+            setIsCreating(false);
+            setTemplateName('');
+            setTemplateSubject('');
+            setTemplateBody('');
         } catch (error) {
             toast.error(`Failed to fetch templates: ${error.message}`);
         }
@@ -40,19 +47,19 @@ const TemplateManager = () => {
             setTemplateName(selectedTemplate.name);
             setTemplateSubject(selectedTemplate.subject);
             setTemplateBody(selectedTemplate.body);
-        } else {
-            setTemplateName('');
-            setTemplateSubject('');
-            setTemplateBody('');
+            // Ensure creation mode is off when selecting an existing template
+            setIsCreating(false);
         }
     }, [selectedTemplate]);
 
     const handleSelectTemplate = (template) => {
+        setIsCreating(false);
         setSelectedTemplate(template);
     };
 
     const handleNewTemplate = () => {
         setSelectedTemplate(null);
+        setIsCreating(true); // Enable creation mode
         setTemplateName('New Template');
         setTemplateSubject('');
         setTemplateBody('<p>Start writing your template here.</p>');
@@ -163,7 +170,8 @@ const TemplateManager = () => {
                 </aside>
                 
                 <main className="w-3/4">
-                    {selectedTemplate || templateName === 'New Template' ? (
+                    {/* Fix: Check isCreating flag so the form doesn't disappear when renaming */}
+                    {selectedTemplate || isCreating ? (
                         <div className="space-y-4">
                             <InputField label="Template Name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
                             <InputField label="Email Subject" value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} />

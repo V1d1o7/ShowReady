@@ -13,6 +13,7 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category }) => {
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [templates, setTemplates] = useState([]);
     const [showPreview, setShowPreview] = useState(false);
+    const [isSending, setIsSending] = useState(false); // Fix: Add sending state
 
     useEffect(() => {
         if (isOpen) {
@@ -29,6 +30,7 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category }) => {
             setSelectedTemplate('');
             setTemplates([]);
             setShowPreview(false);
+            setIsSending(false);
         }
     }, [isOpen, category]);
 
@@ -75,6 +77,8 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category }) => {
         }
 
         const recipientIds = recipients.map(r => r.id);
+        setIsSending(true); // Fix: Start sending state
+        const toastId = toast.loading("Sending emails..."); // Fix: Add loading toast
 
         try {
             await api.sendCommunication({
@@ -83,10 +87,12 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category }) => {
                 recipient_ids: recipientIds,
                 category,
             });
-            toast.success('Email sent successfully!');
+            toast.success('Email sent successfully!', { id: toastId });
             onClose();
         } catch (error) {
-            toast.error(`Failed to send email: ${error.message}`);
+            toast.error(`Failed to send email: ${error.message}`, { id: toastId });
+        } finally {
+            setIsSending(false); // Fix: End sending state
         }
     };
 
@@ -107,7 +113,13 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category }) => {
                 </div>
                 <div className="mt-6 flex justify-between">
                     <button onClick={() => setShowPreview(true)} className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white">Preview</button>
-                    <button onClick={handleSendEmail} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">Send Email</button>
+                    <button 
+                        onClick={handleSendEmail} 
+                        disabled={isSending}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isSending ? 'Sending...' : 'Send Email'}
+                    </button>
                 </div>
             </Modal>
 

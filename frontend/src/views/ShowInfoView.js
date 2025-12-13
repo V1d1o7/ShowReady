@@ -20,13 +20,10 @@ const ShowInfoView = () => {
     useEffect(() => {
       if (showData && showData.info) {
         const info = showData.info;
-        // Initialize form data directly from the nested objects, providing fallbacks.
-        setFormData({
-            ...info,
-            pm: info.pm || { first_name: '', last_name: '', email: '' },
-            td: info.td || { first_name: '', last_name: '', email: '' },
-            designer: info.designer || { first_name: '', last_name: '', email: '' },
-        });
+        // Fix: Load info directly. The backend uses flat keys (e.g., show_pm_first_name)
+        // defined in models.py, not nested objects.
+        setFormData(info);
+        
         setHasNotes(showData.has_notes || false);
 
         if (info.logo_path) {
@@ -56,12 +53,8 @@ const ShowInfoView = () => {
   
     const handleChange = (e) => {
         const { name, value } = e.target;
-        if (name.includes('.')) {
-            const [role, field] = name.split('.');
-            setFormData(prev => ({ ...prev, [role]: { ...prev[role], [field]: value }}));
-        } else {
-            setFormData(prev => ({ ...prev, [name]: value }));
-        }
+        // Fix: We can simplify this since we are using flat keys now.
+        setFormData(prev => ({ ...prev, [name]: value }));
     };
   
     const handleLogoUpload = async (e) => {
@@ -84,8 +77,6 @@ const ShowInfoView = () => {
   
     const handleSave = (dataToSave = formData) => {
       if (showData) {
-        // The API expects the nested structure, so no transformation is needed.
-        // Just pass the `info` object containing the nested `pm`, `td`, `designer` objects.
         onSave({ ...showData, info: dataToSave });
       }
     };
@@ -101,18 +92,28 @@ const ShowInfoView = () => {
             <InputField label="Show Name" name="show_name" value={formData.show_name || ''} onChange={handleChange} />
             <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Production Manager</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><InputField label="First Name" name="pm.first_name" value={formData.pm?.first_name || ''} onChange={handleChange} /><InputField label="Last Name" name="pm.last_name" value={formData.pm?.last_name || ''} onChange={handleChange} /></div>
-                <InputField label="PM Email" name="pm.email" type="email" value={formData.pm?.email || ''} onChange={handleChange} wrapperClassName="mt-4" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Fix: Updated names to match models.py (show_pm_first_name, etc.) */}
+                    <InputField label="First Name" name="show_pm_first_name" value={formData.show_pm_first_name || ''} onChange={handleChange} />
+                    <InputField label="Last Name" name="show_pm_last_name" value={formData.show_pm_last_name || ''} onChange={handleChange} />
+                </div>
+                <InputField label="PM Email" name="show_pm_email" type="email" value={formData.show_pm_email || ''} onChange={handleChange} wrapperClassName="mt-4" />
             </div>
             <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Technical Director</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><InputField label="First Name" name="td.first_name" value={formData.td?.first_name || ''} onChange={handleChange} /><InputField label="Last Name" name="td.last_name" value={formData.td?.last_name || ''} onChange={handleChange} /></div>
-                <InputField label="TD Email" name="td.email" type="email" value={formData.td?.email || ''} onChange={handleChange} wrapperClassName="mt-4" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InputField label="First Name" name="show_td_first_name" value={formData.show_td_first_name || ''} onChange={handleChange} />
+                    <InputField label="Last Name" name="show_td_last_name" value={formData.show_td_last_name || ''} onChange={handleChange} />
+                </div>
+                <InputField label="TD Email" name="show_td_email" type="email" value={formData.show_td_email || ''} onChange={handleChange} wrapperClassName="mt-4" />
             </div>
             <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Designer</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4"><InputField label="First Name" name="designer.first_name" value={formData.designer?.first_name || ''} onChange={handleChange} /><InputField label="Last Name" name="designer.last_name" value={formData.designer?.last_name || ''} onChange={handleChange} /></div>
-                <InputField label="Designer Email" name="designer.email" type="email" value={formData.designer?.email || ''} onChange={handleChange} wrapperClassName="mt-4" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InputField label="First Name" name="show_designer_first_name" value={formData.show_designer_first_name || ''} onChange={handleChange} />
+                    <InputField label="Last Name" name="show_designer_last_name" value={formData.show_designer_last_name || ''} onChange={handleChange} />
+                </div>
+                <InputField label="Designer Email" name="show_designer_email" type="email" value={formData.show_designer_email || ''} onChange={handleChange} wrapperClassName="mt-4" />
             </div>
             <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
           </Card>

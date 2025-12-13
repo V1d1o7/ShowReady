@@ -386,7 +386,7 @@ export const api = {
         body: JSON.stringify(payload),
     }).then(handleResponse),
 
-    // --- Admin Sender Identity Endpoints ---
+    // --- Sender Identity Endpoints ---
     getSenderIdentities: async () => fetch('/api/admin/senders', { headers: await getAuthHeader() }).then(handleResponse),
     createSenderIdentity: async (data) => fetch('/api/admin/senders', {
         method: 'POST',
@@ -396,6 +396,37 @@ export const api = {
     deleteSenderIdentity: async (id) => fetch(`/api/admin/senders/${id}`, {
         method: 'DELETE',
         headers: await getAuthHeader()
+    }).then(handleResponse),
+
+    // --- Email Templates ---
+    getEmailTemplates: async (category) => {
+        const url = category ? `/api/communications/templates?category=${encodeURIComponent(category)}` : '/api/communications/templates';
+        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
+    },
+    createEmailTemplate: async (data) => fetch('/api/communications/templates', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+    updateEmailTemplate: async (id, data) => fetch(`/api/communications/templates/${id}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+    deleteEmailTemplate: async (id) => fetch(`/api/communications/templates/${id}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader()
+    }),
+    restoreDefaultEmailTemplates: async () => fetch('/api/communications/templates/restore', {
+        method: 'POST',
+        headers: await getAuthHeader()
+    }).then(handleResponse),
+    
+    // Fix: Added missing sendCommunication method
+    sendCommunication: async (payload) => fetch('/api/communications/send', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(payload),
     }).then(handleResponse),
 
     // --- Admin RBAC Endpoints ---

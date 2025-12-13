@@ -34,8 +34,9 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags }) => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleTagsChange = (selectedTags) => {
-        setFormData(prev => ({ ...prev, tags: selectedTags }));
+    // Fix: We now receive strings directly from MultiSelect because we passed strings in.
+    const handleTagsChange = (newTags) => {
+        setFormData(prev => ({ ...prev, tags: newTags }));
     };
 
     const handleSubmit = (e) => {
@@ -43,7 +44,7 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags }) => {
         onSubmit(formData);
     };
 
-    // Safeguard against undefined prop
+    // Prepare options for the select menu
     const tagOptions = Array.isArray(allTags) ? allTags.map(tag => ({ value: tag, label: tag })) : [];
 
     return (
@@ -57,12 +58,18 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags }) => {
                 <InputField type="email" name="email" placeholder="Email" value={formData.email || ''} onChange={handleChange} />
                 <InputField type="tel" name="phone_number" placeholder="Phone Number" value={formData.phone_number || ''} onChange={handleChange} />
                 
+                {/* MultiSelect Update:
+                    - We pass `value` as an array of strings (formData.tags).
+                    - We pass `isCreatable={true}` to allow typing new tags.
+                    - MultiSelect will detect we passed strings and return strings in onChange.
+                */}
                 <MultiSelect
                     label="Tags"
                     options={tagOptions}
-                    value={formData.tags || []}
+                    value={formData.tags || []} 
                     onChange={handleTagsChange}
                     isCreatable={true}
+                    placeholder="Select or type to create tags..."
                 />
                 
                 <div className="mt-6 flex justify-end gap-4">

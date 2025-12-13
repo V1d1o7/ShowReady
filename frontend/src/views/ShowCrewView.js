@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { Mail, Plus } from 'lucide-react';
+import { Toaster } from 'react-hot-toast'; // Fix: Import Toaster
 import RosterModal from '../components/RosterModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import AddCrewFromRosterModal from '../components/AddCrewFromRosterModal';
@@ -96,6 +97,9 @@ const ShowCrewView = () => {
 
     return (
         <div className="p-4 sm:p-6 lg:p-8">
+            {/* Fix: Add Toaster here so notifications can appear */}
+            <Toaster position="bottom-center" />
+
             <header className="flex items-center justify-between pb-4 border-b border-gray-700">
                 <h2 className="text-2xl font-bold text-white">Show Crew</h2>
                 <div className="flex items-center gap-4">
