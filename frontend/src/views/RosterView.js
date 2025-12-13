@@ -1,28 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/api';
-import { Plus, MessageSquare, Edit, Trash2 } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail } from 'lucide-react';
 import RosterModal from '../components/RosterModal';
-import useHotkeys from '../hooks/useHotkeys';
-import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
+import EmailComposeModal from '../components/EmailComposeModal';
 import ConfirmationModal from '../components/ConfirmationModal';
-import { useShow } from '../contexts/ShowContext';
-import { useAuth } from '../contexts/AuthContext';
+import InputField from '../components/InputField';
 
 const RosterView = () => {
-    const { showId, showData } = useShow() || {};
-    const { user, profile } = useAuth();
     const [roster, setRoster] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
-    const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
-    const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
-
-    const openNotesDrawer = (entityType, entityId) => {
-        setNotesContext({ entityType, entityId });
-        setIsNotesDrawerOpen(true);
-    };
+    const [tagFilter, setTagFilter] = useState('');
+    const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -40,6 +31,25 @@ const RosterView = () => {
         fetchData();
     }, []);
 
+    const allTags = useMemo(() => {
+        const tags = new Set();
+        roster.forEach(member => {
+            if (member.tags) {
+                member.tags.forEach(tag => tags.add(tag));
+            }
+        });
+        return Array.from(tags);
+    }, [roster]);
+
+    const filteredRoster = useMemo(() => {
+        if (!tagFilter) {
+            return roster;
+        }
+        return roster.filter(member =>
+            member.tags && member.tags.some(tag => tag.toLowerCase().includes(tagFilter.toLowerCase()))
+        );
+    }, [roster, tagFilter]);
+
     const handleOpenModal = (member = null) => {
         setEditingMember(member);
         setIsModalOpen(true);
@@ -51,59 +61,58 @@ const RosterView = () => {
     };
 
     const handleSubmitModal = async (formData) => {
-        if (editingMember) {
-            await api.updateRosterMember(editingMember.id, formData);
-        } else {
-            await api.createRosterMember(formData);
+        try {
+            if (editingMember) {
+                await api.updateRosterMember(editingMember.id, formData);
+            } else {
+                await api.createRosterMember(formData);
+            }
+            fetchData();
+        } catch (error) {
+            console.error("Failed to save roster member:", error);
+        } finally {
+            handleCloseModal();
         }
-        fetchData();
-        handleCloseModal();
     };
-
-    useHotkeys({
-        'n': () => handleOpenModal(),
-    });
 
     const handleDeleteMember = (member) => {
         setConfirmModal({
             isOpen: true,
-            message: `Are you sure you want to delete ${member.first_name} ${member.last_name} from the roster? This action cannot be undone.`,
+            message: `Are you sure you want to delete ${member.first_name} ${member.last_name}?`,
             onConfirm: async () => {
-                await api.deleteRosterMember(member.id);
-                fetchData();
-                setConfirmModal({ isOpen: false, message: '', onConfirm: null });
+                try {
+                    await api.deleteRosterMember(member.id);
+                    fetchData();
+                } catch (error) {
+                    console.error("Failed to delete roster member:", error);
+                } finally {
+                    setConfirmModal({ isOpen: false, message: '', onConfirm: null });
+                }
             }
         });
     };
-
-    // Callback function to update the specific roster member's note status in local state
-    const handleNotesUpdated = useCallback((count) => {
-        if (!notesContext.entityId) return;
-        
-        setRoster(prevRoster => {
-            const hasNotes = count > 0;
-            // Check if update is actually needed to prevent unnecessary re-renders
-            // We use String() comparison to be safe against number/string mismatches
-            const memberToUpdate = prevRoster.find(m => String(m.id) === String(notesContext.entityId));
-            
-            if (!memberToUpdate || memberToUpdate.has_notes === hasNotes) {
-                return prevRoster;
-            }
-
-            return prevRoster.map(member => {
-                if (String(member.id) === String(notesContext.entityId)) {
-                    return { ...member, has_notes: hasNotes };
-                }
-                return member;
-            });
-        });
-    }, [notesContext.entityId]);
+    
+    const handleEmailRoster = () => {
+        if (filteredRoster.length > 0) {
+            setIsEmailModalOpen(true);
+        } else {
+            alert("No roster members in the current filter to email.");
+        }
+    };
 
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
             <header className="flex items-center justify-between pb-8 border-b border-gray-700">
                 <h1 className="text-3xl font-bold text-white">Global Roster</h1>
                 <div className="flex items-center gap-4">
+                    <InputField
+                        placeholder="Filter by tag..."
+                        value={tagFilter}
+                        onChange={(e) => setTagFilter(e.target.value)}
+                    />
+                    <button onClick={handleEmailRoster} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
+                        <Mail size={18} /> Email Roster
+                    </button>
                     <button onClick={() => handleOpenModal()} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">
                         <Plus size={18} /> New Member
                     </button>
@@ -117,35 +126,27 @@ const RosterView = () => {
                         <table className="min-w-full divide-y divide-gray-700">
                             <thead className="bg-gray-800">
                                 <tr>
-                                    <th scope="col" className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-white sm:pl-6">Name</th>
-                                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-white">Position</th>
-                                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-white">Email</th>
-                                    <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-white">Phone</th>
-                                    <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6"><span className="sr-only">Edit</span></th>
+                                    <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-white sm:pl-6">Name</th>
+                                    <th className="px-3 py-3.5 text-left text-sm font-semibold text-white">Position</th>
+                                    <th className="px-3 py-3.5 text-left text-sm font-semibold text-white">Tags</th>
+                                    <th className="px-3 py-3.5 text-left text-sm font-semibold text-white">Email</th>
+                                    <th className="relative py-3.5 pl-3 pr-4 sm:pr-6"><span className="sr-only">Actions</span></th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-800 bg-gray-900">
-                                {roster.map(member => (
+                                {filteredRoster.map(member => (
                                     <tr key={member.id}>
-                                        <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{`${member.first_name || ''} ${member.last_name || ''}`}</td>
-                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.position}</td>
-                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.email}</td>
-                                        <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-300">{member.phone_number}</td>
-                                        <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                                            {profile?.permitted_features?.includes('contextual_notes') && (
-                                                <button 
-                                                    onClick={() => openNotesDrawer('roster_member', member.id)} 
-                                                    className="relative text-gray-400 hover:text-blue-400 mr-4 inline-flex items-center transition-colors"
-                                                    title="Notes"
-                                                >
-                                                    <MessageSquare size={20} />
-                                                    {member.has_notes && (
-                                                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
-                                                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-                                                        </span>
-                                                    )}
-                                                </button>
-                                            )}
+                                        <td className="py-4 pl-4 pr-3 text-sm font-medium text-white sm:pl-6">{`${member.first_name || ''} ${member.last_name || ''}`}</td>
+                                        <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
+                                        <td className="px-3 py-4 text-sm text-gray-300">
+                                            <div className="flex flex-wrap gap-1">
+                                                {member.tags?.map(tag => (
+                                                    <span key={tag} className="px-2 py-0.5 text-xs rounded-full bg-gray-700 text-amber-300">{tag}</span>
+                                                ))}
+                                            </div>
+                                        </td>
+                                        <td className="px-3 py-4 text-sm text-gray-300">{member.email}</td>
+                                        <td className="py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                                             <button onClick={() => handleOpenModal(member)} className="p-1 text-gray-400 hover:text-amber-400"><Edit size={16} /></button>
                                             <button onClick={() => handleDeleteMember(member)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={16} /></button>
                                         </td>
@@ -161,7 +162,13 @@ const RosterView = () => {
                 onClose={handleCloseModal}
                 onSubmit={handleSubmitModal}
                 member={editingMember}
-                customFields={[]}
+                allTags={allTags}
+            />
+            <EmailComposeModal
+                isOpen={isEmailModalOpen}
+                onClose={() => setIsEmailModalOpen(false)}
+                recipients={filteredRoster}
+                category="ROSTER"
             />
             {confirmModal.isOpen && (
                 <ConfirmationModal
@@ -170,15 +177,6 @@ const RosterView = () => {
                     onCancel={() => setConfirmModal({ isOpen: false, message: '', onConfirm: null })}
                 />
             )}
-            <ContextualNotesDrawer
-                entityType={notesContext.entityType}
-                entityId={notesContext.entityId}
-                showId={showId}
-                isOpen={isNotesDrawerOpen}
-                onClose={() => setIsNotesDrawerOpen(false)}
-                isOwner={showData?.user_id === user?.id}
-                onNotesUpdated={handleNotesUpdated}
-            />
         </div>
     );
 };

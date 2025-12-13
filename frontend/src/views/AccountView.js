@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Save, Trash2, KeyRound, UploadCloud, Download } from 'lucide-react';
+import { Save, Trash2, KeyRound, UploadCloud, Download, Mail, Settings } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { LayoutContext } from '../contexts/LayoutContext';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -188,6 +188,15 @@ const AccountView = () => {
                 </div>
             </header>
             <main className="space-y-8">
+                <Card>
+                    <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><Mail size={20} /> Communications Suite</h2>
+                    <p className="text-gray-400 mb-4">
+                        Manage your email templates for communicating with roster members, show crew, and sending reports.
+                    </p>
+                    <Link to="/settings/templates" className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">
+                        <Settings size={16} /> Manage Templates
+                    </Link>
+                </Card>
                  <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">ShowReady Local Agent</h2>
                     <p className="text-gray-400 mb-4">

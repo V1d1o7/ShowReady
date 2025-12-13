@@ -38,6 +38,7 @@ import RosterView from './views/RosterView';
 import ShowCrewView from './views/ShowCrewView';
 import HoursTrackingView from './views/HoursTrackingView';
 import SwitchConfigView from './views/SwitchConfigView';
+import TemplateManager from './views/settings/TemplateManager';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -158,6 +159,7 @@ const MainLayout = ({ session }) => {
                                     </Route>
                                     <Route path="/account" element={<AccountView />} />
                                     <Route path="/sso-setup" element={<AdvancedSSOView />} />
+                                    <Route path="/settings/templates" element={<ProtectedRoute><TemplateManager /></ProtectedRoute>} />
                                     <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
                                         <Route index element={<Navigate to="equipment" replace />} />
                                         <Route path="equipment" element={<EquipmentLibraryView />} />
