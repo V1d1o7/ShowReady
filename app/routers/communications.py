@@ -44,129 +44,228 @@ async def delete_email_template(template_id: uuid.UUID, user=Depends(get_user), 
 
 @router.post("/templates/restore", tags=["Communications"])
 async def restore_default_email_templates(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Restores default email templates for the user."""
+    """Restores default email templates for the user with branded color coding."""
     
     # 1. Delete existing defaults to prevent duplicates
     supabase.table('email_templates').delete().eq('user_id', str(user.id)).eq('is_default', True).execute()
 
-    # 2. Define Defaults. 
-    # NOTE: The body is a 'Fragment' (just the tables) so Tiptap doesn't strip the tags.
-    # The 'align="center"' and 'margin: 0 auto' on the inner table is the key fix for centering.
+    # --- SHARED DESIGN VARIABLES ---
+    bg_main = "#111827"   # gray-900
+    bg_card = "#1F2937"   # gray-800
+    text_white = "#F9FAFB"
+    text_gray = "#D1D5DB"
+    text_muted = "#9CA3AF"
+    
+    # Category Accents
+    color_roster = "#14B8A6" # Teal/Cyan (Recruitment)
+    color_crew = "#3B82F6"   # Blue (Operations)
+    color_hours = "#F59E0B"  # Amber/Gold (Finance)
+
+    # 2. Define Defaults
     defaults = [
+        # -------------------------------------------------------------------------
+        # 1. ROSTER TEMPLATE (TEAL)
+        # -------------------------------------------------------------------------
         {
             "user_id": str(user.id),
             "category": "ROSTER",
             "name": "Default Roster Email",
-            "subject": "Availability Check: {{showName}}", 
-            "body": """
-<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;">
+            "subject": "Availability Check: {{showName}}",
+            "body": f"""
+<table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main};">
+  <tbody>
     <tr>
-      <td align="center" style="padding: 40px 10px;">
-        
-        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); margin: 0 auto;">
-          
-          <tr><td height="6" style="background-color: #14b8a6;"></td></tr>
-
-          <tr>
-            <td style="padding: 30px 40px; border-bottom: 1px solid #374151;">
-              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">Availability Check</h1>
-              <p style="color: #14b8a6; margin: 5px 0 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">{{showName}}</p>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="padding: 40px;">
-              
-              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
-                Hey <strong>{{firstName}}</strong>,
-              </p>
-              
-              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">
-                We've got a <strong>[Type of Call]</strong> for <strong>{{showName}}</strong> coming up and we are looking for <strong>[Number]</strong> people. Details are below - partial availability is ok!
-              </p>
-
-              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #111827; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;">
-                <tr>
-                  <td style="padding: 25px;">
-                    
-                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
-                      <tr>
-                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">What:</td>
-                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Type of Call]</td>
-                      </tr>
-                    </table>
-
-                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
-                      <tr>
-                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">When:</td>
-                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">{{schedule}}</td>
-                      </tr>
-                    </table>
-
-                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
-                      <tr>
-                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Where:</td>
-                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Location / Address]</td>
-                      </tr>
-                    </table>
-
-                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                      <tr>
-                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Rate:</td>
-                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Rate Info]</td>
-                      </tr>
-                    </table>
-
-                  </td>
-                </tr>
-              </table>
-
-              <table width="100%" border="0" cellspacing="0" cellpadding="0">
-                <tr>
-                  <td align="center">
-                    <a href="mailto:?subject=Available: {{showName}}&body=Hi, I am available." style="background-color: #14b8a6; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">I'm Available</a>
-                  </td>
-                </tr>
-                <tr>
-                  <td align="center" style="padding-top: 20px;">
-                    <a href="mailto:?subject=Decline: {{showName}}&body=Hi, I am unavailable for this one." style="color: #6b7280; font-size: 14px; text-decoration: none;">Unavailable / Decline</a>
-                  </td>
-                </tr>
-              </table>
-
-            </td>
-          </tr>
-
-          <tr>
-            <td style="background-color: #111827; padding: 20px; text-align: center; border-top: 1px solid #374151;">
-              <p style="color: #4b5563; font-size: 12px; margin: 0;">
-                Powered by ShowReady
-              </p>
-            </td>
-          </tr>
-
+      <td colspan="1" rowspan="1" align="center" style="padding: 40px 10px;">
+        <table cellpadding="0" cellspacing="0" width="600" border="0" align="center" draggable="false" style="background-color: {bg_card}; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); margin: 0px auto;">
+          <tbody>
+            <tr><td colspan="1" rowspan="1" style="background-color: {color_roster}; height: 6px;"></td></tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 30px 40px; border-bottom: 1px solid #374151;">
+                <h1 style="color: {text_white}; margin: 0px; font-size: 24px; font-weight: 700;"><strong>Availability Check</strong></h1>
+                <p style="color: {color_roster}; margin: 5px 0px 0px; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;"><strong>{{{{showName}}}}</strong></p>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 40px;">
+                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hey {{{{firstName}}}},</p>
+                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">We have an upcoming call for <strong>{{{{showName}}}}</strong> and are looking for crew. Details below:</p>
+                
+                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main}; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;">
+                  <tbody>
+                    <tr>
+                      <td colspan="1" rowspan="1" style="padding: 25px;">
+                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
+                           <tr>
+                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">WHAT:</td>
+                             <td style="color: {text_white}; font-size: 15px;">[Type of Call]</td>
+                           </tr>
+                        </table>
+                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
+                           <tr>
+                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">WHEN:</td>
+                             <td style="color: {text_white}; font-size: 15px;">{{{{schedule}}}}</td>
+                           </tr>
+                        </table>
+                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
+                           <tr>
+                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">WHERE:</td>
+                             <td style="color: {text_white}; font-size: 15px;">[Location / Venue]</td>
+                           </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                
+                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
+                  <tbody>
+                    <tr>
+                      <td align="center">
+                        <a href="mailto:{{{{replyToEmail}}}}?subject=Available: {{{{showName}}}}&body=I am available." style="background-color: {color_roster}; color: {text_white}; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">I'm Available</a>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="center" style="padding-top: 20px;">
+                        <a href="mailto:{{{{replyToEmail}}}}?subject=Decline: {{{{showName}}}}" style="color: #6B7280; font-size: 14px; text-decoration: none;">Decline / Unavailable</a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="background-color: {bg_main}; padding: 20px; text-align: center; border-top: 1px solid #374151;">
+                <p style="color: #4B5563; font-size: 12px; margin: 0px;">Powered by ShowReady</p>
+              </td>
+            </tr>
+          </tbody>
         </table>
-        
       </td>
     </tr>
-  </table>
+  </tbody>
+</table>
 """,
             "is_default": True
         },
+        # -------------------------------------------------------------------------
+        # 2. CREW TEMPLATE (BLUE)
+        # -------------------------------------------------------------------------
         {
             "user_id": str(user.id),
             "category": "CREW",
-            "name": "Default Crew Email", 
-            "subject": "Crew Assignment", 
-            "body": '<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Hello {{firstName}},</h2><p>You have been assigned the position of <strong>{{position}}</strong> for {{showName}}.</p></div>',
+            "name": "Default Crew Email",
+            "subject": "Crew Assignment: {{showName}}",
+            "body": f"""
+<table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main};">
+  <tbody>
+    <tr>
+      <td colspan="1" rowspan="1" align="center" style="padding: 40px 10px;">
+        <table cellpadding="0" cellspacing="0" width="600" border="0" align="center" draggable="false" style="background-color: {bg_card}; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); margin: 0px auto;">
+          <tbody>
+            <tr><td colspan="1" rowspan="1" style="background-color: {color_crew}; height: 6px;"></td></tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 30px 40px; border-bottom: 1px solid #374151;">
+                <h1 style="color: {text_white}; margin: 0px; font-size: 24px; font-weight: 700;"><strong>Crew Assignment</strong></h1>
+                <p style="color: {color_crew}; margin: 5px 0px 0px; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;"><strong>{{{{showName}}}}</strong></p>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 40px;">
+                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hi {{{{firstName}}}},</p>
+                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">You have been confirmed for the following position. Please review the details below:</p>
+                
+                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main}; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;">
+                  <tbody>
+                    <tr>
+                      <td colspan="1" rowspan="1" style="padding: 25px;">
+                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
+                           <tr>
+                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">ROLE:</td>
+                             <td style="color: {text_white}; font-size: 15px;"><strong>{{{{position}}}}</strong></td>
+                           </tr>
+                        </table>
+                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
+                           <tr>
+                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">CALL TIME:</td>
+                             <td style="color: {text_white}; font-size: 15px;">[Insert Call Time]</td>
+                           </tr>
+                        </table>
+                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
+                           <tr>
+                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">NOTES:</td>
+                             <td style="color: {text_white}; font-size: 15px;">Please bring standard kit.</td>
+                           </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                
+                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
+                  <tbody>
+                    <tr>
+                      <td align="center">
+                        <a href="mailto:{{{{replyToEmail}}}}?subject=Received: {{{{showName}}}}" style="background-color: {color_crew}; color: {text_white}; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Confirm Receipt</a>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="background-color: {bg_main}; padding: 20px; text-align: center; border-top: 1px solid #374151;">
+                <p style="color: #4B5563; font-size: 12px; margin: 0px;">Powered by ShowReady</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  </tbody>
+</table>
+""",
             "is_default": True
         },
+        # -------------------------------------------------------------------------
+        # 3. HOURS TEMPLATE (AMBER)
+        # -------------------------------------------------------------------------
         {
             "user_id": str(user.id),
             "category": "HOURS",
-            "name": "Default Hours Email", 
-            "subject": "Timesheet Review", 
-            "body": '<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Hello {{firstName}},</h2><p>Please review your hours for the week of {{weekStartDate}}. Reach out to your PM if you have questions.</p></div>',
+            "name": "Default Hours Email",
+            "subject": "{{showName}} Timesheet Report",
+            "body": f"""
+<table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main};">
+  <tbody>
+    <tr>
+      <td colspan="1" rowspan="1" align="center" style="padding: 40px 10px;">
+        <table cellpadding="0" cellspacing="0" width="600" border="0" align="center" draggable="false" style="background-color: {bg_card}; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); margin: 0px auto;">
+          <tbody>
+            <tr><td colspan="1" rowspan="1" style="background-color: {color_hours}; height: 6px;"></td></tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 30px 40px; border-bottom: 1px solid #374151;">
+                <h1 style="color: {text_white}; margin: 0px; font-size: 24px; font-weight: 700;"><strong>Timesheet Report</strong></h1>
+                <p style="color: {color_hours}; margin: 5px 0px 0px; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;"><strong>{{{{showName}}}}</strong></p>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 40px;">
+                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hello {{{{firstName}}}},</p>
+                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">Please find the timesheet for the week of {{{{weekStart}}}} attached.</p>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="background-color: {bg_main}; padding: 20px; text-align: center; border-top: 1px solid #374151;">
+                <p style="color: #4B5563; font-size: 12px; margin: 0px;">Powered by ShowReady</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  </tbody>
+</table>
+""",
             "is_default": True
         },
     ]
@@ -234,6 +333,10 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
                 else:
                     body = body.replace(placeholder, value)
                     subject = subject.replace(placeholder, value)
+        
+        # Replace {{replyToEmail}} with the user's configured SMTP 'from' address
+        if smtp_settings.from_email:
+            body = body.replace("{{replyToEmail}}", smtp_settings.from_email)
 
         # 4. CRITICAL FIX: Wrap the body if it was stripped by Tiptap (missing <html> tags)
         # This re-applies the DOCTYPE and body styles needed for centering in Outlook/Gmail

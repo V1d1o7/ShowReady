@@ -54,8 +54,6 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
 
     const loadInitialData = async () => {
         try {
-            // REMOVED: Fetching of Admin Sender Identities (getSenderIdentities)
-            
             const templatesData = await api.getEmailTemplates(category);
             setTemplates(templatesData);
             
@@ -104,7 +102,10 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
             const selectedShow = shows.find(s => s.id === parseInt(selectedShowId));
             const showName = selectedShow ? selectedShow.name : '[Show Name]';
             processed = processed.replace(/{{showName}}/g, showName);
-            processed = processed.replace(/{{schedule}}/g, scheduleText || '[Schedule]');
+            
+            // FIX: Convert newlines to <br> tags for HTML rendering
+            const formattedSchedule = (scheduleText || '[Schedule]').replace(/\n/g, '<br>');
+            processed = processed.replace(/{{schedule}}/g, formattedSchedule);
         } 
         else if (category === 'HOURS') {
             processed = processed.replace(/{{weekStartDate}}/g, weekStartDate || '');
@@ -130,8 +131,6 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                     body: finalBody
                 });
             } else {
-                // REMOVED: sender_id from payload. 
-                // The backend automatically uses your User SMTP settings.
                 const payload = {
                     recipient_ids: recipients.map(r => r.id),
                     category: category,
@@ -172,8 +171,6 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                 <div className="p-6 overflow-y-auto space-y-6 flex-1">
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* REMOVED: "From" dropdown selector */}
-                        
                         <div className={category === 'HOURS' ? 'col-span-2' : 'col-span-2'}>
                             <label className="block text-sm font-medium text-gray-400 mb-1">Load Template</label>
                             <select 
@@ -213,10 +210,12 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Schedule / Dates</label>
-                                <InputField 
+                                {/* FIX: Replaced InputField with textarea for multi-line support */}
+                                <textarea 
                                     value={scheduleText}
                                     onChange={(e) => setScheduleText(e.target.value)}
                                     placeholder="e.g. Dec 3, 5, & 13"
+                                    className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500 h-[80px] resize-none font-sans"
                                 />
                             </div>
                         </div>

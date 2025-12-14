@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { Node, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-// NAMED IMPORTS (Fixed the build error)
 import { Link } from '@tiptap/extension-link';
 import { Image } from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
@@ -18,7 +17,6 @@ import InputField from './InputField';
 
 // --- CUSTOM EXTENSIONS TO PRESERVE STYLES ---
 
-// Helper to add 'style' attribute to any node
 const addStyleAttribute = (that) => ({
     ...that.parent?.(),
     style: {
@@ -41,8 +39,13 @@ const CustomHeading = Heading.extend({
     addAttributes() { return addStyleAttribute(this); }
 });
 
-// 3. Custom Table (Critical for Layout)
+// 3. Custom Table - STRICT LOCK
 const CustomTable = Table.extend({
+    // FIX: Removed selectable: false. This allows the cursor to enter the table
+    // structure correctly for text selection.
+    draggable: false,
+    atom: false, 
+
     addAttributes() {
         return {
             ...this.parent?.(),
@@ -54,7 +57,6 @@ const CustomTable = Table.extend({
                     return { style: attributes.style };
                 },
             },
-            // Also preserve common email table attributes
             cellpadding: {
                 default: '0',
                 parseHTML: element => element.getAttribute('cellpadding'),
@@ -81,10 +83,14 @@ const CustomTable = Table.extend({
                 renderHTML: attributes => ({ align: attributes.align }),
             },
         };
+    },
+    renderHTML({ HTMLAttributes }) {
+        // Force browser to ignore dragging this element
+        return ['table', mergeAttributes(HTMLAttributes, { draggable: 'false' }), ['tbody', 0]];
     }
 });
 
-// 4. Custom Table Cell (Critical for Background Colors)
+// 4. Custom Table Cell
 const CustomTableCell = TableCell.extend({
     addAttributes() {
         return {
@@ -116,7 +122,7 @@ const CustomTableCell = TableCell.extend({
     }
 });
 
-// 5. Custom Link (Critical for Buttons)
+// 5. Custom Link
 const CustomLink = Link.extend({
     addAttributes() {
         return {
@@ -133,11 +139,16 @@ const CustomLink = Link.extend({
     }
 });
 
-// 6. Div Extension (Wrapper)
+// 6. Div Extension - STRICT LOCK
 const DivExtension = Node.create({
     name: 'div',
     group: 'block',
     content: 'block+',
+    
+    // FIX: Removed selectable: false.
+    draggable: false,
+    atom: false,
+
     addAttributes() {
         return {
             style: {
@@ -151,7 +162,10 @@ const DivExtension = Node.create({
         };
     },
     parseHTML() { return [{ tag: 'div' }]; },
-    renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes), 0]; },
+    renderHTML({ HTMLAttributes }) { 
+        // Force browser to ignore dragging this element
+        return ['div', mergeAttributes(HTMLAttributes, { draggable: 'false' }), 0]; 
+    },
 });
 
 const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
@@ -166,7 +180,7 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
-                paragraph: false, // Disable default nodes we are replacing
+                paragraph: false,
                 heading: false,
                 code: false, 
             }),
@@ -180,7 +194,8 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
             }),
             Image,
             CustomTable.configure({
-                resizable: true,
+                resizable: false, // Disable resizing handles
+                allowTableNodeSelection: false, // Stop the table from being selected as a block
             }),
             TableRow, 
             TableHeader,
@@ -195,6 +210,8 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
         editorProps: {
             attributes: {
                 class: 'prose dark:prose-invert prose-sm sm:prose-base max-w-none p-4 focus:outline-none min-h-[300px] max-h-[600px] overflow-y-auto bg-gray-900 text-white',
+                // Remove any default outline
+                style: 'outline: none !important;',
             },
         },
     });
@@ -206,9 +223,11 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
     }, [editor, onEditorInstance]);
 
     useEffect(() => {
-        // Prevent infinite loop by checking content equality
-        if (editor && value !== editor.getHTML() && !isSourceMode) {
-            editor.commands.setContent(value);
+        if (editor && !isSourceMode) {
+            const currentContent = editor.getHTML();
+            if (value !== currentContent) {
+                editor.commands.setContent(value);
+            }
         }
     }, [value, editor, isSourceMode]);
 
@@ -279,6 +298,36 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
 
     return (
         <>
+            {/* CSS Overrides to strictly enforce text-editor behavior */}
+            <style>
+                {`
+                    /* Hide the blue "node selected" outline globally within the editor */
+                    .ProseMirror-selectednode {
+                        outline: none !important;
+                        background-color: transparent !important;
+                    }
+                    
+                    /* Force all structural elements to behave like text containers, NOT draggable objects */
+                    .ProseMirror table, 
+                    .ProseMirror tbody, 
+                    .ProseMirror tr, 
+                    .ProseMirror td, 
+                    .ProseMirror div,
+                    .ProseMirror p {
+                        -webkit-user-drag: none;
+                        user-drag: none;
+                        user-select: text !important; 
+                        cursor: text !important; /* Force text cursor so it doesn't look clickable/movable */
+                    }
+
+                    /* Remove resizing handles if they appear */
+                    .column-resize-handle, .prosemirror-resize-handle {
+                        display: none !important;
+                        pointer-events: none !important;
+                    }
+                `}
+            </style>
+
             <div className="border border-gray-700 rounded-lg bg-gray-800">
                 <div className="flex flex-wrap items-center p-2 border-b border-gray-700 gap-1">
                     <ToolbarButton onClick={toggleSourceMode} isActive={isSourceMode} title="Toggle Source Code">
