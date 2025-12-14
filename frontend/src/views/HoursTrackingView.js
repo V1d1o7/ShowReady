@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
-import { Toaster } from 'react-hot-toast'; // Added Toaster import
+import { Toaster } from 'react-hot-toast';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
@@ -23,7 +23,10 @@ const HoursTrackingView = () => {
         const today = new Date();
         const dayOfWeek = today.getDay();
         const startDay = showData?.info?.pay_period_start_day || 0;
-        const diff = today.getDate() - dayOfWeek + startDay;
+        
+        // Calculate the correct start date based on the setting (0-6)
+        const distance = (dayOfWeek - startDay + 7) % 7;
+        const diff = today.getDate() - distance;
         return new Date(today.setDate(diff));
     };
 
@@ -68,13 +71,30 @@ const HoursTrackingView = () => {
     const handleSaveChanges = async () => {
         try {
             await api.updateWeeklyTimesheet(showId, timesheet);
-            fetchTimesheet(); 
+            // Removed fetchTimesheet() here to prevent the table from reloading/blinking
+            // The local state is already up to date.
         } catch (error) { console.error("Failed to save timesheet:", error); }
     };
     
     const handleSaveSettings = async (newSettings) => {
+        // 1. Save settings to backend/context
         await onSave({ info: { ...showData.info, ...newSettings } });
-        fetchTimesheet();
+        
+        // 2. If start day changed, update the view immediately without reload
+        if (newSettings.pay_period_start_day !== undefined) {
+            const newStartDay = parseInt(newSettings.pay_period_start_day, 10);
+            const current = new Date(weekStartDate);
+            const currentDay = current.getDay();
+            
+            // Shift current view to align with new start day
+            const distance = (currentDay - newStartDay + 7) % 7;
+            const newDate = new Date(current);
+            newDate.setDate(current.getDate() - distance);
+            
+            setWeekStartDate(newDate); // Triggers fetchTimesheet via useEffect with new dates
+        } else {
+            fetchTimesheet();
+        }
     };
 
     const handleGeneratePdf = async () => {

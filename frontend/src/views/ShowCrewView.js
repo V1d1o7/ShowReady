@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
-import { Plus, Trash2, Edit, Mail, Check } from 'lucide-react'; // Added Check
+import { Plus, Trash2, Mail, Check } from 'lucide-react';
 import AddCrewFromRosterModal from '../components/AddCrewFromRosterModal';
 import ConfirmationModal from '../components/ConfirmationModal';
-import InputField from '../components/InputField';
 import EmailComposeModal from '../components/EmailComposeModal';
+import useHotkeys from '../hooks/useHotkeys';
 
 const ShowCrewView = () => {
     const { showId } = useShow();
@@ -15,6 +15,11 @@ const ShowCrewView = () => {
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
     const [selectedCrewIds, setSelectedCrewIds] = useState([]);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+
+    // Keyboard Shortcuts
+    useHotkeys({
+        'a': () => setIsAddModalOpen(true)
+    });
 
     const fetchCrew = async () => {
         setIsLoading(true);
@@ -51,7 +56,7 @@ const ShowCrewView = () => {
 
     const handleSelectAll = (e) => {
         if (e.target.checked) {
-            setSelectedCrewIds(crew.map(c => c.roster.id)); // Use roster ID for emailing
+            setSelectedCrewIds(crew.map(c => c.roster.id));
         } else {
             setSelectedCrewIds([]);
         }
