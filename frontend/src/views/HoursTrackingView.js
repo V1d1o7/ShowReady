@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
+import { LayoutContext } from '../contexts/LayoutContext';
 import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import PdfPreviewModal from '../components/PdfPreviewModal';
@@ -11,8 +12,15 @@ import CalculationInfoModal from '../components/CalculationInfoModal';
 import { calculateWeeklyTotals } from '../utils/hoursCalculations';
 
 const HoursTrackingView = () => {
+    const { setShouldScroll } = useContext(LayoutContext);
     const { showId, showData, onSave } = useShow();
     const location = useLocation();
+
+    // Enable scrolling for this view
+    useEffect(() => {
+        setShouldScroll(true);
+        return () => setShouldScroll(false);
+    }, [setShouldScroll]);
 
     const getInitialWeekStartDate = () => {
         const params = new URLSearchParams(location.search);

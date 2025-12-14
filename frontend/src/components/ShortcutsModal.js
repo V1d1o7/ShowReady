@@ -21,6 +21,11 @@ const shortcuts = {
         { action: 'Export', keys: ['E'] },
         { action: 'Email', keys: ['M'] },
     ],
+    "Roster": [
+        { action: 'Add new member', keys: ['N'] },
+        { action: 'Email Roster', keys: ['M'] },
+        { action: 'Focus Search', keys: ['S'] },
+    ],
     "Hours Tracker": [
         { action: 'Open Settings modal', keys: ['S'] },
     ],

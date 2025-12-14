@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import useHotkeys from '../hooks/useHotkeys';
 import InputField from './InputField';
@@ -6,10 +6,21 @@ import MultiSelect from './MultiSelect';
 
 const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags }) => {
     const [formData, setFormData] = useState({});
+    const firstNameRef = useRef(null);
 
     useHotkeys({
         'escape': onClose,
     });
+
+    // Focus the First Name field when the modal opens
+    useEffect(() => {
+        if (isOpen) {
+            // Small timeout ensures the modal is fully rendered before focusing
+            setTimeout(() => {
+                firstNameRef.current?.focus();
+            }, 50);
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         if (member) {
@@ -34,7 +45,6 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags }) => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // Fix: We now receive strings directly from MultiSelect because we passed strings in.
     const handleTagsChange = (newTags) => {
         setFormData(prev => ({ ...prev, tags: newTags }));
     };
@@ -51,18 +61,19 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags }) => {
         <Modal isOpen={isOpen} onClose={onClose} title={member ? "Edit Roster Member" : "Add Roster Member"}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <InputField name="first_name" placeholder="First Name" value={formData.first_name || ''} onChange={handleChange} />
+                    <InputField 
+                        ref={firstNameRef}
+                        name="first_name" 
+                        placeholder="First Name" 
+                        value={formData.first_name || ''} 
+                        onChange={handleChange} 
+                    />
                     <InputField name="last_name" placeholder="Last Name" value={formData.last_name || ''} onChange={handleChange} />
                 </div>
                 <InputField name="position" placeholder="Position" value={formData.position || ''} onChange={handleChange} />
                 <InputField type="email" name="email" placeholder="Email" value={formData.email || ''} onChange={handleChange} />
                 <InputField type="tel" name="phone_number" placeholder="Phone Number" value={formData.phone_number || ''} onChange={handleChange} />
                 
-                {/* MultiSelect Update:
-                    - We pass `value` as an array of strings (formData.tags).
-                    - We pass `isCreatable={true}` to allow typing new tags.
-                    - MultiSelect will detect we passed strings and return strings in onChange.
-                */}
                 <MultiSelect
                     label="Tags"
                     options={tagOptions}

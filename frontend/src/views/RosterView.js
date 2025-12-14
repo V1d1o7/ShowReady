@@ -1,20 +1,31 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { api } from '../api/api';
-import { Plus, Edit, Trash2, Mail } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail, HelpCircle } from 'lucide-react';
 import { Toaster } from 'react-hot-toast'; 
+import { LayoutContext } from '../contexts/LayoutContext';
+import useHotkeys from '../hooks/useHotkeys';
 import RosterModal from '../components/RosterModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import InputField from '../components/InputField';
+import ShortcutsModal from '../components/ShortcutsModal';
 
 const RosterView = () => {
+    const { setShouldScroll } = useContext(LayoutContext);
     const [roster, setRoster] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
-    const [filterText, setFilterText] = useState(''); // Renamed from tagFilter to filterText
+    const [filterText, setFilterText] = useState(''); 
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+
+    // Enable scrolling for this view
+    useEffect(() => {
+        setShouldScroll(true);
+        return () => setShouldScroll(false);
+    }, [setShouldScroll]);
 
     const fetchData = async () => {
         setIsLoading(true);
@@ -42,7 +53,6 @@ const RosterView = () => {
         return Array.from(tags);
     }, [roster]);
 
-    // UPDATED FILTER LOGIC: Search by Name OR Tag
     const filteredRoster = useMemo(() => {
         if (!filterText) {
             return roster;
@@ -102,10 +112,16 @@ const RosterView = () => {
         if (filteredRoster.length > 0) {
             setIsEmailModalOpen(true);
         } else {
-            // Optional: You could use toast here too if preferred
             alert("No roster members in the current filter to email.");
         }
     };
+
+    // Keyboard Shortcuts
+    // 'm' for Email (matches general shortcuts), 'n' for New Member
+    useHotkeys({
+        'n': () => handleOpenModal(),
+        'm': handleEmailRoster
+    });
 
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
@@ -171,6 +187,15 @@ const RosterView = () => {
                     </div>
                 )}
             </main>
+
+            <button
+                onClick={() => setIsShortcutsModalOpen(true)}
+                className="fixed bottom-6 left-6 p-3 bg-gray-800 text-gray-400 hover:text-white rounded-full shadow-lg border border-gray-700 transition-colors z-50 hover:bg-gray-700"
+                title="Shortcuts"
+            >
+                <HelpCircle size={24} />
+            </button>
+
             <RosterModal
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
@@ -183,6 +208,10 @@ const RosterView = () => {
                 onClose={() => setIsEmailModalOpen(false)}
                 recipients={filteredRoster}
                 category="ROSTER"
+            />
+            <ShortcutsModal 
+                isOpen={isShortcutsModalOpen} 
+                onClose={() => setIsShortcutsModalOpen(false)} 
             />
             {confirmModal.isOpen && (
                 <ConfirmationModal
