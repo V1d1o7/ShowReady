@@ -1,132 +1,283 @@
-import React, { useState, useEffect } from 'react';
-import DOMPurify from 'dompurify';
-import { toast } from 'react-hot-toast';
+import React, { useState, useEffect, useCallback } from 'react';
+import { X, Send, Paperclip } from 'lucide-react';
 import { api } from '../api/api';
-import Modal from './Modal';
+import toast from 'react-hot-toast';
 import TiptapEditor from './TiptapEditor';
 import InputField from './InputField';
-import SelectField from './SelectField';
+import useHotkeys from '../hooks/useHotkeys';
 
-const EmailComposeModal = ({ isOpen, onClose, recipients, category }) => {
+// Define available variables for on-the-fly editing
+const VARIABLES = {
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}'],
+    HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
+};
+
+const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, weekStartDate, grandTotals }) => {
+    // Close on Escape key
+    useHotkeys({ 'escape': onClose });
+
+    const [templates, setTemplates] = useState([]);
+    const [selectedTemplateId, setSelectedTemplateId] = useState('');
+    
+    // Core Email Fields
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
-    const [selectedTemplate, setSelectedTemplate] = useState('');
-    const [templates, setTemplates] = useState([]);
-    const [showPreview, setShowPreview] = useState(false);
-    const [isSending, setIsSending] = useState(false); // Fix: Add sending state
+    const [toEmail, setToEmail] = useState(''); 
+    const [senders, setSenders] = useState([]);
+    const [selectedSenderId, setSelectedSenderId] = useState('');
+    const [isSending, setIsSending] = useState(false);
 
+    // Roster Specific
+    const [shows, setShows] = useState([]);
+    const [selectedShowId, setSelectedShowId] = useState(showId || ''); 
+    const [scheduleText, setScheduleText] = useState('');
+
+    // Editor Ref for inserting variables
+    const [editorInstance, setEditorInstance] = useState(null);
+
+    // Load data when opened
     useEffect(() => {
         if (isOpen) {
-            const fetchTemplates = async () => {
-                try {
-                    const fetchedTemplates = await api.getEmailTemplates(category);
-                    setTemplates(fetchedTemplates);
-                } catch (error) { toast.error(`Failed to fetch email templates: ${error.message}`); }
-            };
-            fetchTemplates();
-        } else {
-            setSubject('');
-            setBody('');
-            setSelectedTemplate('');
-            setTemplates([]);
-            setShowPreview(false);
-            setIsSending(false);
+            loadInitialData();
         }
-    }, [isOpen, category]);
+    }, [isOpen, category, showId]);
+
+    const loadInitialData = async () => {
+        try {
+            const sendersData = await api.getSenderIdentities();
+            setSenders(sendersData);
+            if (sendersData.length > 0) setSelectedSenderId(sendersData[0].id);
+
+            const templatesData = await api.getEmailTemplates(category);
+            setTemplates(templatesData);
+            
+            const defaultTemplate = templatesData.find(t => t.is_default) || templatesData[0];
+            if (defaultTemplate) {
+                setSelectedTemplateId(defaultTemplate.id);
+                setSubject(defaultTemplate.subject);
+                setBody(defaultTemplate.body);
+            }
+
+            if (category === 'ROSTER') {
+                const showsData = await api.getShows();
+                setShows(showsData);
+            } else if (category === 'HOURS' && showId) {
+                const showResp = await api.getShow(showId);
+                const pmEmail = showResp.info?.show_pm_email || showResp.data?.info?.show_pm_email || '';
+                setToEmail(pmEmail);
+            }
+
+        } catch (error) {
+            console.error("Failed to load email data:", error);
+            toast.error("Failed to load email configurations.");
+        }
+    };
 
     const handleTemplateChange = (e) => {
         const templateId = e.target.value;
-        setSelectedTemplate(templateId);
+        setSelectedTemplateId(templateId);
         const template = templates.find(t => t.id === templateId);
         if (template) {
             setSubject(template.subject);
             setBody(template.body);
-        } else {
-            setSubject('');
-            setBody('');
         }
     };
-    
-    const generatePreviewHtml = () => {
-        let previewContent = body;
-        const firstRecipient = recipients && recipients.length > 0 ? recipients[0] : {};
 
-        // Use data from the first recipient for a realistic preview, with fallbacks
-        const substitutions = {
-            '{{firstName}}': firstRecipient.first_name || 'John',
-            '{{lastName}}': firstRecipient.last_name || 'Appleseed',
-            '{{position}}': firstRecipient.position || 'Crew Member',
-            '{{email}}': firstRecipient.email || 'test@example.com',
-            '{{showName}}': 'The Big Gig', // Example, would need to be passed in if dynamic
-            '{{pmName}}': 'Jane Doe', // Example
-            '{{weekStartDate}}': new Date().toLocaleDateString(), // Example
-        };
-
-        for (const [variable, value] of Object.entries(substitutions)) {
-            // Use a regex with the 'g' flag to replace all instances
-            previewContent = previewContent.replace(new RegExp(variable, 'g'), value);
+    const insertVariable = (variable) => {
+        if (editorInstance) {
+            editorInstance.chain().focus().insertContent(` ${variable} `).run();
         }
-
-        return DOMPurify.sanitize(previewContent);
     };
 
-    const handleSendEmail = async () => {
-        if (!subject || !body || !recipients || recipients.length === 0) {
-            toast.error('Subject, body, and at least one recipient are required.');
-            return;
+    const processContent = (content) => {
+        let processed = content;
+
+        if (category === 'ROSTER') {
+            const selectedShow = shows.find(s => s.id === parseInt(selectedShowId));
+            const showName = selectedShow ? selectedShow.name : '[Show Name]';
+            processed = processed.replace(/{{showName}}/g, showName);
+            processed = processed.replace(/{{schedule}}/g, scheduleText || '[Schedule]');
+        } 
+        else if (category === 'HOURS') {
+            processed = processed.replace(/{{weekStartDate}}/g, weekStartDate || '');
+            processed = processed.replace(/{{totalCost}}/g, grandTotals ? `$${grandTotals.cost.toFixed(2)}` : '$0.00');
         }
 
-        const recipientIds = recipients.map(r => r.id);
-        setIsSending(true); // Fix: Start sending state
-        const toastId = toast.loading("Sending emails..."); // Fix: Add loading toast
+        return processed;
+    };
+
+    const handleSend = async () => {
+        setIsSending(true);
+        const toastId = toast.loading("Sending emails...");
 
         try {
-            await api.sendCommunication({
-                subject,
-                body,
-                recipient_ids: recipientIds,
-                category,
-            });
-            toast.success('Email sent successfully!', { id: toastId });
+            const finalSubject = processContent(subject);
+            const finalBody = processContent(body);
+
+            if (category === 'HOURS') {
+                const recipient_emails = toEmail.split(',').map(e => e.trim()).filter(e => e);
+                await api.emailTimesheet(showId, weekStartDate, {
+                    recipient_emails,
+                    subject: finalSubject,
+                    body: finalBody
+                });
+            } else {
+                const payload = {
+                    recipient_ids: recipients.map(r => r.id),
+                    category: category,
+                    sender_id: selectedSenderId,
+                    subject: finalSubject,
+                    body: finalBody
+                };
+                await api.sendCommunication(payload);
+            }
+            
+            toast.success("Emails sent successfully!", { id: toastId });
             onClose();
         } catch (error) {
-            toast.error(`Failed to send email: ${error.message}`, { id: toastId });
+            toast.error(`Failed to send: ${error.message}`, { id: toastId });
         } finally {
-            setIsSending(false); // Fix: End sending state
+            setIsSending(false);
         }
     };
 
-    const templateOptions = templates.map(t => ({ value: t.id, label: t.name }));
+    if (!isOpen) return null;
 
     return (
-        <>
-            <Modal isOpen={isOpen} onClose={onClose} title={`Compose Email for ${category}`}>
-                <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-                    <SelectField
-                        label="Select a Template"
-                        value={selectedTemplate}
-                        onChange={handleTemplateChange}
-                        options={[{ value: '', label: 'Start from scratch' }, ...templateOptions]}
-                    />
-                    <InputField label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Email Subject" />
-                    <TiptapEditor value={body} onChange={setBody} placeholder="Write your email here..." />
+        <div 
+            className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
+            onClick={onClose}
+        >
+            <div 
+                className="bg-gray-800 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-gray-700"
+                onClick={e => e.stopPropagation()}
+            >
+                <div className="flex justify-between items-center p-4 border-b border-gray-700">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Send size={20} className="text-amber-400" />
+                        {category === 'HOURS' ? 'Submit Timesheet Report' : 'Compose Email'}
+                    </h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white"><X size={24} /></button>
                 </div>
-                <div className="mt-6 flex justify-between">
-                    <button onClick={() => setShowPreview(true)} className="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white">Preview</button>
+
+                <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {category !== 'HOURS' && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">From</label>
+                                <select 
+                                    value={selectedSenderId} 
+                                    onChange={(e) => setSelectedSenderId(e.target.value)}
+                                    className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
+                                >
+                                    {senders.map(s => <option key={s.id} value={s.id}>{s.name} &lt;{s.email}&gt;</option>)}
+                                </select>
+                            </div>
+                        )}
+                        <div className={category === 'HOURS' ? 'col-span-2' : ''}>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Load Template</label>
+                            <select 
+                                value={selectedTemplateId} 
+                                onChange={handleTemplateChange}
+                                className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
+                            >
+                                <option value="" disabled>Select a template...</option>
+                                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    {category === 'HOURS' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">To</label>
+                            <InputField 
+                                value={toEmail} 
+                                onChange={(e) => setToEmail(e.target.value)} 
+                                placeholder="pm@production.com"
+                            />
+                        </div>
+                    )}
+
+                    {category === 'ROSTER' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-gray-700 pb-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Select Show</label>
+                                <select 
+                                    value={selectedShowId} 
+                                    onChange={(e) => setSelectedShowId(e.target.value)}
+                                    className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:border-amber-500"
+                                >
+                                    <option value="">-- Choose Show --</option>
+                                    {shows.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Schedule / Dates</label>
+                                <InputField 
+                                    value={scheduleText}
+                                    onChange={(e) => setScheduleText(e.target.value)}
+                                    placeholder="e.g. Dec 3, 5, & 13"
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-400 mb-2">Insert Variables</label>
+                        <div className="flex flex-wrap gap-2">
+                            {VARIABLES[category]?.map(variable => (
+                                <button
+                                    key={variable}
+                                    onClick={() => insertVariable(variable)}
+                                    className="px-2 py-1 bg-gray-700 border border-gray-600 text-xs text-amber-400 rounded-md font-mono hover:bg-gray-600 transition-colors"
+                                    title="Click to insert"
+                                >
+                                    {variable}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <InputField 
+                            label="Subject" 
+                            value={subject} 
+                            onChange={(e) => setSubject(e.target.value)} 
+                        />
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Message Body</label>
+                            <TiptapEditor 
+                                value={body} 
+                                onChange={setBody} 
+                                placeholder="Write your message..." 
+                                onEditorInstance={setEditorInstance}
+                            />
+                        </div>
+                    </div>
+
+                    {category === 'HOURS' && (
+                        <div className="flex items-center gap-2 text-blue-300 text-sm">
+                            <Paperclip size={16} />
+                            <span>PDF Attachment: <strong>{`Timesheet - ${weekStartDate}.pdf`}</strong> (Auto-generated)</span>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-4 bg-gray-900 border-t border-gray-700 flex justify-end gap-3 rounded-b-lg">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded font-medium">Cancel</button>
                     <button 
-                        onClick={handleSendEmail} 
+                        onClick={handleSend} 
                         disabled={isSending}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded flex items-center gap-2 disabled:opacity-50"
                     >
-                        {isSending ? 'Sending...' : 'Send Email'}
+                        <Send size={18} />
+                        {isSending ? 'Sending...' : 'Send'}
                     </button>
                 </div>
-            </Modal>
-
-            <Modal isOpen={showPreview} onClose={() => setShowPreview(false)} title="Email Preview">
-                <div className="prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: generatePreviewHtml() }} />
-            </Modal>
-        </>
+            </div>
+        </div>
     );
 };
 

@@ -4,30 +4,34 @@ import { PlusCircle, Trash2, Save } from 'lucide-react';
 import { api } from '../../api/api';
 import TiptapEditor from '../../components/TiptapEditor';
 import InputField from '../../components/InputField';
+import ConfirmationModal from '../../components/ConfirmationModal';
 
 const TABS = ['ROSTER', 'CREW', 'HOURS'];
+
+// UPDATED VARIABLES LIST based on your requirements
 const VARIABLES = {
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{email}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{position}}'],
-    HOURS: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{weekStartDate}}', '{{pmName}}'],
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}'], // Removed position, added schedule
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}'], // Removed position
+    HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'], // Completely new list for PM reporting
 };
 
 const TemplateManager = () => {
     const [activeTab, setActiveTab] = useState(TABS[0]);
     const [templates, setTemplates] = useState([]);
     const [selectedTemplate, setSelectedTemplate] = useState(null);
-    // Fix: Add a dedicated flag for creation mode so renaming doesn't close the view
     const [isCreating, setIsCreating] = useState(false);
     const [templateName, setTemplateName] = useState('');
     const [templateSubject, setTemplateSubject] = useState('');
     const [templateBody, setTemplateBody] = useState('');
+    
+    const [templateToDelete, setTemplateToDelete] = useState(null);
+
     const editorRef = useRef(null);
 
     const fetchTemplates = useCallback(async () => {
         try {
             const data = await api.getEmailTemplates(activeTab);
             setTemplates(data);
-            // Reset states when fetching/refreshing
             setSelectedTemplate(null);
             setIsCreating(false);
             setTemplateName('');
@@ -47,7 +51,6 @@ const TemplateManager = () => {
             setTemplateName(selectedTemplate.name);
             setTemplateSubject(selectedTemplate.subject);
             setTemplateBody(selectedTemplate.body);
-            // Ensure creation mode is off when selecting an existing template
             setIsCreating(false);
         }
     }, [selectedTemplate]);
@@ -59,7 +62,7 @@ const TemplateManager = () => {
 
     const handleNewTemplate = () => {
         setSelectedTemplate(null);
-        setIsCreating(true); // Enable creation mode
+        setIsCreating(true);
         setTemplateName('New Template');
         setTemplateSubject('');
         setTemplateBody('<p>Start writing your template here.</p>');
@@ -87,15 +90,21 @@ const TemplateManager = () => {
         }
     };
     
-    const handleDeleteTemplate = async (templateId) => {
-        if (window.confirm('Are you sure you want to delete this template?')) {
-            try {
-                await api.deleteEmailTemplate(templateId);
-                toast.success('Template deleted successfully!');
-                fetchTemplates();
-            } catch (error) {
-                toast.error(`Failed to delete template: ${error.message}`);
-            }
+    const handleDeleteClick = (templateId) => {
+        setTemplateToDelete(templateId);
+    };
+
+    const confirmDelete = async () => {
+        if (!templateToDelete) return;
+
+        try {
+            await api.deleteEmailTemplate(templateToDelete);
+            toast.success('Template deleted successfully!');
+            fetchTemplates();
+        } catch (error) {
+            toast.error(`Failed to delete template: ${error.message}`);
+        } finally {
+            setTemplateToDelete(null);
         }
     };
 
@@ -153,7 +162,7 @@ const TemplateManager = () => {
                             >
                                 <span className="font-semibold">{template.name}</span>
                                 <button
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(template.id); }}
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteClick(template.id); }}
                                     className="text-gray-500 hover:text-red-500"
                                 >
                                     <Trash2 size={16} />
@@ -170,7 +179,6 @@ const TemplateManager = () => {
                 </aside>
                 
                 <main className="w-3/4">
-                    {/* Fix: Check isCreating flag so the form doesn't disappear when renaming */}
                     {selectedTemplate || isCreating ? (
                         <div className="space-y-4">
                             <InputField label="Template Name" value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
@@ -208,6 +216,14 @@ const TemplateManager = () => {
                     )}
                 </main>
             </div>
+
+            {templateToDelete && (
+                <ConfirmationModal
+                    message="Are you sure you want to delete this template? This action cannot be undone."
+                    onConfirm={confirmDelete}
+                    onCancel={() => setTemplateToDelete(null)}
+                />
+            )}
         </div>
     );
 };

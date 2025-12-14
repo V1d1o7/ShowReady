@@ -45,19 +45,42 @@ async def delete_email_template(template_id: uuid.UUID, user=Depends(get_user), 
 @router.post("/templates/restore", tags=["Communications"])
 async def restore_default_email_templates(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Restores default email templates for the user."""
+    
+    # Define Defaults with the correct structure
     defaults = [
-        {"name": "Default Roster Email", "subject": "Show Information", "body": "<p>Hi {{firstName}}, welcome to the show!</p>", "category": "ROSTER"},
-        {"name": "Default Crew Email", "subject": "Crew Assignment", "body": "<p>Hi {{firstName}}, you are assigned as {{position}}.</p>", "category": "CREW"},
-        {"name": "Default Hours Email", "subject": "Timesheet Review", "body": "<p>Hi {{firstName}}, please review your hours.</p>", "category": "HOURS"},
+        {
+            "user_id": str(user.id),
+            "category": "ROSTER",
+            "name": "Default Roster Email",
+            "subject": "Show Information", 
+            "body": '<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Hello {{firstName}},</h2><p>Welcome to the team for <strong>{{showName}}</strong>! We are excited to have you on board.</p></div>',
+            "is_default": True
+        },
+        {
+            "user_id": str(user.id),
+            "category": "CREW",
+            "name": "Default Crew Email", 
+            "subject": "Crew Assignment", 
+            "body": '<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Hello {{firstName}},</h2><p>You have been assigned the position of <strong>{{position}}</strong> for {{showName}}.</p></div>',
+            "is_default": True
+        },
+        {
+            "user_id": str(user.id),
+            "category": "HOURS",
+            "name": "Default Hours Email", 
+            "subject": "Timesheet Review", 
+            "body": '<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Hello {{firstName}},</h2><p>Please review your hours for the week of {{weekStartDate}}. Reach out to your PM if you have questions.</p></div>',
+            "is_default": True
+        },
     ]
     
-    for tmpl in defaults:
-        tmpl['user_id'] = str(user.id)
-        # Using upsert requires a unique constraint on (user_id, name) or similar, 
-        # but for safety we'll just insert and let Supabase auto-gen IDs.
-        supabase.table('email_templates').insert(tmpl).execute()
+    # Insert new defaults. Supabase will generate new IDs.
+    response = supabase.table('email_templates').insert(defaults).execute()
+    
+    if not response.data:
+         raise HTTPException(status_code=500, detail="Failed to restore templates.")
         
-    return {"message": "Default templates restored."}
+    return {"message": "Default templates restored.", "count": len(response.data)}
 
 @router.post("/send", tags=["Communications"])
 async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):

@@ -10,6 +10,7 @@ from app.user_email import send_email_with_user_smtp, SMTPSettings, create_style
 from app.pdf_utils import generate_hours_pdf 
 from fastapi.responses import Response 
 import uuid 
+import urllib.parse
 from typing import List 
 from datetime import date, timedelta 
 
@@ -180,20 +181,20 @@ async def get_timesheet_pdf(
 
     # 3. Structure data for the new PDF generator 
     show_info_dict = { "name": timesheet_data.show_name } 
-    dates_list = [(timesheet_data.week_start_date + timedelta(days=i)) for i in range(7)] 
-
+    
     # 4. Generate PDF 
     pdf_bytes_io = await run_in_threadpool( 
         generate_hours_pdf, 
         user=user_info, 
         show=show_info_dict, 
-        timesheet_data=timesheet_data.model_dump(), # Pass the whole model dump
+        timesheet_data=timesheet_data.model_dump(), 
         show_logo_bytes=show_logo_bytes, 
         company_logo_bytes=company_logo_bytes, 
         show_branding=show_branding 
     ) 
      
-    filename = f"{timesheet_data.show_name.strip()} Hours | {week_start_date}.pdf" 
+    # Filename: {ShowName} Hours {WeekStart}.pdf
+    filename = f"{timesheet_data.show_name.strip()} Hours {week_start_date}.pdf" 
 
     return Response( 
         content=pdf_bytes_io.getvalue(),  
@@ -209,12 +210,16 @@ async def email_weekly_timesheet(
     user=Depends(get_user),  
     supabase: Client = Depends(get_supabase_client) 
 ): 
+    """Emails the weekly timesheet with PDF attachment."""
     user_id = user.id 
+    
+    # 1. Fetch SMTP Settings
     smtp_res = supabase.table('user_smtp_settings').select('*').eq('user_id', user_id).maybe_single().execute() 
     if not smtp_res.data: 
         raise HTTPException(status_code=400, detail="SMTP settings not configured.") 
     smtp_settings = SMTPSettings(**smtp_res.data) 
 
+    # 2. Fetch Profile Info (for PDF footer)
     profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute() 
     user_profile = profile_res.data 
     user_info = { 
@@ -228,6 +233,7 @@ async def email_weekly_timesheet(
             company_logo_bytes = supabase.storage.from_('logos').download(company_logo_path) 
         except Exception: pass 
 
+    # 3. Fetch Timesheet Data
     timesheet_data = await get_timesheet_data(show_id, week_start_date, user.id, supabase) 
     show_logo_bytes = None 
     if timesheet_data.logo_path: 
@@ -237,6 +243,7 @@ async def email_weekly_timesheet(
 
     show_info_dict = { "name": timesheet_data.show_name } 
     
+    # 4. Generate PDF
     pdf_bytes_io = await run_in_threadpool( 
         generate_hours_pdf, 
         user=user_info, 
@@ -248,21 +255,28 @@ async def email_weekly_timesheet(
     ) 
     
     pdf_bytes = pdf_bytes_io.getvalue() 
-    filename = f"{timesheet_data.show_name.strip()} Hours | {week_start_date}.pdf" 
+    
+    # 5. Dynamic Filename: {ShowName} Hours {WeekStart}.pdf
+    filename = f"{timesheet_data.show_name.strip()} Hours {week_start_date}.pdf" 
 
+    # 6. Send Email
     try: 
+        # Wrap the Tiptap HTML content in a container
         user_message_html_template = """ 
         <div style="margin-top: 20px; text-align: left; background-color: #1F2937; padding: 20px; border-radius: 10px;"> 
-            <p style="font-size: 16px; line-height: 1.8; color: #d4d4d8; text-align: left; margin: 0;"> 
+            <div style="font-size: 16px; line-height: 1.8; color: #d4d4d8; text-align: left;"> 
                 {} 
-            </p> 
+            </div> 
         </div> 
         """ 
-        content_html = user_message_html_template.format(payload.body.replace("\n", "<br>")) 
+        # Direct injection of HTML body (Tiptap provides HTML)
+        content_html = user_message_html_template.format(payload.body)
          
         logo_url = None 
         if timesheet_data.logo_path: 
-            logo_url = supabase.storage.from_('logos').get_public_url(timesheet_data.logo_path) 
+            # FIXED: encode URL path to handle spaces in filenames
+            encoded_path = urllib.parse.quote(timesheet_data.logo_path)
+            logo_url = supabase.storage.from_('logos').get_public_url(encoded_path) 
 
         final_html_body = create_styled_email_template( 
             title="Timesheet Submission", 

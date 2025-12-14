@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
+import { Toaster } from 'react-hot-toast'; // Added Toaster import
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
@@ -109,12 +110,9 @@ const HoursTrackingView = () => {
         return acc;
     }, { regular: 0, ot: 0, cost: 0 });
 
-    // The recipient for the "HOURS" category is the user themself (or PMs), not the crew.
-    // We pass an empty array and the backend will determine recipients.
-    const emailRecipients = [];
-
     return (
         <div className="p-4 sm:p-6 lg:p-8">
+            <Toaster position="bottom-center" />
             <header className="flex items-center justify-between pb-4 border-b border-gray-700">
                 <div className="flex items-center gap-4">
                     <button onClick={() => changeWeek(-1)} className="p-2 rounded-md hover:bg-gray-700"><ChevronLeft size={20} /></button>
@@ -127,9 +125,6 @@ const HoursTrackingView = () => {
                         <button onClick={() => setIsEmailModalOpen(true)} className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-500 flex items-center gap-2">
                             <Mail size={16} /> Email Report
                         </button>
-                         <span className="absolute bottom-full mb-2 w-max px-2 py-1 text-xs bg-gray-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            📎 PDF Report will be attached automatically.
-                        </span>
                     </div>
                     <button onClick={handleGeneratePdf} className="px-4 py-2 text-sm font-medium rounded-md bg-gray-700 hover:bg-gray-600 flex items-center gap-2">
                         <Download size={16} /> Export PDF
@@ -187,7 +182,17 @@ const HoursTrackingView = () => {
             </main>
 
             <PdfPreviewModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} url={pdfUrl} />
-            <EmailComposeModal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} recipients={emailRecipients} category="HOURS" />
+            
+            <EmailComposeModal 
+                isOpen={isEmailModalOpen} 
+                onClose={() => setIsEmailModalOpen(false)} 
+                recipients={[]} 
+                category="HOURS"
+                showId={showId}
+                weekStartDate={formatDate(weekStartDate)}
+                grandTotals={grandTotals}
+            />
+
             <PayPeriodSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={showData?.info || {}} onSave={handleSaveSettings} />
             <CalculationInfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} dailyThreshold={timesheet?.ot_daily_threshold || 10} />
         </div>

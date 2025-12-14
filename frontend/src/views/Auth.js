@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import InputField from '../components/InputField';
 import { supabase } from '../api/api';
+import { toast } from 'react-hot-toast'; // Replaced alert with toast
 
 function Auth() {
     const [loading, setLoading] = useState(false);
@@ -21,18 +22,21 @@ function Auth() {
 
         let response;
         if (isSignUp) {
-            if (!firstName || !lastName) {
+            // STRICT VALIDATION
+            if (!firstName.trim() || !lastName.trim()) {
                 setAuthError('First name and last name are required.');
                 setLoading(false);
                 return;
             }
+            
             const metaData = {
-                first_name: firstName,
-                last_name: lastName,
+                first_name: firstName, // Must match DB trigger snake_case
+                last_name: lastName,   // Must match DB trigger snake_case
                 company_name: companyName,
                 production_role: productionRole,
                 production_role_other: productionRole === 'Other' ? otherRole : '',
             };
+            
             response = await supabase.auth.signUp({
                 email,
                 password,
@@ -47,7 +51,7 @@ function Auth() {
         if (response.error) {
             setAuthError(response.error.message);
         } else if (isSignUp) {
-            alert('Account created! Please check your email to confirm your registration.');
+            toast.success('Account created! Please check your email to confirm your registration.');
         }
 
         setLoading(false);
@@ -80,7 +84,7 @@ function Auth() {
                             <InputField label="Company Name (Optional)" name="companyName" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
                             <div>
                                 <label className="block text-sm font-medium text-gray-300 mb-1.5">Production Role</label>
-                                <select value={productionRole} onChange={(e) => setProductionRole(e.target.value)} required className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
+                                <select value={productionRole} onChange={(e) => setProductionRole(e.target.value)} required className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-white">
                                     <option value="">Select a role...</option>
                                     <option>Production Video</option>
                                     <option>Production Audio</option>

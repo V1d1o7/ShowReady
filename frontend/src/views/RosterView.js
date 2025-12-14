@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/api';
 import { Plus, Edit, Trash2, Mail } from 'lucide-react';
-import { Toaster } from 'react-hot-toast'; // Fix: Import Toaster
+import { Toaster } from 'react-hot-toast'; 
 import RosterModal from '../components/RosterModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -13,7 +13,7 @@ const RosterView = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingMember, setEditingMember] = useState(null);
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
-    const [tagFilter, setTagFilter] = useState('');
+    const [filterText, setFilterText] = useState(''); // Renamed from tagFilter to filterText
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
     const fetchData = async () => {
@@ -42,14 +42,19 @@ const RosterView = () => {
         return Array.from(tags);
     }, [roster]);
 
+    // UPDATED FILTER LOGIC: Search by Name OR Tag
     const filteredRoster = useMemo(() => {
-        if (!tagFilter) {
+        if (!filterText) {
             return roster;
         }
-        return roster.filter(member =>
-            member.tags && member.tags.some(tag => tag.toLowerCase().includes(tagFilter.toLowerCase()))
-        );
-    }, [roster, tagFilter]);
+        const search = filterText.toLowerCase();
+        return roster.filter(member => {
+            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.toLowerCase();
+            const hasMatchingTag = member.tags && member.tags.some(tag => tag.toLowerCase().includes(search));
+            
+            return fullName.includes(search) || hasMatchingTag;
+        });
+    }, [roster, filterText]);
 
     const handleOpenModal = (member = null) => {
         setEditingMember(member);
@@ -97,22 +102,22 @@ const RosterView = () => {
         if (filteredRoster.length > 0) {
             setIsEmailModalOpen(true);
         } else {
+            // Optional: You could use toast here too if preferred
             alert("No roster members in the current filter to email.");
         }
     };
 
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-screen-2xl mx-auto">
-            {/* Fix: Add Toaster here so notifications can appear */}
             <Toaster position="bottom-center" />
             
             <header className="flex items-center justify-between pb-8 border-b border-gray-700">
                 <h1 className="text-3xl font-bold text-white">Global Roster</h1>
                 <div className="flex items-center gap-4">
                     <InputField
-                        placeholder="Filter by tag..."
-                        value={tagFilter}
-                        onChange={(e) => setTagFilter(e.target.value)}
+                        placeholder="Search by name or tag..."
+                        value={filterText}
+                        onChange={(e) => setFilterText(e.target.value)}
                     />
                     <button onClick={handleEmailRoster} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
                         <Mail size={18} /> Email Roster
@@ -158,6 +163,11 @@ const RosterView = () => {
                                 ))}
                             </tbody>
                         </table>
+                        {filteredRoster.length === 0 && (
+                            <div className="text-center py-12 text-gray-500">
+                                No members found matching "{filterText}"
+                            </div>
+                        )}
                     </div>
                 )}
             </main>

@@ -1,38 +1,200 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
+import { Node, mergeAttributes } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import Link from '@tiptap/extension-link';
-import Image from '@tiptap/extension-image';
+// NAMED IMPORTS (Fixed the build error)
+import { Link } from '@tiptap/extension-link';
+import { Image } from '@tiptap/extension-image';
 import { Table } from '@tiptap/extension-table';
 import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
-import { Bold, Italic, Strikethrough, List, ListOrdered, Link2, Image as ImageIcon, Table as TableIcon, Code } from 'lucide-react';
+import { Paragraph } from '@tiptap/extension-paragraph';
+import { Heading } from '@tiptap/extension-heading';
+
+import { Bold, Italic, Strikethrough, List, ListOrdered, Link2, Image as ImageIcon, Table as TableIcon, Code, FileCode } from 'lucide-react';
+import Modal from './Modal';
+import InputField from './InputField';
+
+// --- CUSTOM EXTENSIONS TO PRESERVE STYLES ---
+
+// Helper to add 'style' attribute to any node
+const addStyleAttribute = (that) => ({
+    ...that.parent?.(),
+    style: {
+        default: null,
+        parseHTML: element => element.getAttribute('style'),
+        renderHTML: attributes => {
+            if (!attributes.style) return {};
+            return { style: attributes.style };
+        },
+    },
+});
+
+// 1. Custom Paragraph
+const CustomParagraph = Paragraph.extend({
+    addAttributes() { return addStyleAttribute(this); }
+});
+
+// 2. Custom Heading
+const CustomHeading = Heading.extend({
+    addAttributes() { return addStyleAttribute(this); }
+});
+
+// 3. Custom Table (Critical for Layout)
+const CustomTable = Table.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            style: {
+                default: null,
+                parseHTML: element => element.getAttribute('style'),
+                renderHTML: attributes => {
+                    if (!attributes.style) return {};
+                    return { style: attributes.style };
+                },
+            },
+            // Also preserve common email table attributes
+            cellpadding: {
+                default: '0',
+                parseHTML: element => element.getAttribute('cellpadding'),
+                renderHTML: attributes => ({ cellpadding: attributes.cellpadding }),
+            },
+            cellspacing: {
+                default: '0',
+                parseHTML: element => element.getAttribute('cellspacing'),
+                renderHTML: attributes => ({ cellspacing: attributes.cellspacing }),
+            },
+            width: {
+                default: '100%',
+                parseHTML: element => element.getAttribute('width'),
+                renderHTML: attributes => ({ width: attributes.width }),
+            },
+            border: {
+                default: '0',
+                parseHTML: element => element.getAttribute('border'),
+                renderHTML: attributes => ({ border: attributes.border }),
+            },
+            align: {
+                default: null,
+                parseHTML: element => element.getAttribute('align'),
+                renderHTML: attributes => ({ align: attributes.align }),
+            },
+        };
+    }
+});
+
+// 4. Custom Table Cell (Critical for Background Colors)
+const CustomTableCell = TableCell.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            style: {
+                default: null,
+                parseHTML: element => element.getAttribute('style'),
+                renderHTML: attributes => {
+                    if (!attributes.style) return {};
+                    return { style: attributes.style };
+                },
+            },
+            align: {
+                default: null,
+                parseHTML: element => element.getAttribute('align'),
+                renderHTML: attributes => ({ align: attributes.align }),
+            },
+            width: {
+                default: null,
+                parseHTML: element => element.getAttribute('width'),
+                renderHTML: attributes => ({ width: attributes.width }),
+            },
+            valign: {
+                default: null,
+                parseHTML: element => element.getAttribute('valign'),
+                renderHTML: attributes => ({ valign: attributes.valign }),
+            }
+        };
+    }
+});
+
+// 5. Custom Link (Critical for Buttons)
+const CustomLink = Link.extend({
+    addAttributes() {
+        return {
+            ...this.parent?.(),
+            style: {
+                default: null,
+                parseHTML: element => element.getAttribute('style'),
+                renderHTML: attributes => {
+                    if (!attributes.style) return {};
+                    return { style: attributes.style };
+                },
+            },
+        };
+    }
+});
+
+// 6. Div Extension (Wrapper)
+const DivExtension = Node.create({
+    name: 'div',
+    group: 'block',
+    content: 'block+',
+    addAttributes() {
+        return {
+            style: {
+                default: null,
+                parseHTML: element => element.getAttribute('style'),
+                renderHTML: attributes => {
+                    if (!attributes.style) return {};
+                    return { style: attributes.style };
+                },
+            },
+        };
+    },
+    parseHTML() { return [{ tag: 'div' }]; },
+    renderHTML({ HTMLAttributes }) { return ['div', mergeAttributes(HTMLAttributes), 0]; },
+});
 
 const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
+    const [isSourceMode, setIsSourceMode] = useState(false);
+    const [sourceCode, setSourceCode] = useState('');
+    
+    // Modal State
+    const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+    const [urlModalType, setUrlModalType] = useState(null); 
+    const [urlInputValue, setUrlInputValue] = useState('');
+
     const editor = useEditor({
         extensions: [
-            StarterKit,
-            Link.configure({
+            StarterKit.configure({
+                paragraph: false, // Disable default nodes we are replacing
+                heading: false,
+                code: false, 
+            }),
+            CustomParagraph,
+            CustomHeading,
+            DivExtension,
+            CustomLink.configure({
                 openOnClick: false,
                 autolink: true,
                 protocols: ['https', 'http', 'mailto'],
             }),
             Image,
-            Table.configure({
+            CustomTable.configure({
                 resizable: true,
             }),
-            TableRow,
+            TableRow, 
             TableHeader,
-            TableCell,
+            CustomTableCell,
         ],
         content: value,
         onUpdate: ({ editor }) => {
-            onChange(editor.getHTML());
+            if (!isSourceMode) {
+                onChange(editor.getHTML());
+            }
         },
         editorProps: {
             attributes: {
-                class: 'prose dark:prose-invert prose-sm sm:prose-base max-w-none p-4 focus:outline-none min-h-[150px]',
+                class: 'prose dark:prose-invert prose-sm sm:prose-base max-w-none p-4 focus:outline-none min-h-[300px] max-h-[600px] overflow-y-auto bg-gray-900 text-white',
             },
         },
     });
@@ -42,49 +204,73 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
             onEditorInstance(editor);
         }
     }, [editor, onEditorInstance]);
-    
-    // When the external `value` prop changes, update the editor's content.
-    // This is crucial for when a template is selected in the parent component.
+
     useEffect(() => {
-        if (editor && value !== editor.getHTML()) {
+        // Prevent infinite loop by checking content equality
+        if (editor && value !== editor.getHTML() && !isSourceMode) {
             editor.commands.setContent(value);
         }
-    }, [value, editor]);
+    }, [value, editor, isSourceMode]);
 
+    const toggleSourceMode = useCallback(() => {
+        if (isSourceMode) {
+            editor?.commands.setContent(sourceCode);
+            onChange(sourceCode);
+            setIsSourceMode(false);
+        } else {
+            const html = editor?.getHTML() || '';
+            setSourceCode(html);
+            setIsSourceMode(true);
+        }
+    }, [editor, isSourceMode, sourceCode, onChange]);
 
-    const setLink = useCallback(() => {
+    const handleSourceChange = (e) => {
+        setSourceCode(e.target.value);
+        onChange(e.target.value);
+    };
+
+    const openLinkModal = useCallback(() => {
         if (!editor) return;
         const previousUrl = editor.getAttributes('link').href;
-        const url = window.prompt('URL', previousUrl);
-
-        if (url === null) {
-            return;
-        }
-        if (url === '') {
-            editor.chain().focus().extendMarkRange('link').unsetLink().run();
-            return;
-        }
-        editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+        setUrlInputValue(previousUrl || '');
+        setUrlModalType('link');
+        setIsUrlModalOpen(true);
     }, [editor]);
-    
-    const addImage = useCallback(() => {
+
+    const openImageModal = useCallback(() => {
         if (!editor) return;
-        const url = window.prompt('URL');
-
-        if (url) {
-            editor.chain().focus().setImage({ src: url }).run();
-        }
+        setUrlInputValue('');
+        setUrlModalType('image');
+        setIsUrlModalOpen(true);
     }, [editor]);
+
+    const handleUrlSubmit = (e) => {
+        e.preventDefault();
+        
+        if (urlModalType === 'link') {
+            if (urlInputValue === '') {
+                editor.chain().focus().extendMarkRange('link').unsetLink().run();
+            } else {
+                editor.chain().focus().extendMarkRange('link').setLink({ href: urlInputValue }).run();
+            }
+        } else if (urlModalType === 'image') {
+            if (urlInputValue) {
+                editor.chain().focus().setImage({ src: urlInputValue }).run();
+            }
+        }
+        setIsUrlModalOpen(false);
+    };
 
     if (!editor) {
         return null;
     }
-    
-    const ToolbarButton = ({ onClick, isActive, children, disabled = false }) => (
+
+    const ToolbarButton = ({ onClick, isActive, children, disabled = false, title }) => (
         <button
             type="button"
             onClick={onClick}
             disabled={disabled}
+            title={title}
             className={`p-2 rounded-md ${isActive ? 'bg-gray-600 text-white' : 'text-gray-400 hover:bg-gray-700 hover:text-white'} disabled:opacity-50 disabled:cursor-not-allowed`}
         >
             {children}
@@ -92,22 +278,78 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
     );
 
     return (
-        <div className="border border-gray-700 rounded-lg bg-gray-800">
-            <div className="flex flex-wrap items-center p-2 border-b border-gray-700 gap-1">
-                <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')} disabled={!editor.can().chain().focus().toggleBold().run()}><Bold size={16} /></ToolbarButton>
-                <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')} disabled={!editor.can().chain().focus().toggleItalic().run()}><Italic size={16} /></ToolbarButton>
-                <ToolbarButton onClick={() => editor.chain().focus().toggleStrike().run()} isActive={editor.isActive('strike')} disabled={!editor.can().chain().focus().toggleStrike().run()}><Strikethrough size={16} /></ToolbarButton>
-                <ToolbarButton onClick={() => editor.chain().focus().toggleCode().run()} isActive={editor.isActive('code')} disabled={!editor.can().chain().focus().toggleCode().run()}><Code size={16} /></ToolbarButton>
-                <div className="w-px h-6 bg-gray-600 mx-1" />
-                <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')}><List size={16} /></ToolbarButton>
-                <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')}><ListOrdered size={16} /></ToolbarButton>
-                <div className="w-px h-6 bg-gray-600 mx-1" />
-                <ToolbarButton onClick={setLink} isActive={editor.isActive('link')}><Link2 size={16} /></ToolbarButton>
-                <ToolbarButton onClick={addImage}><ImageIcon size={16} /></ToolbarButton>
-                <ToolbarButton onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={16} /></ToolbarButton>
+        <>
+            <div className="border border-gray-700 rounded-lg bg-gray-800">
+                <div className="flex flex-wrap items-center p-2 border-b border-gray-700 gap-1">
+                    <ToolbarButton onClick={toggleSourceMode} isActive={isSourceMode} title="Toggle Source Code">
+                        <FileCode size={16} /> 
+                    </ToolbarButton>
+                    
+                    <div className="w-px h-6 bg-gray-600 mx-1" />
+
+                    <div className={`flex gap-1 ${isSourceMode ? 'opacity-30 pointer-events-none' : ''}`}>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')}><Bold size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')}><Italic size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleStrike().run()} isActive={editor.isActive('strike')}><Strikethrough size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleCode().run()} isActive={editor.isActive('code')}><Code size={16} /></ToolbarButton>
+                        
+                        <div className="w-px h-6 bg-gray-600 mx-1" />
+                        
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')}><List size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')}><ListOrdered size={16} /></ToolbarButton>
+                        
+                        <div className="w-px h-6 bg-gray-600 mx-1" />
+                        
+                        <ToolbarButton onClick={openLinkModal} isActive={editor.isActive('link')}><Link2 size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={openImageModal}><ImageIcon size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={16} /></ToolbarButton>
+                    </div>
+                </div>
+
+                {isSourceMode ? (
+                    <textarea
+                        value={sourceCode}
+                        onChange={handleSourceChange}
+                        className="w-full h-[300px] max-h-[600px] p-4 bg-gray-900 text-gray-100 font-mono text-sm focus:outline-none resize-y rounded-b-lg overflow-auto"
+                        placeholder=""
+                        spellCheck={false}
+                    />
+                ) : (
+                    <EditorContent editor={editor} placeholder={placeholder} />
+                )}
             </div>
-            <EditorContent editor={editor} placeholder={placeholder} />
-        </div>
+
+            <Modal
+                isOpen={isUrlModalOpen}
+                onClose={() => setIsUrlModalOpen(false)}
+                title={urlModalType === 'link' ? 'Insert Link' : 'Insert Image'}
+            >
+                <form onSubmit={handleUrlSubmit} className="space-y-4">
+                    <InputField 
+                        label={urlModalType === 'link' ? 'URL' : 'Image Address (URL)'}
+                        value={urlInputValue}
+                        onChange={(e) => setUrlInputValue(e.target.value)}
+                        placeholder="https://example.com"
+                        autoFocus
+                    />
+                    <div className="flex justify-end gap-3 pt-4">
+                        <button 
+                            type="button" 
+                            onClick={() => setIsUrlModalOpen(false)} 
+                            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit" 
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"
+                        >
+                            {urlModalType === 'link' ? 'Set Link' : 'Insert Image'}
+                        </button>
+                    </div>
+                </form>
+            </Modal>
+        </>
     );
 };
 
