@@ -24,31 +24,38 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
     const [toEmail, setToEmail] = useState(''); 
-    const [senders, setSenders] = useState([]);
-    const [selectedSenderId, setSelectedSenderId] = useState('');
     const [isSending, setIsSending] = useState(false);
 
     // Roster Specific
     const [shows, setShows] = useState([]);
-    const [selectedShowId, setSelectedShowId] = useState(showId || ''); 
+    const [selectedShowId, setSelectedShowId] = useState(''); 
     const [scheduleText, setScheduleText] = useState('');
 
     // Editor Ref for inserting variables
     const [editorInstance, setEditorInstance] = useState(null);
 
-    // Load data when opened
+    // Load data when opened, RESET when closed
     useEffect(() => {
         if (isOpen) {
             loadInitialData();
+            // Ensure show ID is set if passed from props
+            if (showId) setSelectedShowId(showId);
+        } else {
+            // FULL RESET when modal closes
+            setSubject('');
+            setBody('');
+            setToEmail('');
+            setSelectedTemplateId('');
+            setSelectedShowId('');
+            setScheduleText('');
+            setIsSending(false);
         }
     }, [isOpen, category, showId]);
 
     const loadInitialData = async () => {
         try {
-            const sendersData = await api.getSenderIdentities();
-            setSenders(sendersData);
-            if (sendersData.length > 0) setSelectedSenderId(sendersData[0].id);
-
+            // REMOVED: Fetching of Admin Sender Identities (getSenderIdentities)
+            
             const templatesData = await api.getEmailTemplates(category);
             setTemplates(templatesData);
             
@@ -123,10 +130,11 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                     body: finalBody
                 });
             } else {
+                // REMOVED: sender_id from payload. 
+                // The backend automatically uses your User SMTP settings.
                 const payload = {
                     recipient_ids: recipients.map(r => r.id),
                     category: category,
-                    sender_id: selectedSenderId,
                     subject: finalSubject,
                     body: finalBody
                 };
@@ -164,19 +172,9 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                 <div className="p-6 overflow-y-auto space-y-6 flex-1">
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {category !== 'HOURS' && (
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">From</label>
-                                <select 
-                                    value={selectedSenderId} 
-                                    onChange={(e) => setSelectedSenderId(e.target.value)}
-                                    className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white"
-                                >
-                                    {senders.map(s => <option key={s.id} value={s.id}>{s.name} &lt;{s.email}&gt;</option>)}
-                                </select>
-                            </div>
-                        )}
-                        <div className={category === 'HOURS' ? 'col-span-2' : ''}>
+                        {/* REMOVED: "From" dropdown selector */}
+                        
+                        <div className={category === 'HOURS' ? 'col-span-2' : 'col-span-2'}>
                             <label className="block text-sm font-medium text-gray-400 mb-1">Load Template</label>
                             <select 
                                 value={selectedTemplateId} 

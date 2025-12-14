@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 from app.api import get_supabase_client, get_user, feature_check
-from app.models import EmailTemplate, EmailTemplateCreate, BulkEmailRequest, UserSMTPSettingsResponse
+from app.models import EmailTemplate, EmailTemplateCreate, BulkEmailRequest
 from app.user_email import send_email_with_user_smtp, SMTPSettings
 import uuid
 from typing import List, Optional
@@ -46,14 +46,111 @@ async def delete_email_template(template_id: uuid.UUID, user=Depends(get_user), 
 async def restore_default_email_templates(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Restores default email templates for the user."""
     
-    # Define Defaults with the correct structure
+    # 1. Delete existing defaults to prevent duplicates
+    supabase.table('email_templates').delete().eq('user_id', str(user.id)).eq('is_default', True).execute()
+
+    # 2. Define Defaults. 
+    # NOTE: The body is a 'Fragment' (just the tables) so Tiptap doesn't strip the tags.
+    # The 'align="center"' and 'margin: 0 auto' on the inner table is the key fix for centering.
     defaults = [
         {
             "user_id": str(user.id),
             "category": "ROSTER",
             "name": "Default Roster Email",
-            "subject": "Show Information", 
-            "body": '<div style="font-family: Arial, sans-serif; padding: 20px;"><h2>Hello {{firstName}},</h2><p>Welcome to the team for <strong>{{showName}}</strong>! We are excited to have you on board.</p></div>',
+            "subject": "Availability Check: {{showName}}", 
+            "body": """
+<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;">
+    <tr>
+      <td align="center" style="padding: 40px 10px;">
+        
+        <table align="center" border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); margin: 0 auto;">
+          
+          <tr><td height="6" style="background-color: #14b8a6;"></td></tr>
+
+          <tr>
+            <td style="padding: 30px 40px; border-bottom: 1px solid #374151;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">Availability Check</h1>
+              <p style="color: #14b8a6; margin: 5px 0 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">{{showName}}</p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 40px;">
+              
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">
+                Hey <strong>{{firstName}}</strong>,
+              </p>
+              
+              <p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">
+                We've got a <strong>[Type of Call]</strong> for <strong>{{showName}}</strong> coming up and we are looking for <strong>[Number]</strong> people. Details are below - partial availability is ok!
+              </p>
+
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #111827; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;">
+                <tr>
+                  <td style="padding: 25px;">
+                    
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
+                      <tr>
+                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">What:</td>
+                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Type of Call]</td>
+                      </tr>
+                    </table>
+
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
+                      <tr>
+                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">When:</td>
+                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">{{schedule}}</td>
+                      </tr>
+                    </table>
+
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;">
+                      <tr>
+                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Where:</td>
+                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Location / Address]</td>
+                      </tr>
+                    </table>
+
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                      <tr>
+                        <td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Rate:</td>
+                        <td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Rate Info]</td>
+                      </tr>
+                    </table>
+
+                  </td>
+                </tr>
+              </table>
+
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center">
+                    <a href="mailto:?subject=Available: {{showName}}&body=Hi, I am available." style="background-color: #14b8a6; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">I'm Available</a>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding-top: 20px;">
+                    <a href="mailto:?subject=Decline: {{showName}}&body=Hi, I am unavailable for this one." style="color: #6b7280; font-size: 14px; text-decoration: none;">Unavailable / Decline</a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color: #111827; padding: 20px; text-align: center; border-top: 1px solid #374151;">
+              <p style="color: #4b5563; font-size: 12px; margin: 0;">
+                Powered by ShowReady
+              </p>
+            </td>
+          </tr>
+
+        </table>
+        
+      </td>
+    </tr>
+  </table>
+""",
             "is_default": True
         },
         {
@@ -74,7 +171,7 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
         },
     ]
     
-    # Insert new defaults. Supabase will generate new IDs.
+    # 3. Insert new defaults.
     response = supabase.table('email_templates').insert(defaults).execute()
     
     if not response.data:
@@ -85,7 +182,7 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
 @router.post("/send", tags=["Communications"])
 async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Sends a bulk email to a list of recipients."""
-    # 1. Fetch SMTP settings
+    # 1. Fetch User SMTP settings (CONFIRMED: Uses User Settings, not Admin)
     smtp_res = supabase.table('user_smtp_settings').select('*').eq('user_id', str(user.id)).single().execute()
     if not smtp_res.data:
         raise HTTPException(status_code=400, detail="SMTP settings not configured. Please go to User Settings to configure them.")
@@ -94,7 +191,7 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
 
     # 2. Resolve Recipients
     recipients = []
-    if request.category == 'ROSTER': # Check case sensitivity matches frontend
+    if request.category == 'ROSTER':
         roster_res = supabase.table('roster').select('*').in_('id', [str(rid) for rid in request.recipient_ids]).execute()
         recipients = roster_res.data
     elif request.category == 'CREW':
@@ -109,7 +206,6 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
         subject = request.subject
         body = request.body
         
-        # Determine actual recipient data based on category
         target_email = ""
         data_source = {}
         
@@ -118,7 +214,6 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
             target_email = recipient.get('email')
         elif request.category == 'CREW':
             data_source = recipient.get('roster', {})
-            # Merge show data for variable substitution if needed
             data_source['showName'] = recipient.get('shows', {}).get('name', '')
             data_source['position'] = recipient.get('position', '')
             target_email = data_source.get('email')
@@ -130,7 +225,6 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
         for key, value in data_source.items():
             if isinstance(value, str):
                 placeholder = "{{" + key + "}}"
-                # Handle camelCase mapping if needed, e.g., first_name -> firstName
                 if key == 'first_name':
                     body = body.replace("{{firstName}}", value)
                     subject = subject.replace("{{firstName}}", value)
@@ -141,11 +235,29 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
                     body = body.replace(placeholder, value)
                     subject = subject.replace(placeholder, value)
 
+        # 4. CRITICAL FIX: Wrap the body if it was stripped by Tiptap (missing <html> tags)
+        # This re-applies the DOCTYPE and body styles needed for centering in Outlook/Gmail
+        final_html_body = body
+        if "<html" not in final_html_body.lower():
+            final_html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ margin: 0; padding: 0; width: 100% !important; background-color: #111827; }}
+    table {{ border-collapse: collapse; }}
+  </style>
+</head>
+<body style="margin: 0; padding: 0; width: 100% !important; background-color: #111827;">
+  {body}
+</body>
+</html>"""
+
         send_email_with_user_smtp(
             smtp_settings=smtp_settings,
             recipient_emails=[target_email],
             subject=subject,
-            html_body=body
+            html_body=final_html_body
         )
 
     return {"message": "Emails sent successfully."}
