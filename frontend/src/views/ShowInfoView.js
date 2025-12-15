@@ -117,13 +117,28 @@ const ShowInfoView = () => {
             </div>
             <InputField label="Production Video" name="production_video" value={formData.production_video || ''} onChange={handleChange} />
           </Card>
-          <Card className="lg:col-span-2 space-y-4">
-            <label className="block text-sm font-medium text-gray-300">Show Logo</label>
-            <div className="w-full aspect-video bg-gray-900/50 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-700 overflow-hidden">
-              {logoUrl && !logoError ? <img src={logoUrl} alt="Show Logo" className="w-full h-full object-contain" onError={() => setLogoError(true)} /> : <p className="text-gray-500 text-sm px-4 text-center">{logoError ? `Failed to load logo` : 'No logo uploaded'}</p>}
+          <Card className="lg:col-span-2 space-y-4 h-full flex flex-col">
+            <div className="space-y-4">
+                <label className="block text-sm font-medium text-gray-300">Show Logo</label>
+                <div className="w-full aspect-video bg-gray-900/50 rounded-lg flex items-center justify-center border-2 border-dashed border-gray-700 overflow-hidden">
+                {logoUrl && !logoError ? <img src={logoUrl} alt="Show Logo" className="w-full h-full object-contain" onError={() => setLogoError(true)} /> : <p className="text-gray-500 text-sm px-4 text-center">{logoError ? `Failed to load logo` : 'No logo uploaded'}</p>}
+                </div>
+                <input type="file" id="logo-upload" className="hidden" onChange={handleLogoUpload} accept="image/*" />
+                <button onClick={() => document.getElementById('logo-upload').click()} disabled={isUploading} className="w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 disabled:bg-gray-600 transition-colors"><UploadCloud size={16} /> {isUploading ? 'Uploading...' : 'Upload Logo'}</button>
             </div>
-            <input type="file" id="logo-upload" className="hidden" onChange={handleLogoUpload} accept="image/*" />
-            <button onClick={() => document.getElementById('logo-upload').click()} disabled={isUploading} className="w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 disabled:bg-gray-600 transition-colors"><UploadCloud size={16} /> {isUploading ? 'Uploading...' : 'Upload Logo'}</button>
+            
+            {/* Added Venue Details BELOW Logo */}
+            <div className="mt-6 pt-6 border-t border-gray-700">
+                <label className="block text-sm font-medium text-gray-300 mb-2">Venue Name & Address</label>
+                <textarea
+                    name="venue_details"
+                    value={formData.venue_details || ''}
+                    onChange={handleChange}
+                    rows={6}
+                    className="w-full p-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-white placeholder-gray-500 text-sm resize-none"
+                    placeholder="Enter venue name and full address..."
+                />
+            </div>
           </Card>
         </div>
         <div className="mt-8 flex justify-end space-x-4">

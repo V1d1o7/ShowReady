@@ -1,6 +1,7 @@
+//
 import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { api } from '../api/api';
-import { Plus, Edit, Trash2, Mail, HelpCircle } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail, HelpCircle, Lock } from 'lucide-react'; // Added Lock
 import { Toaster } from 'react-hot-toast'; 
 import { LayoutContext } from '../contexts/LayoutContext';
 import useHotkeys from '../hooks/useHotkeys';
@@ -47,7 +48,11 @@ const RosterView = () => {
         const tags = new Set();
         roster.forEach(member => {
             if (member.tags) {
-                member.tags.forEach(tag => tags.add(tag));
+                // Return clean tags for the suggestion pool so we don't duplicate "_Tag" and "Tag"
+                member.tags.forEach(tag => {
+                    const cleanTag = tag.startsWith('_') ? tag.substring(1) : tag;
+                    tags.add(cleanTag);
+                });
             }
         });
         return Array.from(tags);
@@ -60,7 +65,12 @@ const RosterView = () => {
         const search = filterText.toLowerCase();
         return roster.filter(member => {
             const fullName = `${member.first_name || ''} ${member.last_name || ''}`.toLowerCase();
-            const hasMatchingTag = member.tags && member.tags.some(tag => tag.toLowerCase().includes(search));
+            
+            // Allow searching by the "clean" version of the tag
+            const hasMatchingTag = member.tags && member.tags.some(tag => {
+                const cleanTag = tag.startsWith('_') ? tag.substring(1) : tag;
+                return cleanTag.toLowerCase().includes(search);
+            });
             
             return fullName.includes(search) || hasMatchingTag;
         });
@@ -117,7 +127,6 @@ const RosterView = () => {
     };
 
     // Keyboard Shortcuts
-    // 'm' for Email (matches general shortcuts), 'n' for New Member
     useHotkeys({
         'n': () => handleOpenModal(),
         'm': handleEmailRoster
@@ -165,9 +174,25 @@ const RosterView = () => {
                                         <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
                                         <td className="px-3 py-4 text-sm text-gray-300">
                                             <div className="flex flex-wrap gap-1">
-                                                {member.tags?.map(tag => (
-                                                    <span key={tag} className="px-2 py-0.5 text-xs rounded-full bg-gray-700 text-amber-300">{tag}</span>
-                                                ))}
+                                                {member.tags?.map(tag => {
+                                                    const isPrivate = tag.startsWith('_');
+                                                    const displayName = isPrivate ? tag.substring(1) : tag;
+                                                    
+                                                    return (
+                                                        <span 
+                                                            key={tag} 
+                                                            className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded-full ${
+                                                                isPrivate 
+                                                                    ? 'bg-gray-800 text-gray-400 border border-gray-600' // Private Style
+                                                                    : 'bg-gray-700 text-amber-300' // Public Style
+                                                            }`}
+                                                            title={isPrivate ? "Private Tag (Internal Only)" : "Public Tag"}
+                                                        >
+                                                            {displayName}
+                                                            {isPrivate && <Lock size={10} className="text-amber-500/80" />}
+                                                        </span>
+                                                    );
+                                                })}
                                             </div>
                                         </td>
                                         <td className="px-3 py-4 text-sm text-gray-300">{member.email}</td>

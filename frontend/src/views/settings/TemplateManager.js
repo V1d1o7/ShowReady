@@ -1,21 +1,30 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useContext } from 'react';
 import { toast } from 'react-hot-toast';
 import { PlusCircle, Trash2, Save } from 'lucide-react';
 import { api } from '../../api/api';
+import { LayoutContext } from '../../contexts/LayoutContext';
 import TiptapEditor from '../../components/TiptapEditor';
 import InputField from '../../components/InputField';
 import ConfirmationModal from '../../components/ConfirmationModal';
 
 const TABS = ['ROSTER', 'CREW', 'HOURS'];
 
-// UPDATED VARIABLES LIST based on your requirements
+// UPDATED VARIABLES LIST 
 const VARIABLES = {
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}'], // Removed position, added schedule
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}'], // Removed position
-    HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'], // Completely new list for PM reporting
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{tags}}', '{{rosteredEmail}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{callTime}}', '{{notes}}', '{{venue}}'], // Added callTime, notes, venue
+    HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 
 const TemplateManager = () => {
+    // 1. Enable Global Scrolling
+    const { setShouldScroll } = useContext(LayoutContext);
+    
+    useEffect(() => {
+        setShouldScroll(true);
+        return () => setShouldScroll(false);
+    }, [setShouldScroll]);
+
     const [activeTab, setActiveTab] = useState(TABS[0]);
     const [templates, setTemplates] = useState([]);
     const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -120,7 +129,7 @@ const TemplateManager = () => {
 
     const insertVariable = (variable) => {
         if (editorRef.current) {
-            editorRef.current.chain().focus().insertContent(variable).run();
+            editorRef.current.chain().focus().insertContent(` ${variable} `).run();
         }
     };
     
@@ -134,8 +143,8 @@ const TemplateManager = () => {
                 <h1 className="text-2xl sm:text-3xl font-bold text-white">Email Template Manager</h1>
             </header>
             
-            <div className="flex gap-8">
-                <aside className="w-1/4">
+            <div className="flex gap-8 items-start">
+                <aside className="w-1/4 sticky top-6">
                     <div className="flex border-b border-gray-600 mb-4">
                         {TABS.map(tab => (
                             <button
@@ -153,7 +162,7 @@ const TemplateManager = () => {
                     >
                         <PlusCircle size={16} /> New Template
                     </button>
-                    <ul className="space-y-2">
+                    <ul className="space-y-2 max-h-[60vh] overflow-y-auto">
                         {templates.map(template => (
                             <li
                                 key={template.id}
@@ -210,7 +219,7 @@ const TemplateManager = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center h-full bg-gray-800 rounded-lg">
+                        <div className="flex items-center justify-center h-64 bg-gray-800 rounded-lg">
                             <p className="text-gray-500">Select a template to edit or create a new one.</p>
                         </div>
                     )}

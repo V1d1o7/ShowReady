@@ -1,3 +1,4 @@
+#
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from supabase import Client
@@ -6,11 +7,10 @@ from app.models import (
     TimesheetEntryCreate, WeeklyTimesheet,  
     CrewMemberHours, TimesheetEmailPayload 
 ) 
-from app.user_email import send_email_with_user_smtp, SMTPSettings, create_styled_email_template 
+from app.user_email import send_email_with_user_smtp, SMTPSettings
 from app.pdf_utils import generate_hours_pdf 
 from fastapi.responses import Response 
 import uuid 
-import urllib.parse
 from typing import List 
 from datetime import date, timedelta 
 
@@ -219,7 +219,7 @@ async def email_weekly_timesheet(
         raise HTTPException(status_code=400, detail="SMTP settings not configured.") 
     smtp_settings = SMTPSettings(**smtp_res.data) 
 
-    # 2. Fetch Profile Info (for PDF footer)
+    # 2. Fetch Profile Info (for PDF footer and template vars)
     profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute() 
     user_profile = profile_res.data 
     user_info = { 
@@ -235,6 +235,17 @@ async def email_weekly_timesheet(
 
     # 3. Fetch Timesheet Data
     timesheet_data = await get_timesheet_data(show_id, week_start_date, user.id, supabase) 
+    
+    # 3b. Fetch Show Info (PM Details)
+    show_res = supabase.table('shows').select('data').eq('id', show_id).single().execute()
+    show_info_data = show_res.data.get('data', {}).get('info', {}) if show_res.data else {}
+    
+    pm_first_name = show_info_data.get('show_pm_first_name', '')
+    pm_last_name = show_info_data.get('show_pm_last_name', '')
+    
+    user_first_name = user_profile.get('first_name', '')
+    user_last_name = user_profile.get('last_name', '')
+    
     show_logo_bytes = None 
     if timesheet_data.logo_path: 
         try: 
@@ -259,37 +270,53 @@ async def email_weekly_timesheet(
     # 5. Dynamic Filename: {ShowName} Hours {WeekStart}.pdf
     filename = f"{timesheet_data.show_name.strip()} Hours {week_start_date}.pdf" 
 
-    # 6. Send Email
+    # 6. Prepare Email Content (Templating Engine)
+    subject = payload.subject
+    body = payload.body
+
+    # Define variable replacements consistent with Communications Suite
+    replacements = {
+        "showName": timesheet_data.show_name,
+        "weekStart": str(week_start_date),
+        "companyName": user_info.get("company") or "",
+        "replyToEmail": smtp_settings.from_email,
+        "pmFirstName": pm_first_name,
+        "pmLastName": pm_last_name,
+        "userFirstName": user_first_name,
+        "userLastName": user_last_name
+    }
+
+    # Perform substitutions
+    for key, value in replacements.items():
+        if value is not None:
+            placeholder = "{{" + key + "}}"
+            subject = subject.replace(placeholder, str(value))
+            body = body.replace(placeholder, str(value))
+
+    # Apply Standard Communications Wrapper if raw text or incomplete HTML
+    final_html_body = body
+    if "<html" not in final_html_body.lower():
+        final_html_body = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ margin: 0; padding: 0; width: 100% !important; background-color: #111827; }}
+    table {{ border-collapse: collapse; }}
+  </style>
+</head>
+<body style="margin: 0; padding: 0; width: 100% !important; background-color: #111827;">
+  {body}
+</body>
+</html>"""
+
+    # 7. Send Email
     try: 
-        # Wrap the Tiptap HTML content in a container
-        user_message_html_template = """ 
-        <div style="margin-top: 20px; text-align: left; background-color: #1F2937; padding: 20px; border-radius: 10px;"> 
-            <div style="font-size: 16px; line-height: 1.8; color: #d4d4d8; text-align: left;"> 
-                {} 
-            </div> 
-        </div> 
-        """ 
-        # Direct injection of HTML body (Tiptap provides HTML)
-        content_html = user_message_html_template.format(payload.body)
-         
-        logo_url = None 
-        if timesheet_data.logo_path: 
-            # FIXED: encode URL path to handle spaces in filenames
-            encoded_path = urllib.parse.quote(timesheet_data.logo_path)
-            logo_url = supabase.storage.from_('logos').get_public_url(encoded_path) 
-
-        final_html_body = create_styled_email_template( 
-            title="Timesheet Submission", 
-            content_html=content_html, 
-            logo_url=logo_url, 
-            show_branding=payload.show_branding 
-        ) 
-
         await run_in_threadpool( 
             send_email_with_user_smtp, 
             smtp_settings=smtp_settings, 
             recipient_emails=payload.recipient_emails, 
-            subject=payload.subject, 
+            subject=subject, 
             html_body=final_html_body, 
             attachment_blob=pdf_bytes, 
             attachment_filename=filename 

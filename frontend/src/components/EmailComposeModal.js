@@ -8,8 +8,8 @@ import useHotkeys from '../hooks/useHotkeys';
 
 // Define available variables for on-the-fly editing
 const VARIABLES = {
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}'],
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{tags}}', '{{rosteredEmail}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{callTime}}', '{{notes}}', '{{venue}}'], // Added new vars
     HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 
@@ -31,6 +31,11 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
     const [selectedShowId, setSelectedShowId] = useState(''); 
     const [scheduleText, setScheduleText] = useState('');
 
+    // Crew Specific (New Fields)
+    const [callTime, setCallTime] = useState('');
+    const [notes, setNotes] = useState('');
+    const [venueDetails, setVenueDetails] = useState(''); // Store venue info
+
     // Editor Ref for inserting variables
     const [editorInstance, setEditorInstance] = useState(null);
 
@@ -48,6 +53,9 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
             setSelectedTemplateId('');
             setSelectedShowId('');
             setScheduleText('');
+            setCallTime(''); // Reset
+            setNotes('');    // Reset
+            setVenueDetails(''); // Reset
             setIsSending(false);
         }
     }, [isOpen, category, showId]);
@@ -71,6 +79,20 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                 const showResp = await api.getShow(showId);
                 const pmEmail = showResp.info?.show_pm_email || showResp.data?.info?.show_pm_email || '';
                 setToEmail(pmEmail);
+            } else if (category === 'CREW') {
+                // Fetch current show info to get Venue
+                // We might need to get showId from context or props if not passed explicitly.
+                // Assuming showId is passed or we can find it from the first recipient if available.
+                let targetShowId = showId;
+                if (!targetShowId && recipients.length > 0 && recipients[0].show_id) {
+                    targetShowId = recipients[0].show_id;
+                }
+
+                if (targetShowId) {
+                    const showResp = await api.getShow(targetShowId);
+                    const info = showResp.info || showResp.data?.info || {};
+                    setVenueDetails(info.venue_details || '');
+                }
             }
 
         } catch (error) {
@@ -107,6 +129,16 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
             const formattedSchedule = (scheduleText || '[Schedule]').replace(/\n/g, '<br>');
             processed = processed.replace(/{{schedule}}/g, formattedSchedule);
         } 
+        else if (category === 'CREW') {
+            // New logic for Crew variables
+            processed = processed.replace(/{{callTime}}/g, callTime || '[Call Time]');
+            
+            const formattedNotes = (notes || '').replace(/\n/g, '<br>');
+            processed = processed.replace(/{{notes}}/g, formattedNotes);
+
+            const formattedVenue = (venueDetails || '[Venue]').replace(/\n/g, '<br>');
+            processed = processed.replace(/{{venue}}/g, formattedVenue);
+        }
         else if (category === 'HOURS') {
             processed = processed.replace(/{{weekStartDate}}/g, weekStartDate || '');
             processed = processed.replace(/{{totalCost}}/g, grandTotals ? `$${grandTotals.cost.toFixed(2)}` : '$0.00');
@@ -210,11 +242,32 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Schedule / Dates</label>
-                                {/* FIX: Replaced InputField with textarea for multi-line support */}
                                 <textarea 
                                     value={scheduleText}
                                     onChange={(e) => setScheduleText(e.target.value)}
                                     placeholder="e.g. Dec 3, 5, & 13"
+                                    className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500 h-[80px] resize-none font-sans"
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {category === 'CREW' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-gray-700 pb-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Call Time</label>
+                                <InputField 
+                                    value={callTime}
+                                    onChange={(e) => setCallTime(e.target.value)}
+                                    placeholder="e.g. 08:00 AM"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-400 mb-1">Call Details / Notes</label>
+                                <textarea 
+                                    value={notes}
+                                    onChange={(e) => setNotes(e.target.value)}
+                                    placeholder="Parking instructions, dress code, etc."
                                     className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500 h-[80px] resize-none font-sans"
                                 />
                             </div>

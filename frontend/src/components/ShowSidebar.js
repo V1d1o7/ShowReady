@@ -1,3 +1,4 @@
+//
 import React, { useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
@@ -12,6 +13,24 @@ const ShowSidebar = () => {
     const { shows, isLoadingShows } = useShows();
     const { showName: showNameFromParams } = useParams();
     const navigate = useNavigate();
+
+    // FIX: Determine the current show object by matching the URL param (slug) to the show name.
+    // This handles cases where spaces are replaced by hyphens in the URL.
+    const currentShow = shows?.find(s => {
+        if (!s.name) return false;
+        // Replicate the slug logic used in navigation
+        const slugifiedName = s.name.replace(/\s+/g, '-');
+        
+        // check against slug, exact match, or decoded match
+        return (
+            slugifiedName === showNameFromParams || 
+            s.name === showNameFromParams || 
+            s.name === decodeURIComponent(showNameFromParams || '')
+        );
+    });
+
+    // Use the matched show's real name as the select value
+    const selectedShowValue = currentShow ? currentShow.name : (decodeURIComponent(showNameFromParams || ''));
 
     const handleShowChange = (e) => {
         const newShowName = e.target.value;
@@ -53,7 +72,7 @@ const ShowSidebar = () => {
                     <select
                         id="show-select"
                         className="appearance-none w-full bg-gray-700 border border-gray-600 rounded-md py-2 pl-3 pr-10 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
-                        value={decodeURIComponent(showNameFromParams)}
+                        value={selectedShowValue}
                         onChange={handleShowChange}
                         disabled={isLoadingShows}
                     >

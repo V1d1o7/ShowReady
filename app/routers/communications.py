@@ -1,3 +1,4 @@
+#
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 from app.api import get_supabase_client, get_user, feature_check
@@ -319,6 +320,25 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
 
         if not target_email:
             continue
+        
+        # Prepare rosteredEmail (the recipient's email)
+        data_source['rosteredEmail'] = target_email
+
+        # --- TAG FILTERING LOGIC ---
+        # Handle 'tags' specially if it exists (it's a list, so standard string loop won't catch it)
+        raw_tags = data_source.get('tags', [])
+        if isinstance(raw_tags, list):
+            # Filter out internal tags (starting with "internal:", "private:", or "_")
+            public_tags = [
+                t for t in raw_tags 
+                if isinstance(t, str) and not (
+                    t.lower().startswith("internal:") or 
+                    t.lower().startswith("private:") or 
+                    t.startswith("_")
+                )
+            ]
+            # Add to data_source as a joined string for substitution
+            data_source['tags'] = ", ".join(public_tags)
 
         # Basic Variable Substitution
         for key, value in data_source.items():

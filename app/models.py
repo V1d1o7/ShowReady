@@ -64,6 +64,7 @@ class ShowInfo(BaseModel):
     show_name: Optional[str] = None
     logo_path: Optional[str] = None
     production_video: Optional[str] = None
+    venue_details: Optional[str] = None # Added Venue Details
     show_pm_name: Optional[str] = None
     show_pm_first_name: Optional[str] = None
     show_pm_last_name: Optional[str] = None
