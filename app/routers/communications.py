@@ -1,4 +1,3 @@
-#
 from fastapi import APIRouter, Depends, HTTPException
 from supabase import Client
 from app.api import get_supabase_client, get_user, feature_check
@@ -156,57 +155,78 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
             "category": "CREW",
             "name": "Default Crew Email",
             "subject": "Crew Assignment: {{showName}}",
-            "body": f"""
-<table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main};">
+            "body": """
+<table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: rgb(17, 24, 39);">
   <tbody>
     <tr>
       <td colspan="1" rowspan="1" align="center" style="padding: 40px 10px;">
-        <table cellpadding="0" cellspacing="0" width="600" border="0" align="center" draggable="false" style="background-color: {bg_card}; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); margin: 0px auto;">
+        <table cellpadding="0" cellspacing="0" width="600" border="0" align="center" draggable="false" style="background-color: rgb(31, 41, 55); border-radius: 12px; overflow: hidden; border: 1px solid rgb(55, 65, 81); font-family: Helvetica, Arial, sans-serif; box-shadow: rgba(0, 0, 0, 0.5) 0px 10px 15px -3px; margin: 0px auto;">
           <tbody>
-            <tr><td colspan="1" rowspan="1" style="background-color: {color_crew}; height: 6px;"></td></tr>
             <tr>
-              <td colspan="1" rowspan="1" style="padding: 30px 40px; border-bottom: 1px solid #374151;">
-                <h1 style="color: {text_white}; margin: 0px; font-size: 24px; font-weight: 700;"><strong>Crew Assignment</strong></h1>
-                <p style="color: {color_crew}; margin: 5px 0px 0px; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;"><strong>{{{{showName}}}}</strong></p>
+              <td colspan="1" rowspan="1" style="background-color: rgb(59, 130, 246); height: 6px;">
+                <p></p>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="1" rowspan="1" style="padding: 30px 40px; border-bottom: 1px solid rgb(55, 65, 81);">
+                <h1 style="color: rgb(249, 250, 251); margin: 0px; font-size: 24px; font-weight: 700;">
+                  <strong>Crew Assignment</strong>
+                </h1>
+                <p style="color: rgb(59, 130, 246); margin: 5px 0px 0px; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">
+                  <strong>{{showName}}</strong>
+                </p>
               </td>
             </tr>
             <tr>
               <td colspan="1" rowspan="1" style="padding: 40px;">
-                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hi {{{{firstName}}}},</p>
-                <p style="color: {text_gray}; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">You have been confirmed for the following position. Please review the details below:</p>
-                
-                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: {bg_main}; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;">
+                <p style="color: rgb(209, 213, 219); font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hi {{firstName}},</p>
+                <p style="color: rgb(209, 213, 219); font-size: 16px; line-height: 1.6; margin-bottom: 25px;">Here are the details for the upcoming call for {{showName}}. If you have any questions or issues just let me know!</p>
+                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="background-color: rgb(17, 24, 39); border-radius: 8px; border: 1px solid rgb(55, 65, 81); margin-bottom: 30px;">
                   <tbody>
                     <tr>
                       <td colspan="1" rowspan="1" style="padding: 25px;">
                         <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
-                           <tr>
-                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">ROLE:</td>
-                             <td style="color: {text_white}; font-size: 15px;"><strong>{{{{position}}}}</strong></td>
-                           </tr>
+                          <tbody>
+                            <tr>
+                              <td colspan="1" rowspan="1" width="80" valign="top" style="color: rgb(156, 163, 175); font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">
+                                <p>
+                                  <strong>Location:</strong>
+                                </p>
+                              </td>
+                              <td colspan="1" rowspan="1" style="color: rgb(249, 250, 251); font-size: 15px;">
+                                <p>{{venue}}</p>
+                              </td>
+                            </tr>
+                          </tbody>
                         </table>
                         <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
-                           <tr>
-                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">CALL TIME:</td>
-                             <td style="color: {text_white}; font-size: 15px;">[Insert Call Time]</td>
-                           </tr>
+                          <tbody>
+                            <tr>
+                              <td colspan="1" rowspan="1" width="80" valign="top" style="color: rgb(156, 163, 175); font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">
+                                <p>
+                                  <strong>CALL TIME:</strong>
+                                </p>
+                              </td>
+                              <td colspan="1" rowspan="1" style="color: rgb(249, 250, 251); font-size: 15px;">
+                                <p>{{callTime}}</p>
+                              </td>
+                            </tr>
+                          </tbody>
                         </table>
                         <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
-                           <tr>
-                             <td width="80" valign="top" style="color: {text_muted}; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">NOTES:</td>
-                             <td style="color: {text_white}; font-size: 15px;">Please bring standard kit.</td>
-                           </tr>
+                          <tbody>
+                            <tr>
+                              <td colspan="1" rowspan="1" width="80" valign="top" style="color: rgb(156, 163, 175); font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">
+                                <p>
+                                  <strong>NOTES:</strong>
+                                </p>
+                              </td>
+                              <td colspan="1" rowspan="1" style="color: rgb(249, 250, 251); font-size: 15px;">
+                                <p>{{notes}}</p>
+                              </td>
+                            </tr>
+                          </tbody>
                         </table>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                
-                <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
-                  <tbody>
-                    <tr>
-                      <td align="center">
-                        <a href="mailto:{{{{replyToEmail}}}}?subject=Received: {{{{showName}}}}" style="background-color: {color_crew}; color: {text_white}; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Confirm Receipt</a>
                       </td>
                     </tr>
                   </tbody>
@@ -214,8 +234,8 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
               </td>
             </tr>
             <tr>
-              <td colspan="1" rowspan="1" style="background-color: {bg_main}; padding: 20px; text-align: center; border-top: 1px solid #374151;">
-                <p style="color: #4B5563; font-size: 12px; margin: 0px;">Powered by ShowReady</p>
+              <td colspan="1" rowspan="1" style="background-color: rgb(17, 24, 39); padding: 20px; text-align: center; border-top: 1px solid rgb(55, 65, 81);">
+                <p style="color: rgb(75, 85, 99); font-size: 12px; margin: 0px;">Powered by ShowReady</p>
               </td>
             </tr>
           </tbody>
@@ -224,7 +244,7 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
     </tr>
   </tbody>
 </table>
-""",
+<p></p>""",
             "is_default": True
         },
         # -------------------------------------------------------------------------

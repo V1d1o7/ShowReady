@@ -9,7 +9,7 @@ import useHotkeys from '../hooks/useHotkeys';
 // Define available variables for on-the-fly editing
 const VARIABLES = {
     ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{tags}}', '{{rosteredEmail}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{callTime}}', '{{notes}}', '{{venue}}'], // Added new vars
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
     HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 
@@ -81,8 +81,6 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                 setToEmail(pmEmail);
             } else if (category === 'CREW') {
                 // Fetch current show info to get Venue
-                // We might need to get showId from context or props if not passed explicitly.
-                // Assuming showId is passed or we can find it from the first recipient if available.
                 let targetShowId = showId;
                 if (!targetShowId && recipients.length > 0 && recipients[0].show_id) {
                     targetShowId = recipients[0].show_id;
@@ -131,7 +129,9 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
         } 
         else if (category === 'CREW') {
             // New logic for Crew variables
-            processed = processed.replace(/{{callTime}}/g, callTime || '[Call Time]');
+            // UPDATED: Handle newlines for Call Time
+            const formattedCallTime = (callTime || '[Call Time]').replace(/\n/g, '<br>');
+            processed = processed.replace(/{{callTime}}/g, formattedCallTime);
             
             const formattedNotes = (notes || '').replace(/\n/g, '<br>');
             processed = processed.replace(/{{notes}}/g, formattedNotes);
@@ -256,10 +256,12 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-gray-700 pb-6">
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Call Time</label>
-                                <InputField 
+                                {/* UPDATED: Changed from InputField to Textarea to support multiple lines */}
+                                <textarea 
                                     value={callTime}
                                     onChange={(e) => setCallTime(e.target.value)}
                                     placeholder="e.g. 08:00 AM"
+                                    className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500 h-[80px] resize-none font-sans"
                                 />
                             </div>
                             <div>

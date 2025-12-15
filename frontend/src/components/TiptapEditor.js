@@ -183,6 +183,7 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
                 paragraph: false,
                 heading: false,
                 code: false, 
+                link: false, // FIX: Disable StarterKit's link extension to avoid duplicate warning
             }),
             CustomParagraph,
             CustomHeading,

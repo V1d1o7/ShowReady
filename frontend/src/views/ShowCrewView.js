@@ -68,8 +68,11 @@ const ShowCrewView = () => {
         );
     };
 
+    // --- FIX APPLIED HERE ---
+    // Previously: .map(c => c.roster) returned the roster object (ID = roster_id).
+    // Fixed: Removed .map() to return the crew object (ID = show_crew_id), which the backend requires.
     const selectedRecipients = useMemo(() => {
-        return crew.filter(c => selectedCrewIds.includes(c.roster.id)).map(c => c.roster);
+        return crew.filter(c => selectedCrewIds.includes(c.roster.id));
     }, [crew, selectedCrewIds]);
 
     const handleEmailSelected = () => {
