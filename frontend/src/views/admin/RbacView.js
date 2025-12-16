@@ -93,7 +93,7 @@ const RbacView = () => {
                 <p className="text-sm text-gray-400 mb-6">
                     For each feature, select the roles that should have access. If no roles are selected for a feature, <span className="font-bold text-green-400">ALL</span> users will have access by default.
                 </p>
-                <div className="space-y-5">
+                <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-2">
                     {restrictions.map(feature => (
                         <div key={feature.feature_name} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                             <label htmlFor={`roles-for-${feature.feature_name}`} className="font-bold text-gray-200 flex items-center">
