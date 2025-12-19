@@ -184,7 +184,10 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
             <PdfPreviewModal 
                 isOpen={!!pdfPreviewUrl} 
                 url={pdfPreviewUrl} 
-                onClose={() => setPdfPreviewUrl(null)} 
+                onClose={() => {
+                    URL.revokeObjectURL(pdfPreviewUrl);
+                    setPdfPreviewUrl(null);
+                }} 
             />
             
             {isAdvancedPrintModalOpen && <AdvancedPrintModal

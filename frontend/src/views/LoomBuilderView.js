@@ -239,7 +239,14 @@ const LoomBuilderView = () => {
                     initialValue={`${loomToCopy.name} (Copy)`}
                 />
             )}
-            <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
+            <PdfPreviewModal 
+                isOpen={!!pdfPreviewUrl} 
+                url={pdfPreviewUrl} 
+                onClose={() => {
+                    URL.revokeObjectURL(pdfPreviewUrl);
+                    setPdfPreviewUrl(null);
+                }} 
+            />
             <ContextualNotesDrawer
                 entityType={notesContext.entityType}
                 entityId={notesContext.entityId}

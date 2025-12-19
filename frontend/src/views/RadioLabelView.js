@@ -65,7 +65,14 @@ const RadioLabelView = () => {
                     </button>
                 </div>
             </Card>
-            <PdfPreviewModal url={pdfPreviewUrl} onClose={() => setPdfPreviewUrl(null)} />
+            <PdfPreviewModal 
+                isOpen={!!pdfPreviewUrl} 
+                url={pdfPreviewUrl} 
+                onClose={() => {
+                    URL.revokeObjectURL(pdfPreviewUrl);
+                    setPdfPreviewUrl(null);
+                }} 
+            />
         </>
     );
 };

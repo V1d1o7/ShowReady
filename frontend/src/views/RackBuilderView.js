@@ -290,60 +290,75 @@ const RackBuilderView = () => {
         });
     };
 
+    const getItemSlot = (item) => {
+        const width = item.equipment_templates.width;
+        const side = item.rack_side;
+        if (width === 'full') return { start: 0, end: 1 };
+        if (width === 'half') {
+            if (side.endsWith('-right')) return { start: 0.5, end: 1 };
+            return { start: 0, end: 0.5 };
+        }
+        if (width === 'third') {
+            if (side.endsWith('-middle')) return { start: 1/3, end: 2/3 };
+            if (side.endsWith('-right')) return { start: 2/3, end: 1 };
+            return { start: 0, end: 1/3 };
+        }
+        return { start: 0, end: 1 }; // Default to full
+    };
+    
+    const getTargetSlot = (itemTemplate, targetSide) => {
+        const width = itemTemplate.width;
+        if (width === 'full') return { start: 0, end: 1 };
+        if (width === 'half') {
+            if (targetSide.endsWith('-right')) return { start: 0.5, end: 1 };
+            return { start: 0, end: 0.5 };
+        }
+        if (width === 'third') {
+            if (targetSide.endsWith('-middle')) return { start: 1/3, end: 2/3 };
+            if (targetSide.endsWith('-right')) return { start: 2/3, end: 1 };
+            return { start: 0, end: 1/3 };
+        }
+        return { start: 0, end: 1 }; // Default to full
+    }
+    
     const checkCollision = useCallback((rackData, itemToPlace, targetRu, targetSide) => {
         if (!rackData || !itemToPlace) return true;
     
         const itemTemplate = itemToPlace.isNew ? itemToPlace.item : itemToPlace.item.equipment_templates;
         if (!itemTemplate) return true;
     
-        const start_new = targetRu;
-        const end_new = targetRu + itemTemplate.ru_height - 1;
+        const startNew = targetRu;
+        const endNew = targetRu + itemTemplate.ru_height - 1;
     
-        if (start_new < 1 || end_new > rackData.ru_height) {
-            return true;
+        if (startNew < 1 || endNew > rackData.ru_height) {
+            return true; // Out of bounds
         }
     
-        const isNewFullWidth = itemTemplate.width !== 'half';
         const newFace = targetSide.split('-')[0];
+        const newSlot = getTargetSlot(itemTemplate, targetSide);
     
-        for (const existingItem of rackData.equipment) {
-            if (!itemToPlace.isNew && itemToPlace.item.id === existingItem.id) {
-                continue;
-            }
+        // For each RU the new item would occupy
+        for (let ru = startNew; ru <= endNew; ru++) {
+            // Find all existing items in this RU
+            const itemsInRu = rackData.equipment.filter(item => {
+                if (!itemToPlace.isNew && item.id === itemToPlace.item.id) return false;
+                const template = item.equipment_templates;
+                if (!template || !item.rack_side) return false;
+                const face = item.rack_side.split('-')[0];
+                if (face !== newFace) return false;
+                
+                const startExisting = item.ru_position;
+                const endExisting = startExisting + template.ru_height - 1;
+                return ru >= startExisting && ru <= endExisting;
+            });
     
-            const existingTemplate = existingItem.equipment_templates;
-            if (!existingTemplate) continue;
-
-            if (!existingItem.rack_side || typeof existingItem.rack_side !== 'string') {
-                continue;
-            }
-
-            const existingFace = existingItem.rack_side.trim().split('-')[0];
-
-            if (newFace !== existingFace) {
-                continue;
-            }
-
-            const start_existing = existingItem.ru_position;
-            const end_existing = start_existing + existingTemplate.ru_height - 1;
-            const ruOverlap = start_new <= end_existing && end_new >= start_existing;
-
-            if (!ruOverlap) {
-                continue;
-            }
-
-            const isExistingFullWidth = existingTemplate.width !== 'half';
-
-            if (isNewFullWidth) {
-                return true;
-            }
-
-            if (isExistingFullWidth) {
-                return true;
-            }
-
-            if (existingItem.rack_side === targetSide) {
-                return true;
+            // Check for slot overlap
+            for (const item of itemsInRu) {
+                const existingSlot = getItemSlot(item);
+                // Check for overlap: (StartA <= EndB) and (EndA >= StartB)
+                if (newSlot.start < existingSlot.end && newSlot.end > existingSlot.start) {
+                    return true; // Collision
+                }
             }
         }
     
@@ -380,8 +395,13 @@ const RackBuilderView = () => {
             cleanup();
             return;
         }
-        const isFullWidth = itemTemplate.width !== 'half';
-        const finalSide = isFullWidth ? side.replace(/-left|-right/g, '') : side;
+        
+        const finalSide = (() => {
+            if (itemTemplate.width === 'full') {
+                return side.split('-')[0]; // 'front' or 'rear'
+            }
+            return side;
+        })();
         
         if (draggedItem.isNew) {
             const optimisticId = `optimistic-${Date.now()}`;

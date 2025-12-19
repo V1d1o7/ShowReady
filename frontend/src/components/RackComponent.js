@@ -41,17 +41,27 @@ const RackComponent = ({
         
         if (!template) return;
 
-        const isFullWidth = template.width !== 'half';
-
         const x = e.clientX - rackBody.left;
-        const isRightSide = x > rackBody.width / 2;
-
         const y = e.clientY - rackBody.top;
         const itemHeightInRUs = template.ru_height || 1;
         const ruOffset = Math.floor(itemHeightInRUs / 2);
         const calculatedRu = rack.ru_height - Math.floor(y / 25) - ruOffset;
         
-        const side = `${view}${isRightSide ? '-right' : '-left'}`;
+        const position = x / rackBody.width;
+        let sideSuffix;
+
+        if (template.width === 'third') {
+            if (position < 1/3) sideSuffix = '-left';
+            else if (position < 2/3) sideSuffix = '-middle';
+            else sideSuffix = '-right';
+        } else if (template.width === 'half') {
+            if (position < 0.5) sideSuffix = '-left';
+            else sideSuffix = '-right';
+        } else {
+            sideSuffix = ''; // Full width
+        }
+
+        const side = `${view}${sideSuffix}`;
 
         onDragOverRack({ rackId: rack.id, ru: calculatedRu, side });
     };

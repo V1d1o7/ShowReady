@@ -441,12 +441,24 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
             equip_ru_height = equip_template.ru_height
             equip_bottom_y = y_bottom + (equip.ru_position - 1) * RU_HEIGHT
             equip_height = equip_ru_height * RU_HEIGHT
-            is_half_width = equip_template.width == 'half'
-            equip_width = (RACK_FRAME_WIDTH / 2) if is_half_width else RACK_FRAME_WIDTH
-            equip_x_start = view_x_start
-            if is_half_width and equip.rack_side.endswith('-right'):
-                equip_x_start += RACK_FRAME_WIDTH / 2
             
+            width_type = equip_template.width if hasattr(equip_template, 'width') else 'full'
+            
+            if width_type == 'half':
+                equip_width = RACK_FRAME_WIDTH / 2
+                equip_x_start = view_x_start + (RACK_FRAME_WIDTH / 2 if equip.rack_side.endswith('-right') else 0)
+            elif width_type == 'third':
+                equip_width = RACK_FRAME_WIDTH / 3
+                if equip.rack_side.endswith('-middle'):
+                    equip_x_start = view_x_start + RACK_FRAME_WIDTH / 3
+                elif equip.rack_side.endswith('-right'):
+                    equip_x_start = view_x_start + (RACK_FRAME_WIDTH / 3 * 2)
+                else:
+                    equip_x_start = view_x_start
+            else: # Full width
+                equip_width = RACK_FRAME_WIDTH
+                equip_x_start = view_x_start
+
             c.setFillColorRGB(0.88, 0.88, 0.88)
             c.setStrokeColor(colors.black)
             c.rect(equip_x_start, equip_bottom_y, equip_width, equip_height, fill=1, stroke=1)

@@ -6,7 +6,6 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     const [isDragging, setIsDragging] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const template = item.equipment_templates || {};
-    const isHalfWidth = template.width === 'half' || (item.rack_side && (item.rack_side.includes('-left') || item.rack_side.includes('-right')));
 
     const handleDragStart = (e) => {
         setIsDragging(true);
@@ -18,8 +17,22 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     const bottomPosition = (item.ru_position - 1) * 25;
     const itemHeight = (template.ru_height || 1) * 25;
 
-    const widthClass = isHalfWidth ? 'w-1/2' : 'w-full';
-    const positionClass = item.rack_side && item.rack_side.endsWith('-right') ? 'left-1/2' : 'left-0';
+    const widthClass = (() => {
+        if (template.width === 'half') return 'w-1/2';
+        if (template.width === 'third') return 'w-1/3';
+        return 'w-full';
+    })();
+
+    const positionClass = (() => {
+        if (!item.rack_side) return 'left-0';
+        if (item.rack_side.endsWith('-right')) {
+            return template.width === 'third' ? 'left-2/3' : 'left-1/2';
+        }
+        if (item.rack_side.endsWith('-middle')) {
+            return 'left-1/3';
+        }
+        return 'left-0';
+    })();
 
     const handleUpdate = (updatedData) => {
         onUpdate(item.id, updatedData);

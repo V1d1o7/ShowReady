@@ -53,6 +53,7 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
                             <select name="width" value={formData.width} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
                                 <option value="full">Full</option>
                                 <option value="half">Half</option>
+                                <option value="third">Third</option>
                             </select>
                         </div>
                     </div>
