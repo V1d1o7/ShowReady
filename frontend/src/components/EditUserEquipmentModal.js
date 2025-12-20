@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
-import InputField from './InputField';
+import EquipmentForm from './EquipmentForm';
 import { Plus } from 'lucide-react';
 import PortManagerModal from './PortManagerModal';
-import FolderOptions from './FolderOptions';
-import ToggleSwitch from './ToggleSwitch';
 
 const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFolderTree }) => {
-    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '', has_ip_address: false });
+    const [formData, setFormData] = useState({});
     const [ports, setPorts] = useState([]);
     const [isPortModalOpen, setIsPortModalOpen] = useState(false);
 
@@ -20,24 +18,31 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
                 width: equipment.width || 'full',
                 folder_id: equipment.folder_id || '',
                 has_ip_address: equipment.has_ip_address || false,
+                is_module: equipment.is_module || false,
+                module_type: equipment.module_type || '',
+                slots: equipment.slots || []
             });
             setPorts(equipment.ports || []);
         }
     }, [equipment]);
 
-    const handleChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-    };
-
     const handleSubmit = (e) => {
         e.preventDefault();
         const dataToSubmit = {
             ...formData,
-            ru_height: parseInt(formData.ru_height, 10),
+            ru_height: formData.is_module ? 0 : parseInt(formData.ru_height, 10),
             folder_id: formData.folder_id || null,
             ports: ports
         };
+
+        if (dataToSubmit.is_module) {
+            delete dataToSubmit.slots;
+            delete dataToSubmit.ru_height;
+            delete dataToSubmit.width;
+        } else {
+            delete dataToSubmit.module_type;
+        }
+
         onSubmit(dataToSubmit);
     };
 
@@ -47,38 +52,12 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
         <>
             <Modal isOpen={isOpen} onClose={onClose} title={`Edit Equipment: ${equipment.model_number}`}>
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <InputField label="Model Number" name="model_number" value={formData.model_number} onChange={handleChange} required autoFocus />
-                    <InputField label="Manufacturer" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
-                    <div className="grid grid-cols-2 gap-4">
-                        <InputField label="RU Height" name="ru_height" type="number" min="1" value={formData.ru_height} onChange={handleChange} required />
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1.5">Width</label>
-                            <select name="width" value={formData.width} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                                <option value="full">Full</option>
-                                <option value="half">Half</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1.5">Parent Folder (Optional)</label>
-                        <select name="folder_id" value={formData.folder_id} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                            <option value="">None (Root Level)</option>
-                            <FolderOptions folders={userFolderTree} />
-                        </select>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <label htmlFor="user_has_ip_address" className="block text-sm font-medium text-gray-300">
-                            Device is IP Addressable
-                        </label>
-                        <ToggleSwitch
-                            id="user_has_ip_address"
-                            name="has_ip_address"
-                            checked={formData.has_ip_address}
-                            onChange={handleChange}
-                        />
-                    </div>
+                    <EquipmentForm
+                        formData={formData}
+                        onFormChange={setFormData}
+                        folderTree={userFolderTree}
+                        isNew={false}
+                    />
 
                     <div className="border-t border-gray-700 pt-4">
                         <h3 className="text-md font-bold text-white mb-2">Ports ({ports.length})</h3>

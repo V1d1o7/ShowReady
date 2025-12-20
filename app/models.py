@@ -314,6 +314,10 @@ class PortTemplate(BaseModel):
     type: str  # 'input' or 'output'
     connector_type: str # 'HDMI', 'SDI', 'XLR', 'CAT6', 'RJ45' etc.
 
+class SlotDefinition(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    name: str
+
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     user_id: Optional[uuid.UUID] = None
@@ -327,6 +331,9 @@ class EquipmentTemplate(BaseModel):
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
     has_ip_address: bool = False
+    is_module: bool = False
+    module_type: Optional[str] = None
+    slots: List[SlotDefinition] = Field(default_factory=list)
 
 # Updated create model to include ports
 class EquipmentTemplateCreate(BaseModel):
@@ -337,6 +344,9 @@ class EquipmentTemplateCreate(BaseModel):
     ports: List[PortTemplate] = Field(default_factory=list) # Updated field
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: bool = False
+    is_module: bool = False
+    module_type: Optional[str] = None
+    slots: List[SlotDefinition] = Field(default_factory=list)
 
 class RackEquipmentInstance(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -349,12 +359,14 @@ class RackEquipmentInstance(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
+    module_assignments: Dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
     ru_position: int
     instance_name: Optional[str] = None
     rack_side: Optional[str] = None
+    module_assignments: Dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
 
 class EquipmentInstanceCreate(BaseModel):
     equipment_template_id: uuid.UUID
@@ -372,6 +384,7 @@ class RackEquipmentInstanceUpdate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
+    module_assignments: Optional[Dict[uuid.UUID, uuid.UUID]] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
     id: uuid.UUID
@@ -384,6 +397,7 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = 1
+    module_assignments: Dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
     equipment_templates: Optional[EquipmentTemplate] = None
     has_notes: Optional[bool] = False
 
@@ -470,6 +484,9 @@ class EquipmentTemplateUpdate(BaseModel):
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: Optional[bool] = None
+    is_module: Optional[bool] = None
+    module_type: Optional[str] = None
+    slots: Optional[List[SlotDefinition]] = None
     
 class UserEquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
@@ -479,6 +496,9 @@ class UserEquipmentTemplateUpdate(BaseModel):
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: Optional[bool] = None
+    is_module: Optional[bool] = None
+    module_type: Optional[str] = None
+    slots: Optional[List[SlotDefinition]] = None
 
 class EquipmentCopy(BaseModel):
     template_id: uuid.UUID

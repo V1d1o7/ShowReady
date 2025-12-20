@@ -1,81 +1,62 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
-import InputField from './InputField';
+import EquipmentForm from './EquipmentForm';
 import { Plus } from 'lucide-react';
 import PortManagerModal from './PortManagerModal';
-import FolderOptions from './FolderOptions'; // This import is new
-import ToggleSwitch from './ToggleSwitch';
 
 const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
-    const [formData, setFormData] = useState({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '', has_ip_address: false });
+    const initialFormState = {
+        model_number: '',
+        manufacturer: '',
+        ru_height: 1,
+        width: 'full',
+        folder_id: '',
+        has_ip_address: false,
+        is_module: false,
+        module_type: '',
+        slots: []
+    };
+    const [formData, setFormData] = useState(initialFormState);
     const [ports, setPorts] = useState([]);
     const [isPortModalOpen, setIsPortModalOpen] = useState(false);
 
-    // Reset form state when the modal opens
     useEffect(() => {
         if (isOpen) {
-            setFormData({ model_number: '', manufacturer: '', ru_height: 1, width: 'full', folder_id: '', has_ip_address: false });
+            setFormData(initialFormState);
             setPorts([]);
         }
     }, [isOpen]);
-
-    const handleChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
-    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
         const dataToSubmit = {
             ...formData,
-            ru_height: parseInt(formData.ru_height, 10),
+            ru_height: formData.is_module ? 0 : parseInt(formData.ru_height, 10),
             folder_id: formData.folder_id || null,
             ports: ports,
-            has_ip_address: formData.has_ip_address
         };
+
+        if (dataToSubmit.is_module) {
+            delete dataToSubmit.slots;
+            delete dataToSubmit.ru_height;
+            delete dataToSubmit.width;
+        } else {
+            delete dataToSubmit.module_type;
+        }
+        
         onSubmit(dataToSubmit);
     };
-
-    const handleOpenPortModal = (e) => {
-        e.preventDefault();
-        setIsPortModalOpen(true);
-    }
 
     return (
         <>
             <Modal isOpen={isOpen} onClose={onClose} title="Create New Equipment Template">
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <InputField label="Model Number" name="model_number" value={formData.model_number} onChange={handleChange} required autoFocus />
-                    <InputField label="Manufacturer" name="manufacturer" value={formData.manufacturer} onChange={handleChange} required />
-                    <div className="grid grid-cols-2 gap-4">
-                        <InputField label="RU Height" name="ru_height" type="number" min="0" value={formData.ru_height} onChange={handleChange} required />
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1.5">Width</label>
-                            <select name="width" value={formData.width} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                                <option value="full">Full</option>
-                                <option value="half">Half</option>
-                                <option value="third">Third</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1.5">Parent Folder (Optional)</label>
-                        <select name="folder_id" value={formData.folder_id} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                            <option value="">None (Root Level)</option>
-                            <FolderOptions folders={folderTree} />
-                        </select>
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <label htmlFor="admin_has_ip_address" className="block text-sm font-medium text-gray-300">
-                            Device is IP Addressable
-                        </label>
-                        <ToggleSwitch
-                            id="admin_has_ip_address"
-                            name="has_ip_address"
-                            checked={formData.has_ip_address}
-                            onChange={handleChange}
-                        />
-                    </div>
+                    <EquipmentForm
+                        formData={formData}
+                        onFormChange={setFormData}
+                        folderTree={folderTree}
+                        isNew={true}
+                    />
 
                     {/* Port Management Section */}
                     <div className="border-t border-gray-700 pt-4">
@@ -87,7 +68,7 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
                                 </div>
                             ))}
                         </div>
-                        <button onClick={handleOpenPortModal} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
+                        <button onClick={(e) => { e.preventDefault(); setIsPortModalOpen(true); }} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
                             <Plus size={16} /> Manage Ports
                         </button>
                     </div>
