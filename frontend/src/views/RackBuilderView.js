@@ -355,8 +355,9 @@ const RackBuilderView = () => {
             // Check for slot overlap
             for (const item of itemsInRu) {
                 const existingSlot = getItemSlot(item);
-                // Check for overlap: (StartA <= EndB) and (EndA >= StartB)
-                if (newSlot.start < existingSlot.end && newSlot.end > existingSlot.start) {
+                const epsilon = 0.0001;
+                // Check for overlap: (StartA < EndB) and (EndA > StartB)
+                if (newSlot.start < existingSlot.end - epsilon && newSlot.end > existingSlot.start + epsilon) {
                     return true; // Collision
                 }
             }

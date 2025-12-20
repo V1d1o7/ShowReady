@@ -1406,7 +1406,53 @@ async def load_rack_from_library(load_data: RackLoad, user=Depends(get_user), su
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- Equipment Endpoints ---
-@router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstance, tags=["Racks"])
+
+def _get_item_slot(item_template, side):
+    """Helper function to determine the fractional slot of a piece of equipment."""
+    width = item_template.get('width', 'full')
+    if width == 'full': return (0, 1)
+    if width == 'half':
+        return (0.5, 1) if side.endswith('-right') else (0, 0.5)
+    if width == 'third':
+        if side.endswith('-middle'): return (1/3, 2/3)
+        if side.endswith('-right'): return (2/3, 1)
+        return (0, 1/3)
+    return (0, 1)
+
+def _check_backend_collision(
+    new_item_ru: int,
+    new_item_ru_height: int,
+    new_item_side: str,
+    new_item_template: dict,
+    existing_equipment: List[dict]
+):
+    """Checks for collisions between a new/updated item and existing equipment in a rack."""
+    new_item_start_ru = new_item_ru
+    new_item_end_ru = new_item_start_ru + new_item_ru_height - 1
+    new_item_face = new_item_side.split('-')[0]
+    new_item_slot_start, new_item_slot_end = _get_item_slot(new_item_template, new_item_side)
+    epsilon = 0.0001
+
+    for ru in range(new_item_start_ru, new_item_end_ru + 1):
+        for existing_item in existing_equipment:
+            existing_template = existing_item.get('equipment_templates')
+            if not existing_template: continue
+
+            existing_start_ru = existing_item['ru_position']
+            existing_end_ru = existing_start_ru + existing_template['ru_height'] - 1
+
+            if ru >= existing_start_ru and ru <= existing_end_ru:
+                existing_face = existing_item['rack_side'].split('-')[0]
+                if new_item_face == existing_face:
+                    existing_slot_start, existing_slot_end = _get_item_slot(existing_template, existing_item['rack_side'])
+                    
+                    if new_item_slot_start < existing_slot_end - epsilon and new_item_slot_end > existing_slot_start + epsilon:
+                         raise HTTPException(
+                            status_code=409, 
+                            detail=f"Placement conflicts with {existing_item.get('instance_name', 'Unnamed')}."
+                        )
+
+@router.post("/racks/{rack_id}/equipment", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
 async def add_equipment_to_rack(
     rack_id: uuid.UUID, 
     equipment_data: RackEquipmentInstanceCreate, 
@@ -1439,40 +1485,13 @@ async def add_equipment_to_rack(
     if new_item_end > rack_res.data['ru_height']:
         raise HTTPException(status_code=400, detail="Equipment does not fit in the rack at this position.")
 
-    # --- Collision Detection Logic ---
-    new_item_start = equipment_data.ru_position
-    new_item_end = new_item_start + template['ru_height'] - 1
-    new_item_is_full_width = template['width'] != 'half'
-    new_item_side = equipment_data.rack_side
-
-    for existing_item in existing_equipment:
-        existing_template = existing_item['equipment_templates']
-        existing_start = existing_item['ru_position']
-        existing_end = existing_start + existing_template['ru_height'] - 1
-
-        # Check for vertical overlap
-        if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
-            new_item_face = new_item_side.split('-')[0]
-            existing_side = existing_item['rack_side']
-            existing_face = existing_side.split('-')[0]
-
-            # Only check for collision if they are on the same face of the rack
-            if new_item_face == existing_face:
-                existing_is_full_width = existing_template['width'] != 'half'
-                
-                # Case 1: If either item is full-width, it's a guaranteed collision on the same face
-                if new_item_is_full_width or existing_is_full_width:
-                    raise HTTPException(
-                        status_code=409, 
-                        detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
-                    )
-
-                # Case 2: Both items are half-width. Collision only if they are on the same side.
-                if new_item_side == existing_side:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
-                    )
+    _check_backend_collision(
+        new_item_ru=equipment_data.ru_position,
+        new_item_ru_height=template['ru_height'],
+        new_item_side=equipment_data.rack_side,
+        new_item_template=template,
+        existing_equipment=existing_equipment
+    )
 
     prefix = template.get('folders', {}).get('nomenclature_prefix') if template.get('folders') else None
     base_name = prefix if prefix else template['model_number']
@@ -1522,7 +1541,7 @@ async def get_equipment_instance(instance_id: uuid.UUID, user = Depends(get_user
         
     return instance_res.data
 
-@router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
+@router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
 async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates the position, side, or IP address of a rack equipment instance."""
     
@@ -1551,35 +1570,13 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
             rack_id = instance['rack_id']
             existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).neq('id', str(instance_id)).execute()
             
-            new_item_start = new_ru_position
-            new_item_end = new_item_start + ru_height - 1
-            new_item_is_full_width = instance['equipment_templates']['width'] != 'half'
-            new_item_side = update_dict.get('rack_side', instance['rack_side'])
-
-            for existing_item in existing_equipment_res.data:
-                existing_template = existing_item['equipment_templates']
-                existing_start = existing_item['ru_position']
-                existing_end = existing_start + existing_template['ru_height'] - 1
-
-                if max(new_item_start, existing_start) <= min(new_item_end, existing_end):
-                    new_item_face = new_item_side.split('-')[0]
-                    existing_side = existing_item['rack_side']
-                    existing_face = existing_side.split('-')[0]
-
-                    if new_item_face == existing_face:
-                        existing_is_full_width = existing_template['width'] != 'half'
-                        
-                        if new_item_is_full_width or existing_is_full_width:
-                            raise HTTPException(
-                                status_code=409, 
-                                detail=f"Placement of full-width item conflicts with {existing_item.get('instance_name', 'Unnamed')}."
-                            )
-
-                        if new_item_side == existing_side:
-                            raise HTTPException(
-                                status_code=409,
-                                detail=f"Placement of half-width item conflicts with {existing_item.get('instance_name', 'Unnamed')} on the same side."
-                            )
+            _check_backend_collision(
+                new_item_ru=new_ru_position,
+                new_item_ru_height=ru_height,
+                new_item_side=update_dict.get('rack_side', instance['rack_side']),
+                new_item_template=instance['equipment_templates'],
+                existing_equipment=existing_equipment_res.data
+            )
 
     except Exception as e:
         if isinstance(e, HTTPException):
