@@ -1518,12 +1518,15 @@ async def add_equipment_to_rack(
     }
     
     response = supabase.table('rack_equipment_instances').insert(insert_data).execute()
+    
     if response.data:
-        new_instance = response.data[0]
-        # Eagerly load the template data to match the GET endpoint's structure
-        new_instance['equipment_templates'] = template
-        return new_instance
+        new_instance_id = response.data[0]['id']
+        # Re-fetch the created instance to get the full object with nested data, matching the response model
+        final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', new_instance_id).single().execute()
         
+        if final_instance_res.data:
+            return final_instance_res.data
+
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
 
 @router.get("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
@@ -1590,7 +1593,6 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
         final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
         if final_instance_res.data:
             return final_instance_res.data
-        return response.data[0]
     
     raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
 
