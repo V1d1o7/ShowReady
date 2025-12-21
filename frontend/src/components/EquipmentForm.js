@@ -8,7 +8,22 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew }) => {
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         const newValue = type === 'checkbox' ? checked : value;
-        onFormChange({ ...formData, [name]: newValue });
+
+        const newFormData = { ...formData, [name]: newValue };
+
+        // If 'is_module' is being toggled, adjust other fields
+        if (name === 'is_module') {
+            if (newValue) {
+                // When it IS a module, it has no dimensions
+                newFormData.ru_height = 0;
+                newFormData.width = 'full'; // Default non-visual width
+            } else {
+                // When it is NOT a module, reset to a sensible default
+                newFormData.ru_height = 1;
+            }
+        }
+
+        onFormChange(newFormData);
     };
 
     const handleSlotChange = (index, field, value) => {
@@ -94,9 +109,15 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew }) => {
                                     placeholder={`Slot ${index + 1} Name`}
                                     value={slot.name}
                                     onChange={(e) => handleSlotChange(index, 'name', e.target.value)}
-                                    className="flex-grow"
+                                    className="w-1/2"
                                 />
-                                <button onClick={() => removeSlot(index)} className="p-2 text-gray-400 hover:text-red-500">
+                                <InputField
+                                    placeholder="Accepted Module Type"
+                                    value={slot.accepted_module_type || ''}
+                                    onChange={(e) => handleSlotChange(index, 'accepted_module_type', e.target.value)}
+                                    className="w-1/2"
+                                />
+                                <button onClick={() => removeSlot(index)} className="p-2 text-gray-400 hover:text-red-500 flex-shrink-0">
                                     <Trash2 size={18} />
                                 </button>
                             </div>

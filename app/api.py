@@ -281,6 +281,10 @@ async def create_default_equipment(
     }
     if equipment_data.folder_id:
         insert_data["folder_id"] = str(equipment_data.folder_id)
+
+    # Enforce that modules have an RU height of 0
+    if equipment_data.is_module and equipment_data.ru_height != 0:
+        raise HTTPException(status_code=400, detail="Modules must have an RU height of 0.")
         
     response = supabase.table('equipment_templates').insert(insert_data).execute()
     if not response.data:
@@ -1228,9 +1232,41 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     templates_res = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
     template_map = {template['id']: template for template in templates_res.data}
     
-    # 5. Attach templates to their instances
+    # 5. Get all module templates for assignments
+    all_assigned_module_ids = []
     for instance in equipment_instances:
-        instance['equipment_templates'] = template_map.get(instance['template_id'])
+        if instance.get('module_assignments'):
+            all_assigned_module_ids.extend(instance['module_assignments'].values())
+    
+    unique_module_ids = list(set(all_assigned_module_ids))
+    
+    module_templates_res = supabase.table('equipment_templates').select('*').in_('id', unique_module_ids).execute()
+    module_template_map = {mod['id']: mod for mod in module_templates_res.data}
+
+    # 6. Attach templates to their instances and aggregate module ports
+    for instance in equipment_instances:
+        template = template_map.get(instance['template_id'])
+        if not template:
+            instance['equipment_templates'] = None
+            continue
+
+        aggregated_ports = list(template.get('ports', []))
+        
+        if instance.get('module_assignments'):
+            for slot_id, module_id in instance['module_assignments'].items():
+                module_template = module_template_map.get(module_id)
+                if module_template and module_template.get('ports'):
+                    slot_definition = next((s for s in template.get('slots', []) if s['id'] == slot_id), None)
+                    slot_name = slot_definition['name'] if slot_definition else 'Mod'
+                    
+                    for port in module_template['ports']:
+                        # Prepend the slot name to the module port label
+                        prefixed_port = port.copy()
+                        prefixed_port['label'] = f"{slot_name}:{port['label']}"
+                        aggregated_ports.append(prefixed_port)
+        
+        template['ports'] = aggregated_ports
+        instance['equipment_templates'] = template
         
     # 6. Create a map of rack_id to its equipment
     rack_equipment_map = {}
@@ -1561,6 +1597,51 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
         instance = instance_res.data
         update_dict = update_data.model_dump(exclude_unset=True)
 
+        # --- Module Assignment Validation ---
+        if 'module_assignments' in update_dict and update_dict['module_assignments'] is not None:
+            chassis_template = instance.get('equipment_templates', {})
+            chassis_slots = chassis_template.get('slots', [])
+            
+            if not chassis_slots:
+                raise HTTPException(status_code=400, detail="This equipment does not support modules.")
+
+            slot_map = {str(slot['id']): slot for slot in chassis_slots}
+            
+            new_assignments = update_dict['module_assignments']
+            
+            # Fetch all module templates that are being assigned
+            module_ids = [str(uuid.UUID(mod_id)) for mod_id in new_assignments.values() if mod_id]
+            if module_ids:
+                modules_res = supabase.table('equipment_templates').select('id, module_type').in_('id', module_ids).execute()
+                module_map = {str(mod['id']): mod for mod in modules_res.data}
+            else:
+                module_map = {}
+
+            for slot_id_str, module_id_str in new_assignments.items():
+                slot_id_uuid = uuid.UUID(slot_id_str)
+                slot_definition = slot_map.get(str(slot_id_uuid))
+
+                if not slot_definition:
+                    raise HTTPException(status_code=400, detail=f"Invalid slot ID: {slot_id_str}")
+
+                if not module_id_str:
+                    continue # Slot is being emptied, which is always allowed
+
+                module_template = module_map.get(str(uuid.UUID(module_id_str)))
+                if not module_template:
+                    raise HTTPException(status_code=404, detail=f"Module with ID {module_id_str} not found.")
+
+                accepted_type = slot_definition.get('accepted_module_type')
+                module_type = module_template.get('module_type')
+                
+                # If accepted_type is defined, it must match the module's type.
+                # If accepted_type is null/None, it accepts any module type.
+                if accepted_type and accepted_type != module_type:
+                    raise HTTPException(
+                        status_code=409, 
+                        detail=f"Module of type '{module_type}' cannot be placed in a slot that accepts type '{accepted_type}'."
+                    )
+
         # If we are changing the position, we need to validate it
         if 'ru_position' in update_dict or 'rack_side' in update_dict:
             new_ru_position = update_dict.get('ru_position', instance['ru_position'])
@@ -1775,6 +1856,10 @@ async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEqu
         for port in update_dict['ports']:
             if 'id' in port and isinstance(port['id'], uuid.UUID):
                 port['id'] = str(port['id'])
+    
+    # Enforce that modules have an RU height of 0
+    if update_dict.get('is_module') and update_dict.get('ru_height', 1) != 0:
+         raise HTTPException(status_code=400, detail="Modules must have an RU height of 0.")
 
     response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('user_id', str(user.id)).execute()
 

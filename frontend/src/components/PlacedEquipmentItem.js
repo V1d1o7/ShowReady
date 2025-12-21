@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2, Edit, MessageSquare, Settings } from 'lucide-react';
+import toast from 'react-hot-toast';
 import EditInstanceModal from './EditInstanceModal';
 import ConfigureModulesModal from './ConfigureModulesModal';
 
@@ -25,12 +26,27 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     const handleDrop = (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const draggedItem = JSON.parse(e.dataTransfer.getData('application/json'));
-        if (draggedItem.isNew && draggedItem.item.is_module) {
-            if (hasSlots) {
-                setDroppedModule(draggedItem.item);
-                setIsConfigureModalOpen(true);
+        const draggedItemData = e.dataTransfer.getData('application/json');
+        
+        if (!draggedItemData) {
+            toast.error("Failed to get drag data.");
+            return;
+        }
+
+        try {
+            const draggedItem = JSON.parse(draggedItemData);
+            
+            if (draggedItem.isNew && draggedItem.item.is_module) {
+                if (hasSlots) {
+                    setDroppedModule(draggedItem.item);
+                    setIsConfigureModalOpen(true);
+                } else {
+                    toast.error(`"${template.model_number}" does not accept modules.`);
+                }
             }
+        } catch (error) {
+            console.error("Failed to parse dragged item data:", error);
+            toast.error("An error occurred during drop.");
         }
     };
 

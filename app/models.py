@@ -317,6 +317,7 @@ class PortTemplate(BaseModel):
 class SlotDefinition(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     name: str
+    accepted_module_type: Optional[str] = None
 
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
