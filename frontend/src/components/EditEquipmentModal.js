@@ -54,7 +54,8 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
         // Clean up data based on module type
         if (dataToSubmit.is_module) {
             dataToSubmit.ru_height = 0;
-            delete dataToSubmit.slots;
+            // FIX: Allow modules to have slots!
+            // delete dataToSubmit.slots; <-- REMOVED THIS LINE
             delete dataToSubmit.width;
         } else {
             delete dataToSubmit.module_type;

@@ -58,7 +58,8 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
 
         if (dataToSubmit.is_module) {
             dataToSubmit.ru_height = 0;
-            delete dataToSubmit.slots;
+            // FIX: Allow modules to have slots!
+            // delete dataToSubmit.slots;  <-- REMOVED THIS LINE
             delete dataToSubmit.width;
         } else {
             delete dataToSubmit.module_type;

@@ -184,10 +184,8 @@ const RackBuilderView = () => {
     };
 
     const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
-        console.log(`DEBUG: handleUpdateEquipmentInstance called for ${instanceId}`, updatedData);
         try {
             const updatedInstance = await api.updateEquipmentInstance(instanceId, updatedData);
-            console.log("DEBUG: API Response:", updatedInstance);
             
             setActiveRack(currentRack => ({
                 ...currentRack,
@@ -202,7 +200,7 @@ const RackBuilderView = () => {
             }));
             toast.success("Equipment updated successfully!");
         } catch (error) {
-            console.error("DEBUG: Failed to update equipment:", error);
+            console.error("Failed to update equipment:", error);
             toast.error(`Error: ${error.message}`);
         }
     };

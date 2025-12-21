@@ -92,7 +92,6 @@ async def get_admin_user(user = Depends(get_user)):
         traceback.print_exc()
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
 
-from .email_utils import create_email_html, send_email
 # --- Email Payload Model ---
 class AdminEmailPayload(BaseModel):
     sender_id: uuid.UUID
@@ -269,6 +268,7 @@ async def create_default_equipment(
 ):
     """Admin: Creates a new default equipment template."""
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
+    slots_data = [s.model_dump(mode='json') for s in equipment_data.slots]
 
     insert_data = {
         "model_number": equipment_data.model_number,
@@ -278,6 +278,9 @@ async def create_default_equipment(
         "ports": ports_data,
         "is_default": True,
         "has_ip_address": equipment_data.has_ip_address,
+        "is_module": equipment_data.is_module,
+        "module_type": equipment_data.module_type,
+        "slots": slots_data
     }
     if equipment_data.folder_id:
         insert_data["folder_id"] = str(equipment_data.folder_id)
@@ -1205,6 +1208,73 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     rack_data['equipment'] = equipment_instances
     return rack_data
 
+# --- Recursive Port Collection Helper ---
+def collect_recursive_ports(assignments, parent_template, module_template_map, prefix=""):
+    """
+    Recursively collects ports from a tree of module assignments.
+    
+    Args:
+        assignments: The 'module_assignments' dictionary from an equipment instance.
+        parent_template: The EquipmentTemplate dict of the parent (Chassis or Module).
+        module_template_map: A dictionary mapping module IDs to their EquipmentTemplate dicts.
+        prefix: The current string prefix for port labels (e.g. "Slot 1 > ").
+        
+    Returns:
+        A list of port dictionaries with flattened labels.
+    """
+    ports = []
+    if not assignments:
+        return ports
+    
+    # Map slot keys to names for lookup
+    # Because slot keys can be UUIDs, Names, or Indices, we try to match them to the parent's slot definition
+    parent_slots = parent_template.get('slots', [])
+    slot_map = {}
+    for s in parent_slots:
+        s_id = str(s.get('id'))
+        if s_id: slot_map[s_id] = s.get('name')
+        if s.get('name'): slot_map[s.get('name')] = s.get('name')
+
+    for slot_key, val in assignments.items():
+        if not val: continue
+        
+        # Normalize the assignment value (handle Legacy UUID vs New Recursive Object)
+        if isinstance(val, dict):
+            module_id = val.get('id')
+            sub_assignments = val.get('assignments', {})
+        else:
+            module_id = val
+            sub_assignments = {}
+            
+        if not module_id: continue
+        
+        # Retrieve the module's template
+        module_template = module_template_map.get(str(module_id))
+        if not module_template: continue
+        
+        # Determine the Slot Name for the label
+        # 1. Try key as UUID
+        # 2. Try key as Name
+        # 3. Fallback to key itself
+        slot_name = slot_map.get(str(slot_key), str(slot_key))
+        
+        # Build prefix: "Slot 1: " or "Slot 1 > SubSlot A: "
+        current_label_prefix = f"{prefix}{slot_name}: " if prefix == "" else f"{prefix}{slot_name} > "
+        
+        # 1. Collect ports from this immediate module
+        for p in module_template.get('ports', []):
+            new_port = p.copy()
+            new_port['label'] = f"{current_label_prefix}{p['label']}"
+            ports.append(new_port)
+            
+        # 2. Recurse into sub-assignments if this module has slots
+        if sub_assignments and module_template.get('slots'):
+            ports.extend(
+                collect_recursive_ports(sub_assignments, module_template, module_template_map, current_label_prefix)
+            )
+            
+    return ports
+
 @router.get("/shows/{show_id}/detailed_racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get all racks for the show
@@ -1231,45 +1301,50 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     templates_res = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
     template_map = {template['id']: template for template in templates_res.data}
     
-    # 5. Get all module templates for assignments
+    # 5. Get all module templates for assignments (Recursively)
+    def get_all_module_ids(assignments):
+        ids = []
+        if not assignments: return ids
+        for val in assignments.values():
+            if not val: continue
+            if isinstance(val, dict):
+                ids.append(val.get('id'))
+                if val.get('assignments'):
+                    ids.extend(get_all_module_ids(val['assignments']))
+            else:
+                ids.append(val)
+        return ids
+
     all_assigned_module_ids = []
     for instance in equipment_instances:
         if instance.get('module_assignments'):
-            all_assigned_module_ids.extend(instance['module_assignments'].values())
+            all_assigned_module_ids.extend(get_all_module_ids(instance['module_assignments']))
     
-    unique_module_ids = list(set(all_assigned_module_ids))
+    unique_module_ids = list(set(str(mid) for mid in all_assigned_module_ids if mid))
     
     module_templates_res = supabase.table('equipment_templates').select('*').in_('id', unique_module_ids).execute()
     module_template_map = {mod['id']: mod for mod in module_templates_res.data}
 
-    # 6. Attach templates to their instances and aggregate module ports
+    # 6. Attach templates to their instances and aggregate module ports RECURSIVELY
     for instance in equipment_instances:
         template = template_map.get(instance['template_id'])
         if not template:
             instance['equipment_templates'] = None
             continue
 
-        # Create a copy of ports so we don't modify the shared template object
+        # Start with the main chassis ports
         aggregated_ports = list(template.get('ports', []))
         
+        # Recursively collect ports from all nested modules
         if instance.get('module_assignments'):
-            for slot_id, module_id in instance['module_assignments'].items():
-                module_template = module_template_map.get(module_id)
-                if module_template and module_template.get('ports'):
-                    # FIX: Safely find slot definition without crashing on dirty data
-                    slot_definition = next(
-                        (s for s in template.get('slots', []) if str(s.get('id')) == str(slot_id)), 
-                        None
-                    )
-                    slot_name = slot_definition.get('name', 'Mod') if slot_definition else 'Mod'
-                    
-                    for port in module_template['ports']:
-                        prefixed_port = port.copy()
-                        prefixed_port['label'] = f"{slot_name}:{port['label']}"
-                        aggregated_ports.append(prefixed_port)
+            module_ports = collect_recursive_ports(
+                instance['module_assignments'], 
+                template, 
+                module_template_map
+            )
+            aggregated_ports.extend(module_ports)
         
         # Assign the modified port list to this specific instance's template copy
-        # We need a shallow copy of the template here to avoid polluting other instances
         instance_template = template.copy()
         instance_template['ports'] = aggregated_ports
         instance['equipment_templates'] = instance_template
@@ -1587,7 +1662,6 @@ async def get_equipment_instance(instance_id: uuid.UUID, user = Depends(get_user
 
 @router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
 async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    print(f"\n--- DEBUG: update_equipment_instance {instance_id} ---")
     try:
         # 1. Fetch Instance
         instance_res = supabase.table('rack_equipment_instances').select('*, racks(user_id, ru_height), equipment_templates(*)').eq('id', str(instance_id)).single().execute()
@@ -1614,10 +1688,8 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
             # Validate every assignment matches a real Slot ID
             validated_assignments = {}
             for slot_id, module_id in new_assignments.items():
-                if slot_id in slot_map and module_id:
+                if slot_id in slot_map: 
                     validated_assignments[slot_id] = module_id
-                else:
-                    print(f"DEBUG: dropping invalid assignment for slot {slot_id} (not in template)")
             
             update_dict['module_assignments'] = validated_assignments
 
@@ -1631,7 +1703,6 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
                 return final_res.data
     
     except Exception as e:
-        print(f"UPDATE ERROR: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
     
     raise HTTPException(status_code=404, detail="Update failed silently.")
@@ -1786,6 +1857,8 @@ async def delete_user_folder(folder_id: uuid.UUID, user = Depends(get_user), sup
 async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new equipment template in the user's personal library."""
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
+    slots_data = [s.model_dump(mode='json') for s in equipment_data.slots]
+
     insert_data = {
         "model_number": equipment_data.model_number,
         "manufacturer": equipment_data.manufacturer,
@@ -1794,7 +1867,11 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
         "ports": ports_data,
         "is_default": False,
         "user_id": str(user.id),
-        "has_ip_address": equipment_data.has_ip_address
+        "has_ip_address": equipment_data.has_ip_address,
+        # FIX: Include Module fields so they save correctly
+        "is_module": equipment_data.is_module,
+        "module_type": equipment_data.module_type,
+        "slots": slots_data
     }
     if equipment_data.folder_id:
         insert_data["folder_id"] = str(equipment_data.folder_id)
@@ -1903,7 +1980,6 @@ async def get_unassigned_equipment(show_id: int, user = Depends(get_user), supab
 
 @router.get("/shows/{show_id}/connections", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
 async def get_connections_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    print(f"\n--- DEBUG: get_connections_for_show {show_id} ---")
     try:
         conn_res = supabase.table('connections').select('*').eq('show_id', show_id).execute()
         connections = conn_res.data or []
@@ -1922,17 +1998,33 @@ async def get_connections_for_show(show_id: int, user = Depends(get_user), supab
             
             raw_equipment = equip_res.data or []
             
+            # --- Recursively collect all module IDs for fetching templates ---
+            def get_all_module_ids(assignments):
+                ids = []
+                if not assignments: return ids
+                for val in assignments.values():
+                    if not val: continue
+                    if isinstance(val, dict):
+                        ids.append(val.get('id'))
+                        if val.get('assignments'):
+                            ids.extend(get_all_module_ids(val['assignments']))
+                    else:
+                        ids.append(val)
+                return ids
+
             all_module_ids = set()
             for item in raw_equipment:
                 assignments = item.get('module_assignments') or {}
-                for mod_id in assignments.values():
-                    if mod_id: all_module_ids.add(str(mod_id))
+                all_module_ids.update(get_all_module_ids(assignments))
             
-            module_templates = {}
+            # Fetch all required module templates
+            module_template_map = {}
             if all_module_ids:
-                mod_res = supabase.table('equipment_templates').select('id, ports').in_('id', list(all_module_ids)).execute()
+                # Convert set to list of strings
+                unique_module_ids = list(str(mid) for mid in all_module_ids if mid)
+                mod_res = supabase.table('equipment_templates').select('id, ports, slots').in_('id', unique_module_ids).execute()
                 for m in mod_res.data:
-                    module_templates[str(m['id'])] = m
+                    module_template_map[str(m['id'])] = m
 
             for item in raw_equipment:
                 template = item.get('equipment_templates')
@@ -1940,44 +2032,29 @@ async def get_connections_for_show(show_id: int, user = Depends(get_user), supab
                     equipment_map[item['id']] = item
                     continue
 
-                final_ports = list(template.get('ports', []))
-                assignments = item.get('module_assignments') or {}
-                slots = template.get('slots') or []
-
-                # ROBUST SLOT MAPPING: If IDs are missing, try to map by Index as a fallback
-                slot_map = {}
-                for idx, s in enumerate(slots):
-                    s_id = str(s.get('id')) if s.get('id') else None
-                    if s_id:
-                        slot_map[s_id] = s
-                    # Also map by index as string for safety if IDs are totally missing
-                    slot_map[str(idx)] = s
-
-                for slot_id, mod_id in assignments.items():
-                    if not mod_id: continue
-                    
-                    mod_template = module_templates.get(str(mod_id))
-                    
-                    if mod_template:
-                        # Try finding by ID, failover to generic
-                        slot_def = slot_map.get(str(slot_id))
-                        if slot_def:
-                            slot_name = slot_def.get('name', f'Slot {str(slot_id)[:4]}')
-                        else:
-                            slot_name = "Module" 
-
-                        for p in mod_template.get('ports', []):
-                            new_p = p.copy()
-                            new_p['label'] = f"{slot_name}: {p['label']}"
-                            final_ports.append(new_p)
+                # Start with chassis ports
+                aggregated_ports = list(template.get('ports', []))
                 
-                item['equipment_templates']['ports'] = final_ports
+                # Recursively collect ports from nested modules
+                if item.get('module_assignments'):
+                    module_ports = collect_recursive_ports(
+                        item['module_assignments'],
+                        template,
+                        module_template_map
+                    )
+                    aggregated_ports.extend(module_ports)
+                
+                # Assign the modified port list to this specific instance's template copy
+                # Using a shallow copy of the template is important
+                instance_template = template.copy()
+                instance_template['ports'] = aggregated_ports
+                item['equipment_templates'] = instance_template
+                
                 equipment_map[item['id']] = item
 
         return {"connections": connections, "equipment": equipment_map}
 
     except Exception as e:
-        print(f"CRITICAL CONNECTION ERROR: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch connections: {str(e)}")
 
 

@@ -64,7 +64,7 @@ class ShowInfo(BaseModel):
     show_name: Optional[str] = None
     logo_path: Optional[str] = None
     production_video: Optional[str] = None
-    venue_details: Optional[str] = None # Added Venue Details
+    venue_details: Optional[str] = None 
     show_pm_name: Optional[str] = None
     show_pm_first_name: Optional[str] = None
     show_pm_last_name: Optional[str] = None
@@ -101,7 +101,6 @@ class ShowFile(BaseModel):
     has_notes: Optional[bool] = False
 
 # --- Loom Builder Models ---
-# A Cable is an individual cable within a Loom.
 class CableLocation(BaseModel):
     type: str
     value: str
@@ -141,7 +140,6 @@ class BulkCableUpdate(BaseModel):
     cable_ids: List[uuid.UUID]
     updates: CableUpdate
 
-# A Loom is a container for multiple cables.
 class LoomBase(BaseModel):
     name: str
     show_id: int
@@ -218,20 +216,17 @@ class TimesheetEntry(TimesheetEntryBase):
 class BulkTimesheetUpdate(BaseModel):
     entries: List[TimesheetEntryCreate]
 
-# Model for a single crew member's week
 class CrewMemberHours(BaseModel):
     show_crew_id: uuid.UUID
-    roster_id: Optional[uuid.UUID] = None # Added for grouping
+    roster_id: Optional[uuid.UUID] = None 
     first_name: str
     last_name: str
     position: Optional[str] = None
     rate_type: Optional[str] = None
     hourly_rate: Optional[float] = 0.0
     daily_rate: Optional[float] = 0.0
-    # Store hours as a simple dict: {"2025-10-20": 8.0}
     hours_by_date: Dict[date, float] = Field(default_factory=dict)
 
-# Model that represents the entire grid
 class WeeklyTimesheet(BaseModel):
     show_id: int
     show_name: str
@@ -243,7 +238,6 @@ class WeeklyTimesheet(BaseModel):
     pay_period_start_day: Optional[int] = 0
     crew_hours: List[CrewMemberHours]
 
-# Model for the email endpoint payload
 class TimesheetEmailPayload(BaseModel):
     recipient_emails: List[str]
     subject: str
@@ -307,12 +301,11 @@ class PanelLayout(BaseModel):
     background_svg: str
     connectors: List[Dict]
 
-# New model for defining a port on an equipment template
 class PortTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     label: str
-    type: str  # 'input' or 'output'
-    connector_type: str # 'HDMI', 'SDI', 'XLR', 'CAT6', 'RJ45' etc.
+    type: str  
+    connector_type: str 
 
 class SlotDefinition(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -328,7 +321,7 @@ class EquipmentTemplate(BaseModel):
     width: str = 'full'
     power_consumption_watts: Optional[int] = None
     panels: List[PanelLayout] = Field(default_factory=list)
-    ports: List[PortTemplate] = Field(default_factory=list) # Updated field
+    ports: List[PortTemplate] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
     has_ip_address: bool = False
@@ -336,18 +329,26 @@ class EquipmentTemplate(BaseModel):
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
 
-# Updated create model to include ports
 class EquipmentTemplateCreate(BaseModel):
     model_number: str
     manufacturer: str
     ru_height: int
     width: str = 'full'
-    ports: List[PortTemplate] = Field(default_factory=list) # Updated field
+    ports: List[PortTemplate] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: bool = False
     is_module: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
+
+# --- RECURSIVE MODULE MODEL ---
+class ModuleAssignment(BaseModel):
+    id: uuid.UUID
+    # FIX: Keys MUST be strings to accept slot names when UUIDs aren't available
+    assignments: Optional[Dict[str, 'ModuleAssignment']] = {}
+
+# Enable recursion in Pydantic
+ModuleAssignment.update_forward_refs()
 
 class RackEquipmentInstance(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -360,14 +361,16 @@ class RackEquipmentInstance(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
-    module_assignments: Dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
+    # FIX: Keys MUST be strings to accept slot names or UUID strings
+    module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class RackEquipmentInstanceCreate(BaseModel):
     template_id: uuid.UUID
     ru_position: int
     instance_name: Optional[str] = None
     rack_side: Optional[str] = None
-    module_assignments: Dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
+    # FIX: Keys MUST be strings
+    module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class EquipmentInstanceCreate(BaseModel):
     equipment_template_id: uuid.UUID
@@ -385,7 +388,8 @@ class RackEquipmentInstanceUpdate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
-    module_assignments: Optional[Dict[uuid.UUID, uuid.UUID]] = None
+    # FIX: Keys MUST be strings
+    module_assignments: Optional[Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]]] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
     id: uuid.UUID
@@ -398,7 +402,8 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = 1
-    module_assignments: Dict[uuid.UUID, uuid.UUID] = Field(default_factory=dict)
+    # FIX: Keys MUST be strings
+    module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
     equipment_templates: Optional[EquipmentTemplate] = None
     has_notes: Optional[bool] = False
 
@@ -422,7 +427,6 @@ class RackUpdate(BaseModel):
     ru_height: Optional[int] = None
     saved_to_library: Optional[bool] = None
 
-# New models for connections
 class Connection(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     show_id: uuid.UUID
@@ -721,7 +725,6 @@ class EmailTemplate(BaseModel):
     subject: str
     body: str
 
-# FIX: Removed is_default and created_at to match frontend payload
 class BulkEmailRequest(BaseModel):
     recipient_ids: List[uuid.UUID]
     category: str

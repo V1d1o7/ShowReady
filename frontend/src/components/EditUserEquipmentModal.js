@@ -56,7 +56,8 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
 
         if (dataToSubmit.is_module) {
             dataToSubmit.ru_height = 0;
-            delete dataToSubmit.slots;
+            // FIX: Modules can now have slots (e.g. Line cards with SFP slots)
+            // delete dataToSubmit.slots; <--- REMOVED
             delete dataToSubmit.width;
         } else {
             delete dataToSubmit.module_type;
