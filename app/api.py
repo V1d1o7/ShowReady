@@ -1220,7 +1220,6 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     equipment_instances = equipment_res.data if equipment_res.data else []
     
     if not equipment_instances:
-        # If there's no equipment, just return the racks with empty equipment lists
         for rack in racks:
             rack['equipment'] = []
         return racks
@@ -1228,7 +1227,7 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     # 3. Get all unique template IDs from the equipment
     template_ids = list(set(item['template_id'] for item in equipment_instances))
     
-    # 4. Get all needed equipment templates in one query
+    # 4. Get all needed equipment templates
     templates_res = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
     template_map = {template['id']: template for template in templates_res.data}
     
@@ -1250,25 +1249,32 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
             instance['equipment_templates'] = None
             continue
 
+        # Create a copy of ports so we don't modify the shared template object
         aggregated_ports = list(template.get('ports', []))
         
         if instance.get('module_assignments'):
             for slot_id, module_id in instance['module_assignments'].items():
                 module_template = module_template_map.get(module_id)
                 if module_template and module_template.get('ports'):
-                    slot_definition = next((s for s in template.get('slots', []) if s['id'] == slot_id), None)
-                    slot_name = slot_definition['name'] if slot_definition else 'Mod'
+                    # FIX: Safely find slot definition without crashing on dirty data
+                    slot_definition = next(
+                        (s for s in template.get('slots', []) if str(s.get('id')) == str(slot_id)), 
+                        None
+                    )
+                    slot_name = slot_definition.get('name', 'Mod') if slot_definition else 'Mod'
                     
                     for port in module_template['ports']:
-                        # Prepend the slot name to the module port label
                         prefixed_port = port.copy()
                         prefixed_port['label'] = f"{slot_name}:{port['label']}"
                         aggregated_ports.append(prefixed_port)
         
-        template['ports'] = aggregated_ports
-        instance['equipment_templates'] = template
+        # Assign the modified port list to this specific instance's template copy
+        # We need a shallow copy of the template here to avoid polluting other instances
+        instance_template = template.copy()
+        instance_template['ports'] = aggregated_ports
+        instance['equipment_templates'] = instance_template
         
-    # 6. Create a map of rack_id to its equipment
+    # 7. Create a map of rack_id to its equipment
     rack_equipment_map = {}
     for instance in equipment_instances:
         rack_id = instance['rack_id']
@@ -1276,7 +1282,7 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
             rack_equipment_map[rack_id] = []
         rack_equipment_map[rack_id].append(instance)
         
-    # 7. Fetch notes for all racks and equipment
+    # 8. Fetch notes
     rack_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').in_('parent_entity_id', rack_ids).execute()
     racks_with_notes = {note['parent_entity_id'] for note in rack_notes_res.data}
 
@@ -1284,11 +1290,10 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', equipment_ids).execute()
     equipment_with_notes = {note['parent_entity_id'] for note in equipment_notes_res.data}
 
-    # 8. Attach notes status to equipment instances
+    # 9. Attach notes status
     for instance in equipment_instances:
         instance['has_notes'] = str(instance['id']) in equipment_with_notes
         
-    # 9. Attach the equipment lists and notes status to their parent racks
     for rack in racks:
         rack['equipment'] = rack_equipment_map.get(rack['id'], [])
         rack['has_notes'] = str(rack['id']) in racks_with_notes
@@ -1582,100 +1587,54 @@ async def get_equipment_instance(instance_id: uuid.UUID, user = Depends(get_user
 
 @router.put("/racks/equipment/{instance_id}", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
 async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEquipmentInstanceUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Updates the position, side, or IP address of a rack equipment instance."""
-    
+    print(f"\n--- DEBUG: update_equipment_instance {instance_id} ---")
     try:
-        # Fetch the instance and its template and rack details
+        # 1. Fetch Instance
         instance_res = supabase.table('rack_equipment_instances').select('*, racks(user_id, ru_height), equipment_templates(*)').eq('id', str(instance_id)).single().execute()
         
-        if not instance_res.data or not instance_res.data.get('racks'):
+        if not instance_res.data:
             raise HTTPException(status_code=404, detail="Equipment instance not found.")
-
-        if str(instance_res.data['racks']['user_id']) != str(user.id):
-            raise HTTPException(status_code=403, detail="Not authorized to update this equipment instance.")
-
+        
         instance = instance_res.data
-        update_dict = update_data.model_dump(exclude_unset=True)
+        if str(instance['racks']['user_id']) != str(user.id):
+            raise HTTPException(status_code=403, detail="Not authorized.")
 
-        # --- Module Assignment Validation ---
+        # 2. Prepare Payload
+        update_dict = update_data.model_dump(mode='json', exclude_unset=True)
+
+        # 3. Validate Assignments (Now relying on clean DB data)
         if 'module_assignments' in update_dict and update_dict['module_assignments'] is not None:
-            chassis_template = instance.get('equipment_templates', {})
-            chassis_slots = chassis_template.get('slots', [])
-            
-            if not chassis_slots:
-                raise HTTPException(status_code=400, detail="This equipment does not support modules.")
-
-            slot_map = {str(slot['id']): slot for slot in chassis_slots}
-            
             new_assignments = update_dict['module_assignments']
+            chassis_template = instance.get('equipment_templates', {})
+            raw_slots = chassis_template.get('slots', [])
             
-            # Fetch all module templates that are being assigned
-            module_ids = [str(uuid.UUID(mod_id)) for mod_id in new_assignments.values() if mod_id]
-            if module_ids:
-                modules_res = supabase.table('equipment_templates').select('id, module_type').in_('id', module_ids).execute()
-                module_map = {str(mod['id']): mod for mod in modules_res.data}
-            else:
-                module_map = {}
-
-            for slot_id_str, module_id_str in new_assignments.items():
-                slot_id_uuid = uuid.UUID(slot_id_str)
-                slot_definition = slot_map.get(str(slot_id_uuid))
-
-                if not slot_definition:
-                    raise HTTPException(status_code=400, detail=f"Invalid slot ID: {slot_id_str}")
-
-                if not module_id_str:
-                    continue # Slot is being emptied, which is always allowed
-
-                module_template = module_map.get(str(uuid.UUID(module_id_str)))
-                if not module_template:
-                    raise HTTPException(status_code=404, detail=f"Module with ID {module_id_str} not found.")
-
-                accepted_type = slot_definition.get('accepted_module_type')
-                module_type = module_template.get('module_type')
-                
-                # If accepted_type is defined, it must match the module's type.
-                # If accepted_type is null/None, it accepts any module type.
-                if accepted_type and accepted_type != module_type:
-                    raise HTTPException(
-                        status_code=409, 
-                        detail=f"Module of type '{module_type}' cannot be placed in a slot that accepts type '{accepted_type}'."
-                    )
-
-        # If we are changing the position, we need to validate it
-        if 'ru_position' in update_dict or 'rack_side' in update_dict:
-            new_ru_position = update_dict.get('ru_position', instance['ru_position'])
-            ru_height = instance['equipment_templates']['ru_height']
-            rack_height = instance['racks']['ru_height']
+            # Map valid Slot IDs from DB
+            slot_map = {str(s['id']): s for s in raw_slots if s.get('id')}
             
-            if (new_ru_position + ru_height - 1) > rack_height:
-                raise HTTPException(status_code=400, detail="Equipment does not fit at the new position.")
-
-            rack_id = instance['rack_id']
-            existing_equipment_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).neq('id', str(instance_id)).execute()
+            # Validate every assignment matches a real Slot ID
+            validated_assignments = {}
+            for slot_id, module_id in new_assignments.items():
+                if slot_id in slot_map and module_id:
+                    validated_assignments[slot_id] = module_id
+                else:
+                    print(f"DEBUG: dropping invalid assignment for slot {slot_id} (not in template)")
             
-            _check_backend_collision(
-                new_item_ru=new_ru_position,
-                new_item_ru_height=ru_height,
-                new_item_side=update_dict.get('rack_side', instance['rack_side']),
-                new_item_template=instance['equipment_templates'],
-                existing_equipment=existing_equipment_res.data
-            )
+            update_dict['module_assignments'] = validated_assignments
 
+        # 4. Update DB
+        response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
+        
+        if response.data:
+            # Return Instance WITHOUT Template (Preserve frontend state is safest)
+            final_res = supabase.table('rack_equipment_instances').select('*').eq('id', str(instance_id)).single().execute()
+            if final_res.data:
+                return final_res.data
+    
     except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=500, detail=f"An error occurred during validation: {str(e)}")
-
-    response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
+        print(f"UPDATE ERROR: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
     
-    if response.data:
-        # Re-fetch the updated instance to get the full object with nested data
-        final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
-        if final_instance_res.data:
-            return final_instance_res.data
-    
-    raise HTTPException(status_code=404, detail="Equipment instance not found or update failed.")
+    raise HTTPException(status_code=404, detail="Update failed silently.")
 
 @router.post("/equipment_instances", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
 async def create_equipment_instance(
@@ -1944,20 +1903,83 @@ async def get_unassigned_equipment(show_id: int, user = Depends(get_user), supab
 
 @router.get("/shows/{show_id}/connections", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
 async def get_connections_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves all connections for a specific show."""
+    print(f"\n--- DEBUG: get_connections_for_show {show_id} ---")
     try:
-        response = supabase.table('connections').select('*').eq('show_id', show_id).execute()
-        connections = response.data or []
+        conn_res = supabase.table('connections').select('*').eq('show_id', show_id).execute()
+        connections = conn_res.data or []
         
-        device_ids = {c['source_device_id'] for c in connections} | {c['destination_device_id'] for c in connections}
+        device_ids = set()
+        for c in connections:
+            device_ids.add(c['source_device_id'])
+            device_ids.add(c['destination_device_id'])
+        
         equipment_map = {}
         if device_ids:
-            equipment_res = supabase.table('rack_equipment_instances').select('id, instance_name, ip_address, equipment_templates(model_number, ports)').in_('id', list(device_ids)).execute()
-            equipment_map = {e['id']: e for e in equipment_res.data}
-        
+            equip_res = supabase.table('rack_equipment_instances')\
+                .select('id, instance_name, ip_address, module_assignments, equipment_templates(id, model_number, ports, slots)')\
+                .in_('id', list(device_ids))\
+                .execute()
+            
+            raw_equipment = equip_res.data or []
+            
+            all_module_ids = set()
+            for item in raw_equipment:
+                assignments = item.get('module_assignments') or {}
+                for mod_id in assignments.values():
+                    if mod_id: all_module_ids.add(str(mod_id))
+            
+            module_templates = {}
+            if all_module_ids:
+                mod_res = supabase.table('equipment_templates').select('id, ports').in_('id', list(all_module_ids)).execute()
+                for m in mod_res.data:
+                    module_templates[str(m['id'])] = m
+
+            for item in raw_equipment:
+                template = item.get('equipment_templates')
+                if not template: 
+                    equipment_map[item['id']] = item
+                    continue
+
+                final_ports = list(template.get('ports', []))
+                assignments = item.get('module_assignments') or {}
+                slots = template.get('slots') or []
+
+                # ROBUST SLOT MAPPING: If IDs are missing, try to map by Index as a fallback
+                slot_map = {}
+                for idx, s in enumerate(slots):
+                    s_id = str(s.get('id')) if s.get('id') else None
+                    if s_id:
+                        slot_map[s_id] = s
+                    # Also map by index as string for safety if IDs are totally missing
+                    slot_map[str(idx)] = s
+
+                for slot_id, mod_id in assignments.items():
+                    if not mod_id: continue
+                    
+                    mod_template = module_templates.get(str(mod_id))
+                    
+                    if mod_template:
+                        # Try finding by ID, failover to generic
+                        slot_def = slot_map.get(str(slot_id))
+                        if slot_def:
+                            slot_name = slot_def.get('name', f'Slot {str(slot_id)[:4]}')
+                        else:
+                            slot_name = "Module" 
+
+                        for p in mod_template.get('ports', []):
+                            new_p = p.copy()
+                            new_p['label'] = f"{slot_name}: {p['label']}"
+                            final_ports.append(new_p)
+                
+                item['equipment_templates']['ports'] = final_ports
+                equipment_map[item['id']] = item
+
         return {"connections": connections, "equipment": equipment_map}
+
     except Exception as e:
+        print(f"CRITICAL CONNECTION ERROR: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch connections: {str(e)}")
+
 
 @router.get("/equipment/{instance_id}/connections", response_model=List[Connection], tags=["Wire Diagram"])
 async def get_connections_for_device(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

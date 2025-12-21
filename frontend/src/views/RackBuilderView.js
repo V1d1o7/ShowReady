@@ -90,20 +90,15 @@ const RackBuilderView = () => {
         const fetchActiveRack = async () => {
             if (selectedRackId) {
                 try {
-                    // Do not set loading for rack switches, it's jarring
-                    // setIsLoading(true); 
                     const detailedRack = await api.getRackDetails(selectedRackId);
                     setActiveRack(detailedRack);
                 } catch (error) {
                     console.error("Failed to fetch active rack:", error);
                     toast.error("Failed to load selected rack.");
-                    // If the selected rack is not found, clear it
                     if (error.message.includes("Not Found")) {
                         setActiveRack(null);
                         setSelectedRackId(null);
                     }
-                } finally {
-                    // setIsLoading(false);
                 }
             } else {
                 setActiveRack(null);
@@ -189,17 +184,25 @@ const RackBuilderView = () => {
     };
 
     const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
+        console.log(`DEBUG: handleUpdateEquipmentInstance called for ${instanceId}`, updatedData);
         try {
             const updatedInstance = await api.updateEquipmentInstance(instanceId, updatedData);
+            console.log("DEBUG: API Response:", updatedInstance);
+            
             setActiveRack(currentRack => ({
                 ...currentRack,
                 equipment: currentRack.equipment.map(item =>
-                    item.id === instanceId ? { ...item, ...updatedInstance } : item
+                    item.id === instanceId ? { 
+                        ...item, 
+                        ...updatedInstance,
+                        // Ensure templates persist if API returns partial data
+                        equipment_templates: updatedInstance.equipment_templates || item.equipment_templates 
+                    } : item
                 )
             }));
             toast.success("Equipment updated successfully!");
         } catch (error) {
-            console.error("Failed to update equipment:", error);
+            console.error("DEBUG: Failed to update equipment:", error);
             toast.error(`Error: ${error.message}`);
         }
     };
@@ -657,4 +660,3 @@ const RackBuilderView = () => {
 };
 
 export default RackBuilderView;
-

@@ -13,14 +13,15 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
 
     const handleDragStart = (e) => {
         setIsDragging(true);
-        onDragStart(e, item, false); // isNew = false
+        onDragStart(e, item, false); 
     };
 
     const handleDragEnd = () => setIsDragging(false);
+    const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
 
-    const handleDragOver = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    const handleUpdate = (updatedData) => {
+        onUpdate(item.id, updatedData);
+        setIsEditModalOpen(false);
     };
 
     const handleDrop = (e) => {
@@ -28,25 +29,44 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
         e.stopPropagation();
         const draggedItemData = e.dataTransfer.getData('application/json');
         
-        if (!draggedItemData) {
-            toast.error("Failed to get drag data.");
-            return;
-        }
+        if (!draggedItemData) return;
 
         try {
             const draggedItem = JSON.parse(draggedItemData);
             
             if (draggedItem.isNew && draggedItem.item.is_module) {
-                if (hasSlots) {
-                    setDroppedModule(draggedItem.item);
-                    setIsConfigureModalOpen(true);
-                } else {
+                const slots = template.slots || [];
+                const currentAssignments = item.module_assignments || {};
+
+                if (slots.length === 0) {
                     toast.error(`"${template.model_number}" does not accept modules.`);
+                    return;
+                }
+
+                const targetSlotIndex = slots.findIndex((slot, index) => {
+                    const slotId = slot.id || index.toString();
+                    const isOccupied = currentAssignments[slotId];
+                    const isCompatible = !slot.accepted_module_type || slot.accepted_module_type === draggedItem.item.module_type;
+                    return !isOccupied && isCompatible;
+                });
+
+                if (targetSlotIndex !== -1) {
+                    const targetSlot = slots[targetSlotIndex];
+                    const slotId = targetSlot.id || targetSlotIndex.toString();
+                    
+                    const newAssignments = {
+                        ...currentAssignments,
+                        [slotId]: draggedItem.item.id
+                    };
+                    
+                    handleUpdate({ module_assignments: newAssignments });
+                    toast.success(`Installed ${draggedItem.item.model_number}`);
+                } else {
+                    toast.error(`No compatible, empty slots available.`);
                 }
             }
         } catch (error) {
             console.error("Failed to parse dragged item data:", error);
-            toast.error("An error occurred during drop.");
         }
     };
 
@@ -70,12 +90,9 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
         return 'left-0';
     })();
 
-    const handleUpdate = (updatedData) => {
-        onUpdate(item.id, updatedData);
-        setIsEditModalOpen(false);
-    };
-
     const hasSlots = template.slots && template.slots.length > 0;
+    const assignments = item.module_assignments || {};
+    const filledSlotCount = Object.values(assignments).filter(Boolean).length;
 
     return (
         <>
@@ -97,28 +114,34 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                     zIndex: 20,
                 }}
             >
-                <span className="font-bold text-center truncate px-2">{item.instance_name}</span>
-                
-                {hasSlots && (
-                    <div className="text-center text-[10px] w-full px-1 mt-1">
-                        {template.slots.map(slot => {
-                            const installedModuleId = item.module_assignments?.[slot.id];
-                            const module = installedModuleId ? equipmentLibrary.find(e => e.id === installedModuleId) : null;
+                {/* TOOLTIP: Restored background so it is readable, as this was not the box you hated */}
+                {hasSlots && filledSlotCount > 0 && (
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 bg-gray-900 border border-gray-600 rounded shadow-xl p-2 hidden group-hover:block z-50 pointer-events-none">
+                        <div className="text-[10px] text-gray-400 mb-1 border-b border-gray-700 pb-1 font-bold">Installed Modules</div>
+                        {template.slots.map((slot, index) => {
+                            const slotId = slot.id || index.toString();
+                            const modId = assignments[slotId];
+                            const module = modId ? equipmentLibrary.find(e => e.id == modId) : null;
+                            if (!module) return null;
                             return (
-                                <div key={slot.id} className="bg-black/20 rounded-sm p-0.5 my-0.5 truncate">
-                                    <span className="font-bold">{slot.name}:</span> {module ? module.model_number : '[Empty]'}
+                                <div key={slotId} className="flex justify-between text-[10px] text-white">
+                                    <span>{slot.name || `Slot ${index+1}`}:</span>
+                                    <span className="text-amber-400">{module.model_number}</span>
                                 </div>
-                            );
+                            )
                         })}
                     </div>
                 )}
 
-                <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2">
+                <span className="font-bold text-center truncate px-2 pointer-events-none">{item.instance_name}</span>
+                
+                {/* ACTION BAR: Background Removed (Transparent) */}
+                <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2 bg-transparent rounded px-1 z-30">
                     {onOpenNotes && (
                         <div className="relative">
                             <button
                                 onClick={(e) => { e.stopPropagation(); onOpenNotes(); }}
-                                className="p-1 text-gray-400 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                className="p-1 text-gray-300 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                                 <MessageSquare size={14} />
                             </button>
@@ -127,23 +150,34 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                             )}
                         </div>
                     )}
+                    
                     {hasSlots && (
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setIsConfigureModalOpen(true);
                             }}
-                            className="p-1 text-gray-400 hover:text-green-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className={`
+                                p-1 transition-opacity opacity-0 group-hover:opacity-100 relative
+                                ${filledSlotCount > 0 ? 'text-green-400' : 'text-gray-300 hover:text-green-400'}
+                            `}
+                            title="Configure Modules"
                         >
                             <Settings size={14} />
+                            {filledSlotCount > 0 && (
+                                <span className="absolute -top-1 -right-1 bg-green-500 text-black text-[9px] font-bold h-3.5 w-3.5 flex items-center justify-center rounded-full shadow-sm">
+                                    {filledSlotCount}
+                                </span>
+                            )}
                         </button>
                     )}
+
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setIsEditModalOpen(true);
                         }}
-                        className="p-1 text-gray-400 hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="p-1 text-gray-300 hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         <Edit size={14} />
                     </button>
@@ -152,12 +186,13 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                             e.stopPropagation();
                             onDelete(item.id);
                         }}
-                        className="p-1 text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="p-1 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
                     >
                         <Trash2 size={14} />
                     </button>
                 </div>
             </div>
+            
             <EditInstanceModal
                 isOpen={isEditModalOpen}
                 onClose={() => setIsEditModalOpen(false)}
