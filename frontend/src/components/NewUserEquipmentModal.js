@@ -56,6 +56,7 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         };
 
         if (dataToSubmit.is_module) {
+            dataToSubmit.ru_height = 0;
             delete dataToSubmit.slots;
             delete dataToSubmit.width;
         } else {

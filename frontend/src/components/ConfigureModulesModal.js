@@ -7,7 +7,6 @@ const ConfigureModulesModal = ({ isOpen, onClose, chassisInstance, equipmentLibr
     const [moduleAssignments, setModuleAssignments] = useState({});
 
     useEffect(() => {
-        // Initialize state from the instance's current assignments
         if (chassisInstance?.module_assignments) {
             setModuleAssignments(chassisInstance.module_assignments);
         } else {
@@ -23,7 +22,6 @@ const ConfigureModulesModal = ({ isOpen, onClose, chassisInstance, equipmentLibr
             value: mod.id,
             label: `${mod.manufacturer} - ${mod.model_number}`
         }));
-        // Add an "Empty" option to the top of the list
         return [{ value: null, label: 'Empty' }, ...options];
     }, [equipmentLibrary]);
 
@@ -35,7 +33,6 @@ const ConfigureModulesModal = ({ isOpen, onClose, chassisInstance, equipmentLibr
     };
 
     const handleSave = () => {
-        // Filter out any null/empty slots before saving
         const finalAssignments = Object.entries(moduleAssignments).reduce((acc, [key, value]) => {
             if (value) {
                 acc[key] = value;

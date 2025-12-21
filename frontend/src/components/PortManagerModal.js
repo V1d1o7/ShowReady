@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 const PortManagerModal = ({ isOpen, onClose, onSave, existingPort }) => {
     const [portData, setPortData] = useState({
         label: '',
-        port_type: 'input',
+        type: 'input',
         connector_type: ''
     });
     const portLabelRef = useRef(null);
@@ -16,7 +16,7 @@ const PortManagerModal = ({ isOpen, onClose, onSave, existingPort }) => {
         if (existingPort) {
             setPortData(existingPort);
         } else {
-            setPortData({ label: '', port_type: 'input', connector_type: '' });
+            setPortData({ label: '', type: 'input', connector_type: '' });
         }
     }, [existingPort, isOpen]);
 
@@ -44,8 +44,8 @@ const PortManagerModal = ({ isOpen, onClose, onSave, existingPort }) => {
                 <div>
                     <label className="block text-sm font-medium text-gray-300 mb-1.5">Port Type</label>
                     <select 
-                        value={portData.port_type} 
-                        onChange={(e) => setPortData({ ...portData, port_type: e.target.value })} 
+                        value={portData.type} 
+                        onChange={(e) => setPortData({ ...portData, type: e.target.value })} 
                         className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg"
                     >
                         <option value="input">Input</option>

@@ -7,6 +7,7 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     const [isDragging, setIsDragging] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isConfigureModalOpen, setIsConfigureModalOpen] = useState(false);
+    const [droppedModule, setDroppedModule] = useState(null);
     const template = item.equipment_templates || {};
 
     const handleDragStart = (e) => {
@@ -15,6 +16,23 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     };
 
     const handleDragEnd = () => setIsDragging(false);
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const draggedItem = JSON.parse(e.dataTransfer.getData('application/json'));
+        if (draggedItem.isNew && draggedItem.item.is_module) {
+            if (hasSlots) {
+                setDroppedModule(draggedItem.item);
+                setIsConfigureModalOpen(true);
+            }
+        }
+    };
 
     const bottomPosition = (item.ru_position - 1) * 25;
     const itemHeight = (template.ru_height || 1) * 25;
@@ -42,7 +60,6 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     };
 
     const hasSlots = template.slots && template.slots.length > 0;
-    const installedModulesCount = item.module_assignments ? Object.values(item.module_assignments).filter(Boolean).length : 0;
 
     return (
         <>
@@ -50,9 +67,11 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                 draggable
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
                 className={`
                     absolute ${widthClass} ${positionClass} bg-blue-500/30 border border-blue-400
-                    rounded-sm text-white text-xs flex items-center
+                    rounded-sm text-white text-xs flex flex-col items-center justify-center
                     p-1 cursor-grab group transition-opacity
                     ${isDragging ? 'opacity-0' : 'opacity-100'}
                 `}
@@ -62,12 +81,22 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                     zIndex: 20,
                 }}
             >
-                {installedModulesCount > 0 && (
-                    <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                        {installedModulesCount} {installedModulesCount > 1 ? 'Modules' : 'Module'}
+                <span className="font-bold text-center truncate px-2">{item.instance_name}</span>
+                
+                {hasSlots && (
+                    <div className="text-center text-[10px] w-full px-1 mt-1">
+                        {template.slots.map(slot => {
+                            const installedModuleId = item.module_assignments?.[slot.id];
+                            const module = installedModuleId ? equipmentLibrary.find(e => e.id === installedModuleId) : null;
+                            return (
+                                <div key={slot.id} className="bg-black/20 rounded-sm p-0.5 my-0.5 truncate">
+                                    <span className="font-bold">{slot.name}:</span> {module ? module.model_number : '[Empty]'}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
-                <span className="flex-grow text-center truncate px-2">{item.instance_name}</span>
+
                 <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2">
                     {onOpenNotes && (
                         <div className="relative">
@@ -122,10 +151,11 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
             {hasSlots && (
                 <ConfigureModulesModal
                     isOpen={isConfigureModalOpen}
-                    onClose={() => setIsConfigureModalOpen(false)}
+                    onClose={() => {setIsConfigureModalOpen(false); setDroppedModule(null);}}
                     chassisInstance={item}
                     equipmentLibrary={equipmentLibrary}
                     onSave={onUpdate}
+                    droppedModule={droppedModule}
                 />
             )}
         </>
