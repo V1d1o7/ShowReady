@@ -1,77 +1,73 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import InputField from './InputField';
-import { Plus, Trash2 } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
-const PortManagerModal = ({ isOpen, onClose, ports, setPorts }) => {
-    const [newPort, setNewPort] = useState({ label: '', type: 'input', connector_type: '' });
+const PortManagerModal = ({ isOpen, onClose, onSave, existingPort }) => {
+    const [portData, setPortData] = useState({
+        label: '',
+        port_type: 'input',
+        connector_type: ''
+    });
     const portLabelRef = useRef(null);
 
-    const handleAddPort = (e) => {
+    useEffect(() => {
+        if (existingPort) {
+            setPortData(existingPort);
+        } else {
+            setPortData({ label: '', port_type: 'input', connector_type: '' });
+        }
+    }, [existingPort, isOpen]);
+
+    const handleSubmit = (e) => {
         e.preventDefault();
-        if (newPort.label && newPort.connector_type) {
-            setPorts([...ports, { ...newPort, id: uuidv4() }]);
-            setNewPort({ label: '', type: 'input', connector_type: '' });
-            portLabelRef.current?.focus();
+        if (portData.label && portData.connector_type) {
+            onSave({ ...portData, id: existingPort ? existingPort.id : uuidv4() });
+            onClose();
         }
     };
 
-    const handleRemovePort = (id) => {
-        setPorts(ports.filter(port => port.id !== id));
-    };
+    const title = existingPort ? 'Edit Port' : 'Add New Port';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Manage Ports" maxWidth="max-w-xl">
-            <div className="space-y-4">
-                <form onSubmit={handleAddPort} className="flex flex-col md:flex-row gap-4 items-end">
-                    <div className="flex-grow space-y-2">
-                        <InputField label="Port Label" type="text" value={newPort.label} onChange={(e) => setNewPort({ ...newPort, label: e.target.value })} required ref={portLabelRef} />
-                        <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1.5">Port Type</label>
-                            <select value={newPort.type} onChange={(e) => setNewPort({ ...newPort, type: e.target.value })} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                                <option value="input">Input</option>
-                                <option value="output">Output</option>
-                                <option value="io">IO</option>
-                            </select>
-                        </div>
-                        <InputField label="Connector Type" type="text" value={newPort.connector_type} onChange={(e) => setNewPort({ ...newPort, connector_type: e.target.value })} placeholder="e.g., HDMI, SDI, RJ45" required />
-                    </div>
-                    <button type="submit" className="w-full md:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors">
-                        <Plus size={16} /> Add Port
-                    </button>
-                </form>
-                
-                <div className="max-h-64 overflow-y-auto border border-gray-700 rounded-lg">
-                    <table className="w-full text-sm">
-                        <thead className="bg-gray-700 sticky top-0">
-                            <tr>
-                                <th className="p-3 text-left">Label</th>
-                                <th className="p-3 text-left">Type</th>
-                                <th className="p-3 text-left">Connector</th>
-                                <th className="p-3 w-16"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {ports.map((port) => (
-                                <tr key={port.id} className="border-t border-gray-700/50 hover:bg-gray-800/50">
-                                    <td className="p-3">{port.label}</td>
-                                    <td className="p-3">{port.type}</td>
-                                    <td className="p-3">{port.connector_type}</td>
-                                    <td className="p-3 text-right">
-                                        <button onClick={() => handleRemovePort(port.id)} className="text-red-400 hover:text-red-300">
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+        <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-md">
+            <form onSubmit={handleSubmit} className="space-y-4 p-2">
+                <InputField 
+                    label="Port Label" 
+                    type="text" 
+                    value={portData.label} 
+                    onChange={(e) => setPortData({ ...portData, label: e.target.value })} 
+                    required 
+                    ref={portLabelRef} 
+                />
+                <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Port Type</label>
+                    <select 
+                        value={portData.port_type} 
+                        onChange={(e) => setPortData({ ...portData, port_type: e.target.value })} 
+                        className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg"
+                    >
+                        <option value="input">Input</option>
+                        <option value="output">Output</option>
+                        <option value="io">IO</option>
+                    </select>
                 </div>
-            </div>
-            <div className="flex justify-end gap-4 mt-6">
-                <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">Done</button>
-            </div>
+                <InputField 
+                    label="Connector Type" 
+                    type="text" 
+                    value={portData.connector_type} 
+                    onChange={(e) => setPortData({ ...portData, connector_type: e.target.value })} 
+                    placeholder="e.g., HDMI, SDI, RJ45" 
+                    required 
+                />
+                <div className="flex justify-end gap-4 pt-4">
+                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
+                    <button type="submit" className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors">
+                        <Save size={16} /> {existingPort ? 'Save Changes' : 'Add Port'}
+                    </button>
+                </div>
+            </form>
         </Modal>
     );
 };

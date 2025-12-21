@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Trash2, Edit, MessageSquare } from 'lucide-react';
+import { Trash2, Edit, MessageSquare, Settings } from 'lucide-react';
 import EditInstanceModal from './EditInstanceModal';
+import ConfigureModulesModal from './ConfigureModulesModal';
 
-const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNotes }) => {
+const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNotes, equipmentLibrary }) => {
     const [isDragging, setIsDragging] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isConfigureModalOpen, setIsConfigureModalOpen] = useState(false);
     const template = item.equipment_templates || {};
 
     const handleDragStart = (e) => {
@@ -39,6 +41,9 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
         setIsEditModalOpen(false);
     };
 
+    const hasSlots = template.slots && template.slots.length > 0;
+    const installedModulesCount = item.module_assignments ? Object.values(item.module_assignments).filter(Boolean).length : 0;
+
     return (
         <>
             <div
@@ -57,6 +62,11 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                     zIndex: 20,
                 }}
             >
+                {installedModulesCount > 0 && (
+                    <div className="absolute top-1 left-1 bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                        {installedModulesCount} {installedModulesCount > 1 ? 'Modules' : 'Module'}
+                    </div>
+                )}
                 <span className="flex-grow text-center truncate px-2">{item.instance_name}</span>
                 <div className="flex items-center absolute right-1 top-1/2 -translate-y-1/2">
                     {onOpenNotes && (
@@ -71,6 +81,17 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                                 <div className="absolute top-0 right-0 h-2 w-2 bg-red-500 rounded-full"></div>
                             )}
                         </div>
+                    )}
+                    {hasSlots && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setIsConfigureModalOpen(true);
+                            }}
+                            className="p-1 text-gray-400 hover:text-green-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                            <Settings size={14} />
+                        </button>
                     )}
                     <button
                         onClick={(e) => {
@@ -98,6 +119,15 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                 onSubmit={handleUpdate}
                 item={item}
             />
+            {hasSlots && (
+                <ConfigureModulesModal
+                    isOpen={isConfigureModalOpen}
+                    onClose={() => setIsConfigureModalOpen(false)}
+                    chassisInstance={item}
+                    equipmentLibrary={equipmentLibrary}
+                    onSave={onUpdate}
+                />
+            )}
         </>
     );
 };

@@ -566,6 +566,7 @@ const RackBuilderView = () => {
                                 dragOverData={dragOverData}
                                 onDragOverRack={setDragOverData}
                                 onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
+                                equipmentLibrary={library.equipment}
                             />
                             <RackComponent
                                 key={`${activeRack.id}-rear`}
@@ -579,6 +580,7 @@ const RackBuilderView = () => {
                                 dragOverData={dragOverData}
                                 onDragOverRack={setDragOverData}
                                 onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
+                                equipmentLibrary={library.equipment}
                             />
                         </>
                     ) : (
