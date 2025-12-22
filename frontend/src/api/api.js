@@ -345,6 +345,7 @@ export const api = {
 
     // --- Admin Metrics Endpoints ---
     getMetrics: async () => fetch('/api/admin/metrics', { headers: await getAuthHeader() }).then(handleResponse),
+    getOverallActivityStatus: async () => fetch('/api/admin/activity/status', { headers: await getAuthHeader() }).then(handleResponse),
     
     // --- Admin User Management Endpoints ---
     getAllUsers: async (searchTerm) => {
@@ -357,12 +358,11 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify({ roles }),
     }).then(handleResponse),
-    suspendUser: async (userId, payload) => fetch(`/api/admin/users/${userId}/suspend`, {
+    deactivateUser: async (userId) => fetch(`/api/admin/users/${userId}/deactivate`, {
         method: 'POST',
         headers: await getAuthHeader(),
-        body: JSON.stringify(payload),
     }).then(handleResponse),
-    unsuspendUser: async (userId) => fetch(`/api/admin/users/${userId}/unsuspend`, {
+    reactivateUser: async (userId) => fetch(`/api/admin/users/${userId}/reactivate`, {
         method: 'POST',
         headers: await getAuthHeader(),
     }).then(handleResponse),

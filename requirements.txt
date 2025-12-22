@@ -14,3 +14,4 @@ cairosvg
 pypdf
 pytest
 PyJWT
+apscheduler

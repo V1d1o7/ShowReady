@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Home, Book, User, ShieldCheck, MessageSquare } from 'lucide-react';
@@ -9,6 +9,25 @@ import toast from 'react-hot-toast';
 const Navbar = () => {
     const { profile } = useAuth();
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [activityStatus, setActivityStatus] = useState('grey');
+
+    useEffect(() => {
+        const fetchActivityStatus = async () => {
+            if (profile?.roles?.includes('admin')) {
+                try {
+                    const response = await api.getOverallActivityStatus();
+                    setActivityStatus(response.status);
+                } catch (error) {
+                    console.error("Failed to fetch activity status:", error);
+                }
+            }
+        };
+
+        fetchActivityStatus();
+        // Optional: Poll for updates every minute
+        const interval = setInterval(fetchActivityStatus, 60000);
+        return () => clearInterval(interval);
+    }, [profile]);
 
     const handleFeedbackSubmit = async (feedbackData) => {
         try {
@@ -20,6 +39,12 @@ const Navbar = () => {
     };
 
     const canShowFeedbackButton = profile?.permitted_features?.includes('global_feedback_button');
+
+    const statusColorClass = {
+        green: 'text-green-500',
+        yellow: 'text-yellow-500',
+        grey: 'text-gray-500'
+    }[activityStatus];
 
     return (
         <>
@@ -98,7 +123,7 @@ const Navbar = () => {
                                             }`
                                         }
                                     >
-                                        <ShieldCheck size={16} className="mr-2" />
+                                        <ShieldCheck size={16} className={`mr-2 ${statusColorClass}`} />
                                         Admin
                                     </NavLink>
                                 )}

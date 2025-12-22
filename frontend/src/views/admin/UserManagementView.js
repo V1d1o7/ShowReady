@@ -55,48 +55,27 @@ const EditRolesModal = ({ isOpen, onClose, user, allRoles, onSave }) => {
     );
 };
 
-const SuspendUserModal = ({ isOpen, onClose, user, onSubmit }) => {
-    const [duration, setDuration] = useState('');
-
-    const handleSubmit = (e) => {
-        e.preventDefault();
-        const durationHours = duration ? parseInt(duration, 10) : null;
-        onSubmit(user.id, durationHours);
+const UserManagementView = () => {
+    const getUserActivityStatus = (lastActiveAt) => {
+        if (!lastActiveAt) return 'grey';
+        const now = new Date();
+        const lastActive = new Date(lastActiveAt);
+        const diffMinutes = (now - lastActive) / (1000 * 60);
+        
+        if (diffMinutes < 5) return 'green';
+        if (diffMinutes < 1440) return 'yellow'; // 24 hours * 60 minutes
+        return 'grey';
     };
 
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Suspend ${user.first_name}`}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                    <label htmlFor="duration" className="block text-sm font-medium text-gray-300 mb-1.5">Suspension Duration (in hours)</label>
-                    <input
-                        id="duration"
-                        type="number"
-                        value={duration}
-                        onChange={(e) => setDuration(e.target.value)}
-                        placeholder="Leave blank for permanent"
-                        className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg"
-                    />
-                </div>
-                <div className="flex justify-end gap-4 pt-4">
-                    <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
-                    <button type="submit" className="px-4 py-2 bg-red-500 hover:bg-red-400 rounded-lg font-bold text-white">Suspend</button>
-                </div>
-            </form>
-        </Modal>
-    );
-};
-
-const UserManagementView = () => {
     const [users, setUsers] = useState([]);
     const [allRoles, setAllRoles] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isRolesModalOpen, setIsRolesModalOpen] = useState(false);
-    const [isSuspendModalOpen, setIsSuspendModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const { profile, startImpersonation } = useAuth();
     const [impersonationModal, setImpersonationModal] = useState({ isOpen: false, user: null });
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, user: null, action: null });
 
     const fetchUsers = useCallback(() => {
         setIsLoading(true);
@@ -148,36 +127,42 @@ const UserManagementView = () => {
         }
     };
 
-    const handleOpenSuspendModal = (user) => {
-        setEditingUser(user);
-        setIsSuspendModalOpen(true);
-    };
-
-    const handleCloseSuspendModal = () => {
-        setEditingUser(null);
-        setIsSuspendModalOpen(false);
-    };
-
-    const handleSuspendSubmit = async (userId, durationHours) => {
-        const toastId = toast.loading('Suspending user...');
-        try {
-            await api.suspendUser(userId, { duration_hours: durationHours });
-            toast.success('User suspended successfully!', { id: toastId });
-            fetchUsers();
-            handleCloseSuspendModal();
-        } catch (error) {
-            toast.error(`Failed to suspend user: ${error.message}`, { id: toastId });
-        }
+    const handleDeactivate = (user) => {
+        setConfirmationModal({ 
+            isOpen: true, 
+            user, 
+            action: 'deactivate',
+            message: `Are you sure you want to deactivate ${user.first_name} ${user.last_name}? Their account will be disabled.`
+        });
     };
     
-    const handleUnsuspend = async (user) => {
-        const toastId = toast.loading('Unsuspending user...');
+    const handleReactivate = (user) => {
+        setConfirmationModal({ 
+            isOpen: true, 
+            user, 
+            action: 'reactivate',
+            message: `Are you sure you want to reactivate ${user.first_name} ${user.last_name}?`
+        });
+    };
+
+    const handleConfirmAction = async () => {
+        const { user, action } = confirmationModal;
+        if (!user || !action) return;
+
+        const toastId = toast.loading(`${action === 'deactivate' ? 'Deactivating' : 'Reactivating'} user...`);
         try {
-            await api.unsuspendUser(user.id);
-            toast.success('User unsuspended successfully!', { id: toastId });
+            if (action === 'deactivate') {
+                await api.deactivateUser(user.id);
+                toast.success('User deactivated successfully!', { id: toastId });
+            } else {
+                await api.reactivateUser(user.id);
+                toast.success('User reactivated successfully!', { id: toastId });
+            }
             fetchUsers();
         } catch (error) {
-            toast.error(`Failed to unsuspend user: ${error.message}`, { id: toastId });
+            toast.error(`Failed to ${action} user: ${error.message}`, { id: toastId });
+        } finally {
+            setConfirmationModal({ isOpen: false, user: null, action: null });
         }
     };
 
@@ -226,16 +211,29 @@ const UserManagementView = () => {
                             <tr>
                                 <th scope="col" className="px-6 py-3">User</th>
                                 <th scope="col" className="px-6 py-3">Roles</th>
-                                <th scope="col" className="px-6 py-3">Status</th>
+                                <th scope="col" className="px-6 py-3">Account Status</th>
                                 <th scope="col" className="px-6 py-3">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {users.map(user => (
+                            {users.map(user => {
+                                const activityStatus = getUserActivityStatus(user.last_active_at);
+                                const statusColorClass = {
+                                    green: 'bg-green-500',
+                                    yellow: 'bg-yellow-500',
+                                    grey: 'bg-gray-500'
+                                }[activityStatus];
+
+                                return (
                                 <tr key={user.id} className="bg-gray-800 border-b border-gray-700 hover:bg-gray-700">
                                     <td className="px-6 py-4 font-medium text-white">
-                                        {user.first_name} {user.last_name}
-                                        <div className="text-xs text-gray-500">{user.email}</div>
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-3 h-3 rounded-full ${statusColorClass}`}></div>
+                                            <div>
+                                                {user.first_name} {user.last_name}
+                                                <div className="text-xs text-gray-500">{user.email}</div>
+                                            </div>
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex flex-wrap gap-1">
@@ -248,7 +246,7 @@ const UserManagementView = () => {
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                                             user.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                                         }`}>
-                                            {user.status}
+                                            {user.status === 'suspended' ? 'deactivated' : user.status}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -266,13 +264,14 @@ const UserManagementView = () => {
                                             Impersonate
                                         </button>
                                         {user.status === 'active' ? (
-                                            <button onClick={() => handleOpenSuspendModal(user)} className="font-medium text-red-500 hover:underline">Suspend</button>
+                                            <button onClick={() => handleDeactivate(user)} className="font-medium text-red-500 hover:underline">Deactivate</button>
                                         ) : (
-                                            <button onClick={() => handleUnsuspend(user)} className="font-medium text-green-500 hover:underline">Unsuspend</button>
+                                            <button onClick={() => handleReactivate(user)} className="font-medium text-green-500 hover:underline">Reactivate</button>
                                         )}
                                     </td>
                                 </tr>
-                            ))}
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -286,12 +285,13 @@ const UserManagementView = () => {
                     onSave={handleSaveRoles}
                 />
             )}
-            {isSuspendModalOpen && editingUser && (
-                 <SuspendUserModal
-                    isOpen={isSuspendModalOpen}
-                    onClose={handleCloseSuspendModal}
-                    user={editingUser}
-                    onSubmit={handleSuspendSubmit}
+            {confirmationModal.isOpen && (
+                <ConfirmationModal
+                    message={confirmationModal.message}
+                    onConfirm={handleConfirmAction}
+                    onCancel={() => setConfirmationModal({ isOpen: false, user: null, action: null })}
+                    confirmText={confirmationModal.action === 'deactivate' ? 'Deactivate' : 'Reactivate'}
+                    confirmButtonVariant="danger"
                 />
             )}
             {impersonationModal.isOpen && (

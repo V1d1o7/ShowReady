@@ -308,9 +308,54 @@ async def get_admin_library(admin_user = Depends(get_admin_user), supabase: Clie
         raise HTTPException(status_code=500, detail=f"Failed to fetch library data: {str(e)}")
 
 # --- Admin User Management ---
+class OverallActivityStatus(BaseModel):
+    status: str # 'green', 'yellow', 'grey'
+
+@router.get("/admin/activity/status", tags=["Admin"], response_model=OverallActivityStatus)
+async def get_overall_activity_status(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    try:
+        now = datetime.now(timezone.utc)
+        five_minutes_ago = now - timedelta(minutes=5)
+        twenty_four_hours_ago = now - timedelta(hours=24)
+
+        # Get admin user IDs to exclude them from activity status
+        admin_role_res = supabase.table('roles').select('id').eq('name', 'admin').single().execute()
+        admin_role_id = admin_role_res.data['id'] if admin_role_res.data else None
+        
+        admin_user_ids = []
+        if admin_role_id:
+            admin_users_res = supabase.table('user_roles').select('user_id').eq('role_id', admin_role_id).execute()
+            admin_user_ids = [item['user_id'] for item in admin_users_res.data]
+
+        # Check for green status (active in last 5 mins)
+        query_green = supabase.table('profiles').select('id', count='exact').gt('last_active_at', five_minutes_ago.isoformat())
+        if admin_user_ids:
+            query_green = query_green.not_.in_('id', admin_user_ids)
+        green_res = query_green.execute()
+        
+        if green_res.count > 0:
+            return {"status": "green"}
+
+        # Check for yellow status (active in last 24 hours)
+        query_yellow = supabase.table('profiles').select('id', count='exact').gt('last_active_at', twenty_four_hours_ago.isoformat())
+        if admin_user_ids:
+            query_yellow = query_yellow.not_.in_('id', admin_user_ids)
+        yellow_res = query_yellow.execute()
+
+        if yellow_res.count > 0:
+            return {"status": "yellow"}
+
+        # Otherwise, grey
+        return {"status": "grey"}
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch overall activity status: {str(e)}")
+
 class UserWithProfile(UserProfile):
     email: str
     status: str
+    last_active_at: Optional[datetime] = None
     
 @router.get("/admin/users", tags=["Admin"], response_model=List[UserWithProfile])
 async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
@@ -333,6 +378,7 @@ async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = D
             user_id = profile['id']
             auth_user = auth_users_map.get(user_id)
             if auth_user:
+                user_roles = roles_map.get(user_id, [])
                 # Determine user status safely
                 status = "active"
                 banned_until = getattr(auth_user, 'banned_until', None)
@@ -342,8 +388,10 @@ async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = D
                 user_data = {
                     **profile,
                     "email": auth_user.email,
-                    "roles": roles_map.get(user_id, []),
-                    "status": status
+                    "roles": user_roles,
+                    "status": status,
+                    # Disregard admin activity by setting last_active_at to None
+                    "last_active_at": None if 'admin' in user_roles else profile.get('last_active_at')
                 }
                 users_with_profiles.append(UserWithProfile(**user_data))
                 
@@ -382,6 +430,26 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to update user roles: {str(e)}")
+
+@router.post("/admin/users/{user_id}/deactivate", tags=["Admin"], status_code=204)
+async def deactivate_user(user_id: uuid.UUID, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Deactivates (suspends) a user indefinitely."""
+    try:
+        supabase.rpc('suspend_user_by_id', {'target_user_id': str(user_id)}).execute()
+        return
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to deactivate user: {str(e)}")
+
+@router.post("/admin/users/{user_id}/reactivate", tags=["Admin"], status_code=204)
+async def reactivate_user(user_id: uuid.UUID, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
+    """Admin: Reactivates (unsuspends) a user."""
+    try:
+        supabase.rpc('unsuspend_user_by_id', {'target_user_id': str(user_id)}).execute()
+        return
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to reactivate user: {str(e)}")
 
 
 @router.post("/admin/impersonate", tags=["Admin"], response_model=Token)
