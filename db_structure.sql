@@ -892,54 +892,34 @@ ALTER FUNCTION public.increment_permissions_version() OWNER TO postgres;
 -- Name: suspend_user_by_id(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.suspend_user_by_id(target_user_id uuid) RETURNS void
+CREATE OR REPLACE FUNCTION public.suspend_user_by_id(target_user_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = public
     AS $$
 BEGIN
   UPDATE auth.users SET banned_until = '9999-12-31T23:59:59Z' WHERE id = target_user_id;
 END;
 $$;
 
-
-ALTER FUNCTION public.suspend_user_by_id(target_user_id uuid) OWNER TO postgres;
-
---
--- Name: suspend_user_by_id(uuid, integer); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.suspend_user_by_id(target_user_id uuid, duration_hours integer DEFAULT NULL::integer) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    AS $$
-DECLARE
-  ban_until_timestamp timestamptz;
-BEGIN
-  IF duration_hours IS NULL THEN
-    ban_until_timestamp := '9999-12-31 23:59:59+00';
-  ELSE
-    ban_until_timestamp := now() + (duration_hours * interval '1 hour');
-  END IF;
-
-  UPDATE auth.users SET banned_until = ban_until_timestamp WHERE id = target_user_id;
-END;
-$$;
-
-
-ALTER FUNCTION public.suspend_user_by_id(target_user_id uuid, duration_hours integer) OWNER TO postgres;
+ALTER FUNCTION public.suspend_user_by_id(uuid) OWNER TO postgres;
+GRANT EXECUTE ON FUNCTION public.suspend_user_by_id(uuid) TO service_role;
 
 --
 -- Name: unsuspend_user_by_id(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.unsuspend_user_by_id(target_user_id uuid) RETURNS void
+CREATE OR REPLACE FUNCTION public.unsuspend_user_by_id(target_user_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path = public
     AS $$
 BEGIN
-  UPDATE auth.users SET banned_until = now() WHERE id = target_user_id;
+  UPDATE auth.users SET banned_until = NULL WHERE id = target_user_id;
 END;
 $$;
 
+ALTER FUNCTION public.unsuspend_user_by_id(uuid) OWNER TO postgres;
+GRANT EXECUTE ON FUNCTION public.unsuspend_user_by_id(uuid) TO service_role;
 
-ALTER FUNCTION public.unsuspend_user_by_id(target_user_id uuid) OWNER TO postgres;
 
 --
 -- Name: apply_rls(jsonb, integer); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
@@ -6903,3 +6883,8 @@ ALTER TABLE public.email_templates ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can manage their own templates" ON public.email_templates
     USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+--
+
+
+-- Clear out old bans from the auth table

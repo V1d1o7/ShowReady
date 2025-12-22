@@ -158,7 +158,7 @@ const UserManagementView = () => {
                 await api.reactivateUser(user.id);
                 toast.success('User reactivated successfully!', { id: toastId });
             }
-            fetchUsers();
+            setUsers(users => users.map(u => u.id === user.id ? { ...u, status: action === 'deactivate' ? 'suspended' : 'active' } : u));
         } catch (error) {
             toast.error(`Failed to ${action} user: ${error.message}`, { id: toastId });
         } finally {

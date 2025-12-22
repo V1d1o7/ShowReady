@@ -379,17 +379,12 @@ async def get_all_users(admin_user=Depends(get_admin_user), supabase: Client = D
             auth_user = auth_users_map.get(user_id)
             if auth_user:
                 user_roles = roles_map.get(user_id, [])
-                # Determine user status safely
-                status = "active"
-                banned_until = getattr(auth_user, 'banned_until', None)
-                if banned_until and banned_until > datetime.now(timezone.utc):
-                    status = "suspended"
                 
                 user_data = {
                     **profile,
                     "email": auth_user.email,
                     "roles": user_roles,
-                    "status": status,
+                    "status": profile.get('status', 'active'),
                     # Disregard admin activity by setting last_active_at to None
                     "last_active_at": None if 'admin' in user_roles else profile.get('last_active_at')
                 }
@@ -435,6 +430,10 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
 async def deactivate_user(user_id: uuid.UUID, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
     """Admin: Deactivates (suspends) a user indefinitely."""
     try:
+        # First, update the user's status in the public profiles table
+        supabase.table('profiles').update({'status': 'suspended'}).eq('id', str(user_id)).execute()
+        
+        # Then, call the RPC function to ban the user in the auth.users table
         supabase.rpc('suspend_user_by_id', {'target_user_id': str(user_id)}).execute()
         return
     except Exception as e:
@@ -445,6 +444,10 @@ async def deactivate_user(user_id: uuid.UUID, admin_user=Depends(get_admin_user)
 async def reactivate_user(user_id: uuid.UUID, admin_user=Depends(get_admin_user), supabase: Client = Depends(get_supabase_client)):
     """Admin: Reactivates (unsuspends) a user."""
     try:
+        # First, update the user's status in the public profiles table
+        supabase.table('profiles').update({'status': 'active'}).eq('id', str(user_id)).execute()
+        
+        # Then, call the RPC function to unban the user in the auth.users table
         supabase.rpc('unsuspend_user_by_id', {'target_user_id': str(user_id)}).execute()
         return
     except Exception as e:

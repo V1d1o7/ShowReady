@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import InputField from '../components/InputField';
-import { supabase } from '../api/api';
+import { supabase, api } from '../api/api';
 import { toast } from 'react-hot-toast'; // Replaced alert with toast
 
 function Auth() {
@@ -49,7 +49,12 @@ function Auth() {
         }
 
         if (response.error) {
-            setAuthError(response.error.message);
+            // Use includes() and toLowerCase() for a more robust check
+            if (response.error.message.toLowerCase().includes('banned')) {
+                setAuthError('Account Suspended. Contact support for assistance.');
+            } else {
+                setAuthError(response.error.message);
+            }
         } else if (isSignUp) {
             toast.success('Account created! Please check your email to confirm your registration.');
         }

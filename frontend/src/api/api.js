@@ -93,6 +93,11 @@ export const api = {
         body: JSON.stringify(ssoData),
     }).then(handleResponse),
     deleteAccount: async () => fetch('/api/profile', { method: 'DELETE', headers: await getAuthHeader() }),
+    checkStatus: async (email) => fetch('/api/check-status', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ email }),
+    }).then(handleResponse),
     
     // Racks
     createRack: async (rackData) => fetch('/api/racks', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(rackData) }).then(handleResponse),
