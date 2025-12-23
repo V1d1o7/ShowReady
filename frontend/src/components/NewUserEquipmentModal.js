@@ -10,6 +10,7 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         manufacturer: '',
         ru_height: 1,
         width: 'full',
+        depth: 0.0,
         folder_id: '',
         has_ip_address: false,
         is_module: false,

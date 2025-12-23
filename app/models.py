@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Union
 import uuid
 from datetime import datetime, date
+from decimal import Decimal
 
 # --- Sender Identity Model ---
 class SenderIdentity(BaseModel):
@@ -319,6 +320,7 @@ class EquipmentTemplate(BaseModel):
     manufacturer: str
     ru_height: int
     width: str = 'full'
+    depth: Optional[Union[float, Decimal]] = 0.0
     power_consumption_watts: Optional[int] = None
     panels: List[PanelLayout] = Field(default_factory=list)
     ports: List[PortTemplate] = Field(default_factory=list)
@@ -334,6 +336,7 @@ class EquipmentTemplateCreate(BaseModel):
     manufacturer: str
     ru_height: int
     width: str = 'full'
+    depth: Optional[Union[float, Decimal]] = 0.0
     ports: List[PortTemplate] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: bool = False
@@ -486,6 +489,7 @@ class EquipmentTemplateUpdate(BaseModel):
     manufacturer: Optional[str] = None
     ru_height: Optional[int] = None
     width: Optional[str] = None
+    depth: Optional[Union[float, Decimal]] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: Optional[bool] = None

@@ -270,11 +270,15 @@ async def create_default_equipment(
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
     slots_data = [s.model_dump(mode='json') for s in equipment_data.slots]
 
+    if equipment_data.depth is None or equipment_data.depth <= 0:
+        raise HTTPException(status_code=400, detail="Depth is required for admin-created equipment and must be greater than 0.")
+
     insert_data = {
         "model_number": equipment_data.model_number,
         "manufacturer": equipment_data.manufacturer,
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
+        "depth": equipment_data.depth,
         "ports": ports_data,
         "is_default": True,
         "has_ip_address": equipment_data.has_ip_address,
@@ -1768,15 +1772,16 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
         response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
         
         if response.data:
-            # Return Instance WITHOUT Template (Preserve frontend state is safest)
-            final_res = supabase.table('rack_equipment_instances').select('*').eq('id', str(instance_id)).single().execute()
-            if final_res.data:
-                return final_res.data
-    
+            # Re-fetch the updated instance to get the full object with nested data, matching the response model.
+            final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+            if final_instance_res.data:
+                return final_instance_res.data
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Server Error: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during equipment update: {str(e)}")
     
-    raise HTTPException(status_code=404, detail="Update failed silently.")
+    raise HTTPException(status_code=404, detail="Update failed or instance not found after update.")
 
 @router.post("/equipment_instances", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
 async def create_equipment_instance(
@@ -1935,6 +1940,7 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
         "manufacturer": equipment_data.manufacturer,
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
+        "depth": equipment_data.depth,
         "ports": ports_data,
         "is_default": False,
         "user_id": str(user.id),
@@ -1963,6 +1969,11 @@ async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEqu
         for port in update_dict['ports']:
             if 'id' in port and isinstance(port['id'], uuid.UUID):
                 port['id'] = str(port['id'])
+
+    if 'slots' in update_dict and update_dict['slots'] is not None:
+        for slot in update_dict['slots']:
+            if 'id' in slot and isinstance(slot['id'], uuid.UUID):
+                slot['id'] = str(slot['id'])
     
     # Enforce that modules have an RU height of 0
     if update_dict.get('is_module') and update_dict.get('ru_height', 1) != 0:
@@ -2316,6 +2327,8 @@ async def update_admin_equipment(
 ):
     """Admin: Updates a default equipment template, e.g., to change its folder."""
     update_dict = equipment_data.model_dump(exclude_unset=True)
+    if 'depth' in update_dict and (update_dict['depth'] is None or update_dict['depth'] <= 0):
+        raise HTTPException(status_code=400, detail="Depth is required for admin-created equipment and must be greater than 0.")
 
     if 'folder_id' in update_dict and update_dict['folder_id'] is not None:
         update_dict['folder_id'] = str(update_dict['folder_id'])
@@ -2324,6 +2337,11 @@ async def update_admin_equipment(
         for port in update_dict['ports']:
             if 'id' in port and isinstance(port['id'], uuid.UUID):
                 port['id'] = str(port['id'])
+    
+    if 'slots' in update_dict and update_dict['slots'] is not None:
+        for slot in update_dict['slots']:
+            if 'id' in slot and isinstance(slot['id'], uuid.UUID):
+                slot['id'] = str(slot['id'])
     
     response = supabase.table('equipment_templates').update(update_dict).eq('id', str(equipment_id)).eq('is_default', True).execute()
     

@@ -35,6 +35,7 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
                 manufacturer: equipment.manufacturer || '',
                 ru_height: equipment.ru_height || 1,
                 width: equipment.width || 'full',
+                depth: equipment.depth || 0.0,
                 folder_id: equipment.folder_id || '',
                 has_ip_address: equipment.has_ip_address || false,
                 is_module: equipment.is_module || false,

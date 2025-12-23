@@ -4,7 +4,7 @@ import ToggleSwitch from './ToggleSwitch';
 import FolderOptions from './FolderOptions';
 import { Plus, Trash2 } from 'lucide-react';
 
-const EquipmentForm = ({ formData, onFormChange, folderTree, isNew }) => {
+const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = false }) => {
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         const newValue = type === 'checkbox' ? checked : value;
@@ -51,7 +51,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew }) => {
             {formData.is_module ? (
                 <InputField label="Module Type" name="module_type" value={formData.module_type || ''} onChange={handleChange} placeholder="e.g., vfc_card" />
             ) : (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                     <InputField label="RU Height" name="ru_height" type="number" min="0" value={formData.ru_height} onChange={handleChange} required />
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1.5">Width</label>
@@ -61,6 +61,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew }) => {
                             <option value="third">Third</option>
                         </select>
                     </div>
+                    <InputField label="Depth (in)" name="depth" type="number" min="0" step="0.01" value={formData.depth || ''} onChange={handleChange} required={isAdmin} />
                 </div>
             )}
             

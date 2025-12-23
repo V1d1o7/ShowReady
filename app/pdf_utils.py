@@ -471,6 +471,53 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
             c.setFont("SpaceMono", 6)
             c.drawRightString(equip_x_start + equip_width - 0.05 * inch, equip_bottom_y + equip_height - 0.1 * inch, equip_template.model_number)
 
+def draw_rack_side_view(c: canvas.Canvas, x_start: float, y_top: float, rack_data: Rack):
+    RACK_FRAME_WIDTH = 3.5 * inch
+    RACK_DEPTH = 24  # inches
+    RU_HEIGHT = 0.22 * inch
+
+    rack_content_height = rack_data.ru_height * RU_HEIGHT
+    rack_pixel_width = RACK_FRAME_WIDTH # Use the same width for consistency
+
+    y_bottom = y_top - rack_content_height
+
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(1)
+    c.rect(x_start, y_bottom, rack_pixel_width, rack_content_height)
+    c.setFont("SpaceMono-Bold", 12)
+    c.drawCentredString(x_start + rack_pixel_width / 2, y_top + 0.15 * inch, f"{rack_data.rack_name} - SIDE VIEW")
+
+    # Draw rack rails for side view
+    c.setStrokeColor(colors.darkgrey)
+    c.setLineWidth(2)
+    c.line(x_start, y_bottom, x_start, y_top) # Front rail
+    c.line(x_start + rack_pixel_width, y_bottom, x_start + rack_pixel_width, y_top) # Rear rail
+
+    for equip in rack_data.equipment:
+        equip_template = equip.equipment_templates
+        if not equip_template or not hasattr(equip_template, 'depth') or not equip_template.depth:
+            continue
+
+        equip_ru_height = equip_template.ru_height
+        equip_bottom_y = y_bottom + (equip.ru_position - 1) * RU_HEIGHT
+        equip_height = equip_ru_height * RU_HEIGHT
+        
+        item_width = (equip_template.depth / RACK_DEPTH) * rack_pixel_width
+        
+        equip_x_start = x_start
+        if equip.rack_side.startswith('rear'):
+            equip_x_start = x_start + rack_pixel_width - item_width
+
+        c.setFillColorRGB(0.88, 0.88, 0.88)
+        c.setStrokeColor(colors.black)
+        c.rect(equip_x_start, equip_bottom_y, item_width, equip_height, fill=1, stroke=1)
+        
+        c.setFillColor(colors.black)
+        c.setFont("SpaceMono-Bold", 8)
+        text_x = equip_x_start + (item_width / 2)
+        text_y = equip_bottom_y + (equip_height / 2) - 4
+        c.drawCentredString(text_x, text_y, equip.instance_name)
+
 def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
     page_size_base = PAGE_SIZES.get(payload.page_size.lower(), letter)
@@ -501,6 +548,16 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
         
         draw_single_rack(c, x_start, y_top, rack)
         
+        c.showPage()
+
+        # Add a new page for the side view
+        c.setFont("SpaceMono-Bold", 16)
+        c.drawString(title_x, height - MARGIN - title_y_offset, payload.show_name)
+        c.setFont("SpaceMono", 10)
+        c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        
+        x_start_side = (width - RACK_FRAME_WIDTH) / 2
+        draw_rack_side_view(c, x_start_side, y_top, rack)
         c.showPage()
 
     c.save()

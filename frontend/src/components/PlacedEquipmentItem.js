@@ -122,8 +122,10 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     };
 
     const handleDragStart = (e) => {
+        const fullItem = { ...item, equipment_templates: template };
         setIsDragging(true);
-        onDragStart(e, item, false); 
+        // Pass the full item object, including the nested template data
+        onDragStart(e, fullItem, false); 
     };
 
     const handleDragEnd = () => setIsDragging(false);

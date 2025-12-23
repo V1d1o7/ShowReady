@@ -35,6 +35,7 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
                 manufacturer: equipment.manufacturer || '',
                 ru_height: equipment.ru_height || 1,
                 width: equipment.width || 'full',
+                depth: equipment.depth || 0.0,
                 has_ip_address: equipment.has_ip_address || false,
                 is_module: equipment.is_module || false,
                 module_type: equipment.module_type || '',
@@ -74,6 +75,7 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
                             formData={formData}
                             onFormChange={setFormData}
                             isNew={false}
+                            isAdmin={true}
                         />
 
                         <div className="border-t border-gray-700 pt-4">

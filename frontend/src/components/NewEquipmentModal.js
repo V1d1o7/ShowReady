@@ -10,6 +10,7 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
         manufacturer: '',
         ru_height: 1,
         width: 'full',
+        depth: 0.0,
         folder_id: '',
         has_ip_address: false,
         is_module: false,
@@ -78,6 +79,7 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
                             onFormChange={setFormData}
                             folderTree={folderTree}
                             isNew={true}
+                            isAdmin={true}
                         />
 
                         {/* Port Management Section */}

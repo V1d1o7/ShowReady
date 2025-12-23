@@ -9,6 +9,7 @@ import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import NamePromptModal from '../components/NamePromptModal';
 import RackComponent from '../components/RackComponent';
+import RackSideView from '../components/RackSideView';
 import RackPdfModal from '../components/RackPdfModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import toast, { Toaster } from 'react-hot-toast';
@@ -36,6 +37,7 @@ const RackBuilderView = () => {
     const [contextMenu, setContextMenu] = useState(null);
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [viewMode, setViewMode] = useState('front_rear'); // 'front_rear' or 'side'
     const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
     const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
     const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
@@ -551,39 +553,64 @@ const RackBuilderView = () => {
                 />
             )}
 
-            <div className="flex-grow overflow-auto pb-4">
+            <div className="flex-grow overflow-auto pb-4 flex flex-col items-center">
+                {activeRack && (
+                    <div className="bg-gray-800 rounded-t-lg p-4 w-full max-w-[732px] mb-[-1px] flex justify-center items-center">
+                        <h3 className="text-lg font-bold text-white truncate">{activeRack.rack_name}</h3>
+                        <div className="ml-auto flex items-center gap-2 bg-gray-700 rounded-lg p-1">
+                            <button 
+                                onClick={() => setViewMode('front_rear')}
+                                className={`px-3 py-1 text-sm rounded-md ${viewMode === 'front_rear' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:bg-gray-600'}`}
+                            >
+                                Front/Rear
+                            </button>
+                            <button 
+                                onClick={() => setViewMode('side')}
+                                className={`px-3 py-1 text-sm rounded-md ${viewMode === 'side' ? 'bg-amber-500 text-black' : 'text-gray-300 hover:bg-gray-600'}`}
+                            >
+                                Side
+                            </button>
+                        </div>
+                    </div>
+                )}
                 <div className="flex justify-center gap-8">
                     {activeRack ? (
-                        <>
-                            <RackComponent
-                                key={`${activeRack.id}-front`}
-                                rack={activeRack}
-                                view="front"
-                                onDrop={handleDrop}
-                                onDelete={handleDeleteEquipment}
-                                onUpdate={handleUpdateEquipmentInstance}
-                                onDragStart={handleDragStart}
-                                draggedItem={draggedItem}
-                                dragOverData={dragOverData}
-                                onDragOverRack={setDragOverData}
-                                onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
-                                equipmentLibrary={library.equipment}
-                            />
-                            <RackComponent
-                                key={`${activeRack.id}-rear`}
-                                rack={activeRack}
-                                view="rear"
-                                onDrop={handleDrop}
-                                onDelete={handleDeleteEquipment}
-                                onUpdate={handleUpdateEquipmentInstance}
-                                onDragStart={handleDragStart}
-                                draggedItem={draggedItem}
-                                dragOverData={dragOverData}
-                                onDragOverRack={setDragOverData}
-                                onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
-                                equipmentLibrary={library.equipment}
-                            />
-                        </>
+                        viewMode === 'side' ? (
+                            <RackSideView rack={activeRack} showHeader={false} />
+                        ) : (
+                            <>
+                                <RackComponent
+                                    key={`${activeRack.id}-front`}
+                                    rack={activeRack}
+                                    view="front"
+                                    onDrop={handleDrop}
+                                    onDelete={handleDeleteEquipment}
+                                    onUpdate={handleUpdateEquipmentInstance}
+                                    onDragStart={handleDragStart}
+                                    draggedItem={draggedItem}
+                                    dragOverData={dragOverData}
+                                    onDragOverRack={setDragOverData}
+                                    onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
+                                    equipmentLibrary={library.equipment}
+                                    showHeader={false}
+                                />
+                                <RackComponent
+                                    key={`${activeRack.id}-rear`}
+                                    rack={activeRack}
+                                    view="rear"
+                                    onDrop={handleDrop}
+                                    onDelete={handleDeleteEquipment}
+                                    onUpdate={handleUpdateEquipmentInstance}
+                                    onDragStart={handleDragStart}
+                                    draggedItem={draggedItem}
+                                    dragOverData={dragOverData}
+                                    onDragOverRack={setDragOverData}
+                                    onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
+                                    equipmentLibrary={library.equipment}
+                                    showHeader={false}
+                                />
+                            </>
+                        )
                     ) : (
                         <div className="flex flex-col items-center justify-center text-center text-gray-500 w-full h-full">
                             <HardDrive size={48} className="mb-4" />
@@ -593,6 +620,7 @@ const RackBuilderView = () => {
                     )}
                 </div>
             </div>
+
             <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col">
                 <div className="flex-shrink-0 flex justify-between items-center mb-4">
                     <h2 className="text-xl font-bold text-white">Library</h2>
