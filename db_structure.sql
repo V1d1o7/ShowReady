@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 6iasUipIhFa4geVOrraRBrqlZMrtTuYvr67wRfuDodrYYrh7HryjBgVOIq3dAu2
+\restrict 9btlQEu1CoEQmQrIfgaOvedSgspmC2FNOyHJJCQeZuQllT91egVZ3y177M5SYXn
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -970,41 +970,23 @@ BEGIN
   IF f_name IS NULL OR f_name = '' THEN RAISE EXCEPTION 'First name is required.'; END IF;
   IF l_name IS NULL OR l_name = '' THEN RAISE EXCEPTION 'Last name is required.'; END IF;
 
+  -- Create Profile
   INSERT INTO public.profiles (id, first_name, last_name, company_name, production_role, production_role_other)
   VALUES (new.id, f_name, l_name, new.raw_user_meta_data ->> 'company_name', new.raw_user_meta_data ->> 'production_role', new.raw_user_meta_data ->> 'production_role_other');
 
-  -- ROSTER (FIXED DESIGN)
-  INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
-  VALUES (
-    new.id, 
-    'ROSTER', 
-    'Standard Crew Call', 
-    'Availability Check: {{showName}}', 
-    '<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;"><tr><td align="center" style="padding: 40px 10px;"><table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);"><tr><td height="6" style="background-color: #14b8a6;"></td></tr><tr><td style="padding: 30px 40px; border-bottom: 1px solid #374151;"><h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">Availability Check</h1><p style="color: #14b8a6; margin: 5px 0 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">{{showName}}</p></td></tr><tr><td style="padding: 40px;"><p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hey <strong>{{firstName}}</strong>,</p><p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">We''ve got a <strong>[Type of Call]</strong> for <strong>{{showName}}</strong> coming up and we are looking for <strong>[Number]</strong> people. Details are below - partial availability is ok!</p><table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #111827; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;"><tr><td style="padding: 25px;"><table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">What:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Type of Call]</td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">When:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">{{schedule}}</td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Where:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Location / Address]</td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Rate:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Rate Info]</td></tr></table></td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td align="center"><a href="mailto:?subject=Available: {{showName}}&body=Hi, I am available." style="background-color: #14b8a6; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">I''m Available</a></td></tr><tr><td align="center" style="padding-top: 20px;"><a href="mailto:?subject=Decline: {{showName}}&body=Hi, I am unavailable for this one." style="color: #6b7280; font-size: 14px; text-decoration: none;">Unavailable / Decline</a></td></tr></table></td></tr><tr><td style="background-color: #111827; padding: 20px; text-align: center; border-top: 1px solid #374151;"><p style="color: #4b5563; font-size: 12px; margin: 0;">Powered by ShowReady</p></td></tr></table></td></tr></table>', 
-    true
-  );
+  -- Assign default 'user' role
+  INSERT INTO public.user_roles (user_id, role_id)
+  SELECT new.id, r.id FROM public.roles r WHERE r.name = 'user'
+  ON CONFLICT DO NOTHING;
 
-  -- CREW TEMPLATE
+  -- Insert Branded Default Email Templates (HARDCODED DESIGNS)
   INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
-  VALUES (
-    new.id, 
-    'CREW', 
-    'Crew Assignment', 
-    'Assignment Details: {{showName}}', 
-    '<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;"><tr><td align="center" style="padding: 40px 10px;"><table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);"><tr><td height="6" style="background-color: #3b82f6;"></td></tr><tr><td style="padding: 40px;"><h1 style="color: #ffffff; font-size: 24px; margin-bottom: 20px;">Crew Assignment</h1><p style="color: #d1d5db; font-size: 16px; line-height: 1.6;">Hi {{firstName}},<br>Here are your assignment details for <strong>{{showName}}</strong>.</p><div style="background-color: #1e3a8a; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; color: #d1d5db;">Please confirm receipt of this email.</div></td></tr></table></td></tr></table>', 
-    true
-  );
-
-  -- HOURS TEMPLATE
-  INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
-  VALUES (
-    new.id, 
-    'HOURS', 
-    'Timesheet Review', 
-    'Timesheet Review: {{weekStartDate}}', 
-    '<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;"><tr><td align="center" style="padding: 40px 10px;"><table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif;"><tr><td height="6" style="background-color: #f59e0b;"></td></tr><tr><td style="padding: 40px;"><h1 style="color: #ffffff; font-size: 24px;">Timesheet Review</h1><p style="color: #d1d5db; font-size: 16px;">Attached is the timesheet for the week of <strong>{{weekStartDate}}</strong>.<br><strong>Total Cost: {{totalCost}}</strong></p></td></tr></table></td></tr></table>', 
-    true
-  );
+  VALUES 
+  (new.id, 'ROSTER', 'Default Roster Email', 'Availability Check: {{showName}}', 
+   '<table cellpadding="0" cellspacing="0" width="100%" border="0" style="background-color: #111827;"><tbody><tr><td align="center" style="padding: 40px 10px;"><table width="600" style="background-color: #1F2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif;"><tbody><tr><td style="background-color: #14B8A6; height: 6px;"></td></tr><tr><td style="padding: 30px 40px; border-bottom: 1px solid #374151;"><h1 style="color: #F9FAFB; margin: 0; font-size: 24px;"><strong>Availability Check</strong></h1><p style="color: #14B8A6; margin: 5px 0 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase;"><strong>{{showName}}</strong></p></td></tr><tr><td style="padding: 40px;"><p style="color: #D1D5DB; font-size: 16px; line-height: 1.6;">Hey {{firstName}},</p><p style="color: #D1D5DB; font-size: 16px; line-height: 1.6;">We have an upcoming call for <strong>{{showName}}</strong> and are looking for crew.</p></td></tr></tbody></table></td></tr></tbody></table>', true),
+  
+  (new.id, 'CREW', 'Default Crew Email', 'Crew Assignment: {{showName}}', 
+   '<table cellpadding="0" cellspacing="0" width="100%" border="0" style="background-color: #111827;"><tbody><tr><td align="center" style="padding: 40px 10px;"><table width="600" style="background-color: #1F2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151;"><tbody><tr><td style="background-color: #3B82F6; height: 6px;"></td></tr><tr><td style="padding: 30px 40px; border-bottom: 1px solid #374151;"><h1 style="color: #F9FAFB; margin: 0; font-size: 24px;"><strong>Crew Assignment</strong></h1><p style="color: #3B82F6; margin: 5px 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase;"><strong>{{showName}}</strong></p></td></tr></tbody></table></td></tr></tbody></table>', true);
 
   RETURN new;
 END;
@@ -6134,6 +6116,13 @@ CREATE POLICY "Allow admins to insert sender identities" ON public.sender_identi
 
 
 --
+-- Name: feature_restrictions Allow admins to manage feature restrictions; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow admins to manage feature restrictions" ON public.feature_restrictions TO authenticated USING (('admin'::text = ANY (public.get_my_roles()))) WITH CHECK (('admin'::text = ANY (public.get_my_roles())));
+
+
+--
 -- Name: roles Allow admins to manage roles; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6166,6 +6155,13 @@ CREATE POLICY "Allow admins to read roles" ON public.roles FOR SELECT TO authent
 --
 
 CREATE POLICY "Allow all users to read the permissions version" ON public.permissions_meta FOR SELECT USING (true);
+
+
+--
+-- Name: feature_restrictions Allow authenticated users to read feature restrictions; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow authenticated users to read feature restrictions" ON public.feature_restrictions FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -8523,5 +8519,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 6iasUipIhFa4geVOrraRBrqlZMrtTuYvr67wRfuDodrYYrh7HryjBgVOIq3dAu2
+\unrestrict 9btlQEu1CoEQmQrIfgaOvedSgspmC2FNOyHJJCQeZuQllT91egVZ3y177M5SYXn
 
