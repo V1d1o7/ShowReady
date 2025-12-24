@@ -4,6 +4,12 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 
+# --- User Model (Fixed: Added this missing model) ---
+class User(BaseModel):
+    id: uuid.UUID
+    email: str
+    role: Optional[str] = None
+
 # --- Sender Identity Model ---
 class SenderIdentity(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -53,6 +59,10 @@ class UserProfileUpdate(BaseModel):
     production_role: Optional[str] = None
     production_role_other: Optional[str] = None
     company_logo_path: Optional[str] = None
+
+# --- User Roles Update Model ---
+class UserRolesUpdate(BaseModel):
+    roles: List[str]
 
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):
@@ -564,6 +574,11 @@ class RackPDFPayload(BaseModel):
     racks: List[Rack]
     show_name: str
     page_size: str = "letter"
+    include_front_rear: bool = True
+    include_side_view: bool = True
+    include_equipment_list: bool = False
+    include_power_report: bool = False
+    power_report_voltage: int = 120
 
 class LoomWithCables(Loom):
     cables: List[Cable] = []

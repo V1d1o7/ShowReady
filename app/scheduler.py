@@ -83,8 +83,14 @@ async def grim_reaper_task():
     print("Running Grim Reaper task...")
     now = datetime.now(timezone.utc)
     
-    # Use the service key for admin-level access
-    supabase_admin = create_client(SUPABASE_URL, os.environ.get("SUPABASE_SERVICE_KEY"))
+    # --- CRITICAL FIX: Use Service Key for Admin Tasks ---
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY")
+    if not service_key:
+        print("CRITICAL ERROR: SUPABASE_SERVICE_KEY is missing from environment. Grim Reaper task cannot run.")
+        return
+
+    # Create admin client with the service key
+    supabase_admin = create_client(SUPABASE_URL, service_key)
 
     # Fetch the admin sender identity
     sender_res = supabase_admin.table('sender_identities').select('*').eq('email', 'admin@showready.k-p.video').single().execute()
@@ -148,19 +154,19 @@ async def grim_reaper_task():
 
         for profile in profiles_to_revoke_res.data:
             user_id = profile['id']
-        try:
-            user_res = supabase_admin.auth.admin.get_user_by_id(user_id)
-            user_email = user_res.user.email
-            
-            # Send revocation email
-            html_content = create_revoked_email_html(profile)
-            send_email(user_email, "ShowReady Beta Access Revoked", html_content, admin_sender)
+            try:
+                user_res = supabase_admin.auth.admin.get_user_by_id(user_id)
+                user_email = user_res.user.email
+                
+                # Send revocation email
+                html_content = create_revoked_email_html(profile)
+                send_email(user_email, "ShowReady Beta Access Revoked", html_content, admin_sender)
 
-            # Remove beta role
-            supabase_admin.table('user_roles').delete().eq('user_id', user_id).eq('role_id', beta_role_id).execute()
-            print(f"Beta access revoked for user {user_id}")
-        except Exception as e:
-            print(f"Error revoking access for user {user_id}: {e}")
+                # Remove beta role
+                supabase_admin.table('user_roles').delete().eq('user_id', user_id).eq('role_id', beta_role_id).execute()
+                print(f"Beta access revoked for user {user_id}")
+            except Exception as e:
+                print(f"Error revoking access for user {user_id}: {e}")
 
     print("Grim Reaper task finished.")
 

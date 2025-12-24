@@ -11,6 +11,8 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         ru_height: 1,
         width: 'full',
         depth: 0.0,
+        // ADDED THIS LINE:
+        power_consumption_watts: 0,
         folder_id: '',
         has_ip_address: false,
         is_module: false,
@@ -52,14 +54,14 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         const dataToSubmit = {
             ...formData,
             ru_height: formData.is_module ? 0 : parseInt(formData.ru_height, 10),
+            // Ensure watts are submitted as an integer
+            power_consumption_watts: parseInt(formData.power_consumption_watts || 0, 10),
             folder_id: formData.folder_id || null,
             ports: ports,
         };
 
         if (dataToSubmit.is_module) {
             dataToSubmit.ru_height = 0;
-            // FIX: Modules can now have slots (e.g. Line cards with SFP slots)
-            // delete dataToSubmit.slots; <--- REMOVED
             delete dataToSubmit.width;
         } else {
             delete dataToSubmit.module_type;

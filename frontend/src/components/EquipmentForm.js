@@ -51,21 +51,34 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
             {formData.is_module ? (
                 <InputField label="Module Type" name="module_type" value={formData.module_type || ''} onChange={handleChange} placeholder="e.g., vfc_card" />
             ) : (
-                <div className="grid grid-cols-3 gap-4">
-                    <InputField label="RU Height" name="ru_height" type="number" min="0" value={formData.ru_height} onChange={handleChange} required />
-                    <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-1.5">Width</label>
-                        <select name="width" value={formData.width} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
-                            <option value="full">Full</option>
-                            <option value="half">Half</option>
-                            <option value="third">Third</option>
-                        </select>
+                <>
+                    <div className="grid grid-cols-3 gap-4">
+                        <InputField label="RU Height" name="ru_height" type="number" min="0" value={formData.ru_height} onChange={handleChange} required />
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-1.5">Width</label>
+                            <select name="width" value={formData.width} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
+                                <option value="full">Full</option>
+                                <option value="half">Half</option>
+                                <option value="third">Third</option>
+                            </select>
+                        </div>
+                        <InputField label="Depth (in)" name="depth" type="number" min="0" step="0.01" value={formData.depth || ''} onChange={handleChange} />
                     </div>
-                    <InputField label="Depth (in)" name="depth" type="number" min="0" step="0.01" value={formData.depth || ''} onChange={handleChange} required={isAdmin} />
-                </div>
+                    {/* Power Consumption Row */}
+                    <div className="mt-4">
+                        <InputField 
+                            label="Power Consumption (Watts)" 
+                            name="power_consumption_watts" 
+                            type="number" 
+                            min="0" 
+                            value={formData.power_consumption_watts || 0} 
+                            onChange={handleChange} 
+                        />
+                    </div>
+                </>
             )}
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 mt-4">
                 <div className="flex items-center justify-between">
                     <label htmlFor="has_ip_address" className="block text-sm font-medium text-gray-300">
                         Device is IP Addressable
@@ -91,7 +104,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
             </div>
 
             {folderTree && (
-                <div>
+                <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-300 mb-1.5">Parent Folder (Optional)</label>
                     <select name="folder_id" value={formData.folder_id} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg">
                         <option value="">None (Root Level)</option>
@@ -100,9 +113,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                 </div>
             )}
 
-            {/* REMOVED: The conditional check {formData.is_module ? null : (...)} that hid slots */}
-            {/* ALLOWED: Slots can now be configured for Modules (e.g. SFP ports on a Line Card) */}
-            <div className="border-t border-gray-700 pt-4">
+            <div className="border-t border-gray-700 pt-4 mt-4">
                 <h3 className="text-md font-bold text-white mb-2">Slots Configuration</h3>
                 <div className="space-y-2">
                     {(formData.slots || []).map((slot, index) => (

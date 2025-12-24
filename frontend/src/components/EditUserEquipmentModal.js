@@ -36,6 +36,8 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
                 ru_height: equipment.ru_height || 1,
                 width: equipment.width || 'full',
                 depth: equipment.depth || 0.0,
+                // ADDED THIS LINE:
+                power_consumption_watts: equipment.power_consumption_watts || 0,
                 folder_id: equipment.folder_id || '',
                 has_ip_address: equipment.has_ip_address || false,
                 is_module: equipment.is_module || false,
@@ -51,14 +53,14 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
         const dataToSubmit = {
             ...formData,
             ru_height: formData.is_module ? 0 : parseInt(formData.ru_height, 10),
+            // Ensure watts are sent as an integer
+            power_consumption_watts: parseInt(formData.power_consumption_watts || 0, 10),
             folder_id: formData.folder_id || null,
             ports: ports
         };
 
         if (dataToSubmit.is_module) {
             dataToSubmit.ru_height = 0;
-            // FIX: Modules can now have slots (e.g. Line cards with SFP slots)
-            // delete dataToSubmit.slots; <--- REMOVED
             delete dataToSubmit.width;
         } else {
             delete dataToSubmit.module_type;

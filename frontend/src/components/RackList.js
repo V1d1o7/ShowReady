@@ -1,8 +1,21 @@
 import React, { useState } from 'react';
-import { Plus, Edit, Trash2, Library, Download, PanelLeftClose, FileText, MessageSquare } from 'lucide-react';
+import { Plus, Edit, Trash2, Library, Download, PanelLeftClose, MessageSquare, Zap } from 'lucide-react';
 import EditRackModal from './EditRackModal'; 
 
-const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, selectedRackId, onLoadFromRackLibrary, onExportPdf, onExportEquipmentList, title = 'Show Racks', onCollapse, onOpenNotes }) => {
+const RackList = ({ 
+    racks, 
+    onSelectRack, 
+    onNewRack, 
+    onDeleteRack, 
+    onUpdateRack, 
+    selectedRackId, 
+    onLoadFromRackLibrary, 
+    onExport, // CHANGED: Replaced onExportPdf/EquipList with general onExport
+    onPowerReport, 
+    title = 'Show Racks', 
+    onCollapse, 
+    onOpenNotes 
+}) => {
     const [editingRack, setEditingRack] = useState(null);
 
     const handleSave = (rackData) => {
@@ -72,14 +85,16 @@ const RackList = ({ racks, onSelectRack, onNewRack, onDeleteRack, onUpdateRack, 
                             <Library size={16} /> Load from Rack Library
                         </button>
                     )}
-                    {onExportPdf && (
-                         <button onClick={onExportPdf} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                            <Download size={16} /> Export PDF
+                    
+                    {onPowerReport && (
+                        <button onClick={onPowerReport} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                            <Zap size={16} /> Power Report
                         </button>
                     )}
-                    {onExportEquipmentList && (
-                        <button onClick={onExportEquipmentList} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
-                            <FileText size={16} /> Export Equipment List
+
+                    {onExport && (
+                         <button onClick={onExport} className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600">
+                            <Download size={16} /> Export...
                         </button>
                     )}
                 </div>

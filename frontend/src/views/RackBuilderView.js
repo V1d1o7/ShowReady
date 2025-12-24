@@ -10,8 +10,9 @@ import RackLibraryModal from '../components/RackLibraryModal';
 import NamePromptModal from '../components/NamePromptModal';
 import RackComponent from '../components/RackComponent';
 import RackSideView from '../components/RackSideView';
-import RackPdfModal from '../components/RackPdfModal';
+import RackExportModal from '../components/RackExportModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
+import PowerReportModal from '../components/PowerReportModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -24,21 +25,31 @@ const RackBuilderView = () => {
     const [racks, setRacks] = useState([]);
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
     const [isLoading, setIsLoading] = useState(true);
+    
+    // Modals State
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
-    const [isRackPdfModalOpen, setIsRackPdfModalOpen] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false); // Export Modal
+    const [isPowerReportOpen, setIsPowerReportOpen] = useState(false); // Power Report Modal
     const [isNamePromptOpen, setIsNamePromptOpen] = useState(false);
+    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
+    const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
+    
+    // Data State
+    const [powerReportData, setPowerReportData] = useState([]);
     const [rackToCopy, setRackToCopy] = useState(null);
     const [selectedRackId, setSelectedRackId] = useState(null);
     const [activeRack, setActiveRack] = useState(null);
+    
+    // UI State
     const [draggedItem, setDraggedItem] = useState(null);
     const [dragOverData, setDragOverData] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
-    const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [viewMode, setViewMode] = useState('front_rear'); // 'front_rear' or 'side'
-    const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
+    
+    // Notes
     const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
     const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
 
@@ -47,20 +58,7 @@ const RackBuilderView = () => {
         setIsNotesDrawerOpen(true);
     };
 
-    const handleExportListPdf = async () => {
-        if (!showId) return;
-        toast.loading('Generating Equipment List PDF...');
-        try {
-            const pdfBlob = await api.exportRacksListPdf(showId);
-            const url = window.URL.createObjectURL(pdfBlob);
-            setPdfPreview({ isOpen: true, url: url });
-            toast.dismiss();
-        } catch (error) {
-            console.error("Failed to generate equipment list PDF:", error);
-            toast.dismiss();
-            toast.error(`Failed to generate PDF: ${error.message}`);
-        }
-    };
+    // --- Data Fetching ---
 
     // Fetch initial library and rack list on mount
     useEffect(() => {
@@ -121,12 +119,83 @@ const RackBuilderView = () => {
             console.error("Failed to refresh racks:", error);
         }
     }, [showId, selectedRackId]);
-	
+
+    // Close context menu on click outside
     useEffect(() => {
         const handleClickOutside = () => setContextMenu(null);
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
     }, []);
+
+    // --- Handlers: Power Report & Export ---
+
+    const handleOpenPowerReport = async () => {
+        if (!showId) return;
+        toast.loading('Calculating Power Usage...');
+        try {
+            const detailedRacks = await api.getDetailedRacksForShow(showId);
+            setPowerReportData(detailedRacks);
+            setIsPowerReportOpen(true);
+            toast.dismiss();
+        } catch (error) {
+            console.error("Failed to fetch data for power report:", error);
+            toast.dismiss();
+            toast.error(`Failed to generate Power Report: ${error.message}`);
+        }
+    };
+
+    const handleProcessExport = async (options) => {
+        // Destructure new options: includePowerReport, voltage
+        const { scope, includeFrontRear, includeSide, includeEquipmentList, includePowerReport, voltage, pageSize } = options;
+
+        if (!showId) return;
+
+        toast.loading('Generating Export Package...');
+        try {
+            const detailedRacks = await api.getDetailedRacksForShow(showId);
+            
+            let racksToPrint = detailedRacks;
+            if (scope === 'selected' && activeRack) {
+                racksToPrint = detailedRacks.filter(r => r.id === activeRack.id);
+            }
+
+            if (racksToPrint.length === 0) {
+                toast.error("No racks found to export.");
+                return;
+            }
+
+            const payload = {
+                racks: racksToPrint,
+                show_name: showName,
+                page_size: pageSize,
+                include_front_rear: includeFrontRear,
+                include_side_view: includeSide,
+                include_equipment_list: includeEquipmentList,
+                // Pass new flags
+                include_power_report: includePowerReport, 
+                power_report_voltage: voltage 
+            };
+
+            const pdfBlob = await api.generateRacksPdf(payload);
+            const url = window.URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${showName}-Export.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+            
+            toast.success('Export downloaded successfully!');
+        } catch (err) {
+            console.error("Failed to generate PDF:", err);
+            toast.error(`Failed to generate Export: ${err.message}`);
+        } finally {
+            toast.dismiss();
+        }
+    };
+
+    // --- Handlers: Rack CRUD ---
 
     const handleSelectRack = (rackId) => setSelectedRackId(rackId);
 
@@ -149,7 +218,6 @@ const RackBuilderView = () => {
             onConfirm: async () => {
                 try {
                     await api.deleteRack(rackId);
-                    
                     const newRacks = racks.filter(r => r.id !== rackId);
                     setRacks(newRacks);
 
@@ -163,7 +231,6 @@ const RackBuilderView = () => {
                             setActiveRack(null);
                         }
                     }
-                    
                     toast.success("Rack deleted successfully.");
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 } catch (error) {
@@ -185,17 +252,17 @@ const RackBuilderView = () => {
         }
     };
 
+    // --- Handlers: Equipment CRUD ---
+
     const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
         try {
             const updatedInstance = await api.updateEquipmentInstance(instanceId, updatedData);
-            
             setActiveRack(currentRack => ({
                 ...currentRack,
                 equipment: currentRack.equipment.map(item =>
                     item.id === instanceId ? { 
                         ...item, 
                         ...updatedInstance,
-                        // Ensure templates persist if API returns partial data
                         equipment_templates: updatedInstance.equipment_templates || item.equipment_templates 
                     } : item
                 )
@@ -217,6 +284,30 @@ const RackBuilderView = () => {
         }
         setIsNewEquipModalOpen(false);
     };
+
+    const handleDeleteEquipment = (instanceId) => {
+        setConfirmationModal({
+            isOpen: true,
+            message: "Are you sure you want to remove this equipment from the rack?",
+            onConfirm: async () => {
+                try {
+                    await api.deleteEquipmentFromRack(instanceId);
+                    setActiveRack(currentRack => ({
+                        ...currentRack,
+                        equipment: currentRack.equipment.filter(item => item.id !== instanceId)
+                    }));
+                    toast.success("Equipment removed successfully.");
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                } catch (error) {
+                    console.error("Failed to delete equipment:", error);
+                    toast.error(`Error: ${error.message}`);
+                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
+                }
+            }
+        });
+    };
+
+    // --- Handlers: Library & Copy ---
 
     const handleLoadRackFromLibrary = (templateRack) => {
         setIsRackLibraryOpen(false);
@@ -240,58 +331,26 @@ const RackBuilderView = () => {
         setRackToCopy(null);
     };
 
-    const handleGenerateRackPdf = async ({ pageSize }) => {
-        toast.loading('Generating PDF...');
-        try {
-            const detailedRacks = await api.getDetailedRacksForShow(showId);
-            
-            const payload = {
-                racks: detailedRacks,
-                show_name: showName,
-                page_size: pageSize,
-            };
+    const handleContextMenu = (e, item) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setContextMenu({ x: e.clientX, y: e.clientY, item: item });
+    };
 
-            const pdfBlob = await api.generateRacksPdf(payload);
-            const url = window.URL.createObjectURL(pdfBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${showName}-racks.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            a.remove();
-            toast.dismiss();
-            toast.success('PDF generated successfully!');
-        } catch (err) {
-            console.error("Failed to generate PDF:", err);
-            toast.dismiss();
-            toast.error(`Failed to generate PDF: ${err.message}`);
-        } finally {
-            setIsRackPdfModalOpen(false);
+    const handleCopyToLibrary = async () => {
+        if (!contextMenu) return;
+        try {
+            await api.copyEquipmentToLibrary({ template_id: contextMenu.item.id, folder_id: null });
+            fetchData();
+            toast.success(`${contextMenu.item.model_number} copied to your library!`);
+        } catch (error) {
+            console.error("Failed to copy equipment:", error);
+            toast.error(`Error: ${error.message}`);
         }
+        setContextMenu(null);
     };
-    
-    const handleDeleteEquipment = (instanceId) => {
-        setConfirmationModal({
-            isOpen: true,
-            message: "Are you sure you want to remove this equipment from the rack?",
-            onConfirm: async () => {
-                try {
-                    await api.deleteEquipmentFromRack(instanceId);
-                    setActiveRack(currentRack => ({
-                        ...currentRack,
-                        equipment: currentRack.equipment.filter(item => item.id !== instanceId)
-                    }));
-                    toast.success("Equipment removed successfully.");
-                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
-                } catch (error) {
-                    console.error("Failed to delete equipment:", error);
-                    toast.error(`Error: ${error.message}`);
-                    setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
-                }
-            }
-        });
-    };
+
+    // --- Drag & Drop Logic ---
 
     const getItemSlot = (item) => {
         const width = item.equipment_templates.width;
@@ -306,7 +365,7 @@ const RackBuilderView = () => {
             if (side.endsWith('-right')) return { start: 2/3, end: 1 };
             return { start: 0, end: 1/3 };
         }
-        return { start: 0, end: 1 }; // Default to full
+        return { start: 0, end: 1 };
     };
     
     const getTargetSlot = (itemTemplate, targetSide) => {
@@ -321,51 +380,42 @@ const RackBuilderView = () => {
             if (targetSide.endsWith('-right')) return { start: 2/3, end: 1 };
             return { start: 0, end: 1/3 };
         }
-        return { start: 0, end: 1 }; // Default to full
+        return { start: 0, end: 1 };
     }
     
     const checkCollision = useCallback((rackData, itemToPlace, targetRu, targetSide) => {
         if (!rackData || !itemToPlace) return true;
-    
         const itemTemplate = itemToPlace.isNew ? itemToPlace.item : itemToPlace.item.equipment_templates;
         if (!itemTemplate) return true;
     
         const startNew = targetRu;
         const endNew = targetRu + itemTemplate.ru_height - 1;
     
-        if (startNew < 1 || endNew > rackData.ru_height) {
-            return true; // Out of bounds
-        }
+        if (startNew < 1 || endNew > rackData.ru_height) return true;
     
         const newFace = targetSide.split('-')[0];
         const newSlot = getTargetSlot(itemTemplate, targetSide);
     
-        // For each RU the new item would occupy
         for (let ru = startNew; ru <= endNew; ru++) {
-            // Find all existing items in this RU
             const itemsInRu = rackData.equipment.filter(item => {
                 if (!itemToPlace.isNew && item.id === itemToPlace.item.id) return false;
                 const template = item.equipment_templates;
                 if (!template || !item.rack_side) return false;
                 const face = item.rack_side.split('-')[0];
                 if (face !== newFace) return false;
-                
                 const startExisting = item.ru_position;
                 const endExisting = startExisting + template.ru_height - 1;
                 return ru >= startExisting && ru <= endExisting;
             });
     
-            // Check for slot overlap
             for (const item of itemsInRu) {
                 const existingSlot = getItemSlot(item);
                 const epsilon = 0.0001;
-                // Check for overlap: (StartA < EndB) and (EndA > StartB)
                 if (newSlot.start < existingSlot.end - epsilon && newSlot.end > existingSlot.start + epsilon) {
-                    return true; // Collision
+                    return true;
                 }
             }
         }
-    
         return false;
     }, []);
 
@@ -402,7 +452,7 @@ const RackBuilderView = () => {
         
         const finalSide = (() => {
             if (itemTemplate.width === 'full') {
-                return side.split('-')[0]; // 'front' or 'rear'
+                return side.split('-')[0];
             }
             return side;
         })();
@@ -480,7 +530,6 @@ const RackBuilderView = () => {
                     setActiveRack({ ...activeRack, equipment: originalEquipmentState });
                 });
         }
-        
         cleanup();
     };
 
@@ -489,25 +538,6 @@ const RackBuilderView = () => {
         setDragOverData(null);
     };
 
-    const handleContextMenu = (e, item) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, item: item });
-    };
-
-    const handleCopyToLibrary = async () => {
-        if (!contextMenu) return;
-        try {
-            await api.copyEquipmentToLibrary({ template_id: contextMenu.item.id, folder_id: null });
-            fetchData();
-            toast.success(`${contextMenu.item.model_number} copied to your library!`);
-        } catch (error) {
-            console.error("Failed to copy equipment:", error);
-            toast.error(`Error: ${error.message}`);
-        }
-        setContextMenu(null);
-    };
-    
     const userFolderTree = useMemo(() => {
         if (!library.folders) return [];
         const userFolders = library.folders.filter(f => !f.is_default);
@@ -545,8 +575,8 @@ const RackBuilderView = () => {
                     onUpdateRack={handleUpdateRack}
                     selectedRackId={selectedRackId}
                     onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
-                    onExportPdf={() => setIsRackPdfModalOpen(true)}
-                    onExportEquipmentList={handleExportListPdf}
+                    onExport={() => setIsExportModalOpen(true)} // Opens the Export Modal
+                    onPowerReport={handleOpenPowerReport} // Opens the Power Report
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
                     onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? (rackId) => openNotesDrawer('rack', rackId) : undefined}
@@ -646,7 +676,23 @@ const RackBuilderView = () => {
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
-            <RackPdfModal isOpen={isRackPdfModalOpen} onClose={() => setIsRackPdfModalOpen(false)} onGenerate={handleGenerateRackPdf} />
+            
+            {/* RACK EXPORT MODAL */}
+            <RackExportModal 
+                isOpen={isExportModalOpen}
+                onClose={() => setIsExportModalOpen(false)}
+                onExport={handleProcessExport}
+                rackCount={racks.length}
+                selectedRackName={activeRack ? activeRack.rack_name : null}
+            />
+
+            {/* POWER REPORT MODAL */}
+            <PowerReportModal 
+                isOpen={isPowerReportOpen} 
+                onClose={() => setIsPowerReportOpen(false)} 
+                data={powerReportData} 
+            />
+
             <NamePromptModal
                 isOpen={isNamePromptOpen}
                 onClose={() => {

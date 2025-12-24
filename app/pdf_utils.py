@@ -15,6 +15,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from pypdf import PdfWriter, PdfReader
 
 from .models import LoomLabel, CaseLabel, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables, WeeklyTimesheet
 
@@ -228,9 +229,17 @@ def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], sho
     story.append(Paragraph(f"{show_name} - Equipment List", styles["Title"]))
 
     # --- Table ---
-    if table_data:
-        # Calculate column widths to fit the page
-        col_widths = [3*inch, 3.5*inch, 1*inch] 
+    if table_data and len(table_data) > 0:
+        # Calculate column widths based on the number of columns
+        num_cols = len(table_data[0])
+        
+        if num_cols == 3:
+            # Standard Equipment List (Manufacturer, Model, Qty)
+            col_widths = [3*inch, 3.5*inch, 1*inch]
+        else:
+            # Fallback for any other column count (dynamic distribution)
+            available_width = 7.5 * inch
+            col_widths = [available_width / num_cols] * num_cols
 
         # Apply paragraph styles to all cells for consistent formatting
         styled_table_data = []
@@ -557,10 +566,10 @@ def draw_rack_side_view(c: canvas.Canvas, x_start: float, y_top: float, rack_dat
             is_front = equip.rack_side.lower().startswith('front')
             
             if is_front:
-                # Anchored to Front Rail (Left)
+                # Anchored to Front Rail (Left side of box)
                 item_x = x_start
             else:
-                # Anchored to Rear Rail (Right)
+                # Anchored to Rear Rail (Right side of box)
                 item_x = (x_start + RACK_FRAME_WIDTH) - item_width_pts
 
             # Styling
@@ -650,56 +659,113 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
     width, height = page_size
     
     MARGIN = 0.5 * inch
+    # FIX: Define shared variables here so they exist for both blocks
+    RACK_FRAME_WIDTH = 3.5 * inch 
+    date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
     
     for i, rack in enumerate(payload.racks):
         # --- PAGE 1: Front and Rear Views ---
-        title_y = height - MARGIN
-        if show_branding:
-            c.setFont("SpaceMono", 8)
-            c.setFillColor(colors.grey)
-            c.drawString(MARGIN, title_y + 10, "Created using ShowReady")
-        
-        c.setFillColor(colors.black)
-        c.setFont("SpaceMono-Bold", 16)
-        c.drawString(MARGIN, title_y - 10, f"{payload.show_name}")
-        c.setFont("SpaceMono", 10)
-        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
-        c.drawRightString(width - MARGIN, title_y - 10, f"Generated: {date_str}")
+        if payload.include_front_rear:
+            title_y = height - MARGIN
+            if show_branding:
+                c.setFont("SpaceMono", 8)
+                c.setFillColor(colors.grey)
+                c.drawString(MARGIN, title_y + 10, "Created using ShowReady")
+            
+            c.setFillColor(colors.black)
+            c.setFont("SpaceMono-Bold", 16)
+            c.drawString(MARGIN, title_y - 10, f"{payload.show_name}")
+            c.setFont("SpaceMono", 10)
+            c.drawRightString(width - MARGIN, title_y - 10, f"Generated: {date_str}")
 
-        # Increased top margin slightly to ensure bottom fits
-        y_top = height - MARGIN - (0.6 * inch)
-        
-        RACK_FRAME_WIDTH = 3.5 * inch
-        SIDE_PADDING = 0.5 * inch
-        TOTAL_WIDTH = (RACK_FRAME_WIDTH * 2) + SIDE_PADDING
-        x_start = (width - TOTAL_WIDTH) / 2
-        
-        draw_single_rack(c, x_start, y_top, rack)
-        c.showPage()
+            # Increased top margin slightly to ensure bottom fits
+            y_top = height - MARGIN - (0.6 * inch)
+            
+            SIDE_PADDING = 0.5 * inch
+            TOTAL_WIDTH = (RACK_FRAME_WIDTH * 2) + SIDE_PADDING
+            x_start = (width - TOTAL_WIDTH) / 2
+            
+            draw_single_rack(c, x_start, y_top, rack)
+            c.showPage()
 
         # --- PAGE 2: Side View ---
-        title_y = height - MARGIN
-        if show_branding:
-            c.setFont("SpaceMono", 8)
-            c.setFillColor(colors.grey)
-            c.drawString(MARGIN, title_y + 10, "Created using ShowReady")
-        
-        c.setFillColor(colors.black)
-        c.setFont("SpaceMono-Bold", 16)
-        c.drawString(MARGIN, title_y - 10, f"{payload.show_name}")
-        c.setFont("SpaceMono", 10)
-        c.drawRightString(width - MARGIN, title_y - 10, f"Generated: {date_str}")
+        if payload.include_side_view:
+            title_y = height - MARGIN
+            if show_branding:
+                c.setFont("SpaceMono", 8)
+                c.setFillColor(colors.grey)
+                c.drawString(MARGIN, title_y + 10, "Created using ShowReady")
+            
+            c.setFillColor(colors.black)
+            c.setFont("SpaceMono-Bold", 16)
+            c.drawString(MARGIN, title_y - 10, f"{payload.show_name}")
+            c.setFont("SpaceMono", 10)
+            c.drawRightString(width - MARGIN, title_y - 10, f"Generated: {date_str}")
 
-        y_top = height - MARGIN - (0.6 * inch)
-        
-        x_start_side = (width - RACK_FRAME_WIDTH) / 2
-        
-        draw_rack_side_view(c, x_start_side, y_top, rack)
-        c.showPage()
+            y_top = height - MARGIN - (0.6 * inch)
+            
+            # Centering for Side View (Single Rack)
+            x_start_side = (width - RACK_FRAME_WIDTH) / 2
+            
+            draw_rack_side_view(c, x_start_side, y_top, rack)
+            c.showPage()
 
     c.save()
     buffer.seek(0)
     return buffer
+
+def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
+    merger = PdfWriter()
+    has_pages = False
+
+    # 1. Drawings
+    if payload.include_front_rear or payload.include_side_view:
+        drawings_buffer = generate_racks_pdf(payload, show_branding)
+        drawings_buffer.seek(0, os.SEEK_END)
+        if drawings_buffer.tell() > 0:
+            drawings_buffer.seek(0)
+            merger.append(drawings_buffer)
+            has_pages = True
+
+    # 2. Equipment List
+    if payload.include_equipment_list:
+        equipment_counts = {}
+        for rack in payload.racks:
+            for item in rack.equipment:
+                template = item.equipment_templates
+                if not template: continue
+                manufacturer = template.manufacturer or 'N/A'
+                model = template.model_number or 'N/A'
+                key = (manufacturer, model)
+                equipment_counts[key] = equipment_counts.get(key, 0) + 1
+        
+        header = ["Manufacturer", "Model Name", "Qty"]
+        data = [header]
+        for (manufacturer, model), qty in sorted(equipment_counts.items()):
+            data.append([manufacturer, model, str(qty)])
+        
+        if len(data) > 1:
+            list_buffer = generate_equipment_list_pdf(payload.show_name, data, show_branding)
+            merger.append(list_buffer)
+            has_pages = True
+
+    # 3. Power Report (NEW)
+    if payload.include_power_report:
+        power_buffer = generate_power_report_pdf(payload, show_branding)
+        merger.append(power_buffer)
+        has_pages = True
+
+    # Output
+    output_buffer = io.BytesIO()
+    if has_pages:
+        merger.write(output_buffer)
+    else:
+        c = canvas.Canvas(output_buffer, pagesize=letter)
+        c.drawString(100, 750, "No data selected for export.")
+        c.save()
+        
+    output_buffer.seek(0)
+    return output_buffer
 
 # --- Timesheet Footer ---
 def draw_timesheet_footer(canvas: canvas.Canvas, doc: SimpleDocTemplate):
@@ -994,5 +1060,134 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
     else:
         doc.build(story)
 
+    buffer.seek(0)
+    return buffer
+
+def generate_power_report_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=portrait(letter),
+        rightMargin=0.5*inch, leftMargin=0.5*inch,
+        topMargin=0.5*inch, bottomMargin=0.5*inch,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+    styles['Normal'].fontName = "SpaceMono"
+    styles['Title'].fontName = "SpaceMono-Bold"
+    styles['Title'].fontSize = 18
+    styles['Title'].spaceAfter = 16
+    
+    # Constants
+    VOLTAGE = payload.power_report_voltage
+    POWER_FACTOR = 0.7
+    UPS_CAPACITY_VA = 1500
+
+    # Calculations
+    total_watts = 0
+    rack_stats = []
+
+    for rack in payload.racks:
+        rack_watts = 0
+        for item in rack.equipment:
+            template = item.equipment_templates
+            if template and template.power_consumption_watts:
+                rack_watts += template.power_consumption_watts
+        
+        rack_amps = rack_watts / VOLTAGE
+        rack_va = rack_watts / POWER_FACTOR
+        
+        rack_stats.append({
+            "name": rack.rack_name,
+            "watts": rack_watts,
+            "amps": rack_amps,
+            "va": rack_va
+        })
+        total_watts += rack_watts
+
+    total_amps = total_watts / VOLTAGE
+    total_va = total_watts / POWER_FACTOR
+    suggested_ups = int(total_va / UPS_CAPACITY_VA) + (1 if total_va % UPS_CAPACITY_VA > 0 else 0)
+
+    # --- Title ---
+    story.append(Paragraph(f"{payload.show_name} - Power Report", styles["Title"]))
+    story.append(Paragraph(f"Basis: {VOLTAGE} Volts | Power Factor: {POWER_FACTOR}", styles["Normal"]))
+    story.append(Spacer(1, 12))
+
+    # --- Summary Box (Styled as a Table) ---
+    summary_data = [
+        # Added newline to prevent overflow
+        ["Total Power", "Total Current", "Est. Load (VA)", "Suggested UPS\n(1500VA)"],
+        [
+            f"{total_watts:,} W", 
+            f"{total_amps:.1f} A", 
+            f"{int(total_va):,} VA", 
+            f"{suggested_ups} Units"
+        ]
+    ]
+    
+    # ADJUSTED WIDTHS: 1.6, 1.6, 1.6, 2.4 (Total 7.2 inches)
+    summary_table = Table(summary_data, colWidths=[1.6*inch, 1.6*inch, 1.6*inch, 2.4*inch], hAlign='CENTER')
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, -1), 'SpaceMono-Bold'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 1, colors.black),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 24))
+
+    # --- Breakdown Table ---
+    # Manually creating a Heading style since 'Heading3' might not be standard in getSampleStyleSheet
+    heading_style = ParagraphStyle(
+        'Heading3', 
+        parent=styles['Normal'], 
+        fontName='SpaceMono-Bold', 
+        fontSize=12, 
+        spaceAfter=6
+    )
+    story.append(Paragraph("Breakdown by Rack", heading_style))
+    story.append(Spacer(1, 6))
+
+    table_header = ["Rack Name", "Watts", "Amps", "VA"]
+    table_data = [table_header]
+    
+    for stat in rack_stats:
+        table_data.append([
+            stat["name"],
+            f"{stat['watts']:,} W",
+            f"{stat['amps']:.1f} A",
+            f"{int(stat['va']):,} VA"
+        ])
+
+    breakdown_table = Table(table_data, colWidths=[3.5*inch, 1.2*inch, 1.2*inch, 1.2*inch], hAlign='LEFT')
+    breakdown_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.gray),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'SpaceMono-Bold'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),   # Names Left
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'), # Numbers Right
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.black),
+        ('LINEBELOW', (0, 1), (-1, -1), 0.5, colors.lightgrey),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(breakdown_table)
+
+    # Footer
+    def footer(canvas, doc):
+        if show_branding:
+            canvas.saveState()
+            canvas.setFont('SpaceMono', 8)
+            canvas.drawString(0.5 * inch, 0.5 * inch, "Created using ShowReady")
+            canvas.restoreState()
+
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
     buffer.seek(0)
     return buffer

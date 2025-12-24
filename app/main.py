@@ -76,36 +76,38 @@ async def track_user_activity(request: Request, call_next):
     """
     if request.url.path.startswith("/api/"):
         try:
+            # Note: get_user also reads the request header
             user = await get_user(request)
             if user:
-                supabase = get_supabase_client()
+                # --- CHANGED THIS LINE ---
+                # Pass the request so we get the AUTHENTICATED client
+                supabase_client = get_supabase_client(request) 
+                
                 now = datetime.now(timezone.utc)
                 
                 # Fetch the last active time from the profile
-                profile_res = supabase.table('profiles').select('last_active_at').eq('id', user.id).maybe_single().execute()
+                # Using the authenticated client ensures RLS allows us to see our own profile
+                profile_res = supabase_client.table('profiles').select('last_active_at').eq('id', user.id).maybe_single().execute()
                 
                 if profile_res.data:
+                    # ... (Keep rest of the logic unchanged) ...
                     last_active_str = profile_res.data.get('last_active_at')
                     
                     should_update = True
                     if last_active_str:
-                        # Convert string to offset-aware datetime
                         last_active_at = datetime.fromisoformat(last_active_str)
                         if now - last_active_at < timedelta(minutes=5):
                             should_update = False
                     
                     if should_update:
-                        supabase.table('profiles').update({'last_active_at': now.isoformat()}).eq('id', user.id).execute()
+                        supabase_client.table('profiles').update({'last_active_at': now.isoformat()}).eq('id', user.id).execute()
 
         except HTTPException as e:
-            # This will happen for unauthenticated routes, which is fine.
-            # We just pass through without tracking activity.
             if e.status_code == 401:
                 pass
             else:
                 print(f"Error in activity tracking middleware: {e.detail}")
         except Exception as e:
-            # Catch other potential errors during user fetching or DB update
             print(f"An unexpected error occurred in activity tracking middleware: {e}")
 
     response = await call_next(request)
