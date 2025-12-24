@@ -1,45 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 import uuid
-from supabase import create_client, Client
-from gotrue.errors import AuthApiError
-import os
+from supabase import Client
 from typing import List
-from .. import models
+# Use shared dependencies to ensure consistent RLS and Feature Checks
+from ..api import get_supabase_client, get_user, feature_check
 
-router = APIRouter()
+# Apply the feature restriction to the entire router
+router = APIRouter(
+    dependencies=[Depends(feature_check("vlan_management"))]
+)
 
 class VlanScriptRequest(BaseModel):
     interface_name: str
     virtual_switch_name: str
     vlan_ids: List[uuid.UUID]
 
-# --- Supabase Client Dependency ---
-def get_supabase_client():
-    """Dependency to create a Supabase client."""
-    return create_client(os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_KEY"))
-
-# --- User Authentication Dependency ---
-async def get_user(request: Request, supabase: Client = Depends(get_supabase_client)):
-    """Dependency to get user from Supabase JWT in Authorization header."""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Authorization header missing")
-    
-    token = auth_header.replace("Bearer ", "")
-    
-    try:
-        user_response = supabase.auth.get_user(token)
-        return user_response.user
-    except AuthApiError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
 @router.post("/vlans/{show_id}/generate-script", tags=["VLANs"])
-async def generate_vlan_script(show_id: int, payload: VlanScriptRequest, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+async def generate_vlan_script(
+    show_id: int, 
+    payload: VlanScriptRequest, 
+    user = Depends(get_user), 
+    supabase: Client = Depends(get_supabase_client)
+):
     """
     Generates a PowerShell script for creating a virtual switch and adding VLANs.
     The user must have collaborator access to the show.
@@ -54,6 +38,7 @@ async def generate_vlan_script(show_id: int, payload: VlanScriptRequest, user = 
         raise HTTPException(status_code=400, detail="No VLANs selected for script generation.")
         
     vlan_ids_str = [str(vid) for vid in payload.vlan_ids]
+    # Fetch VLANs (RLS is handled by the authenticated client)
     vlans_res = supabase.table('vlans').select('*').in_('id', vlan_ids_str).execute()
     
     if not vlans_res.data:

@@ -205,9 +205,11 @@ const UserManagementView = () => {
                 </div>
             </div>
             <Card>
-                <div className="overflow-x-auto">
+                {/* CHANGED: Added max-h-[70vh] and overflow-y-auto for internal scrolling */}
+                <div className="overflow-x-auto max-h-[70vh] overflow-y-auto custom-scrollbar">
                     <table className="min-w-full text-sm text-left text-gray-400">
-                        <thead className="text-xs text-gray-300 uppercase bg-gray-700">
+                        {/* CHANGED: Added sticky top-0 and z-10 to keep header visible while scrolling */}
+                        <thead className="text-xs text-gray-300 uppercase bg-gray-700 sticky top-0 z-10">
                             <tr>
                                 <th scope="col" className="px-6 py-3">User</th>
                                 <th scope="col" className="px-6 py-3">Roles</th>
