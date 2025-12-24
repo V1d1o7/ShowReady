@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict EouoUhchIJWiehhTRoXUGgv1ISx118ls4qVAcOdlSgAhqYK4k9FJOS6aJByPOwx
+\restrict 6iasUipIhFa4geVOrraRBrqlZMrtTuYvr67wRfuDodrYYrh7HryjBgVOIq3dAu2
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -221,6 +221,32 @@ CREATE TYPE auth.factor_type AS ENUM (
 ALTER TYPE auth.factor_type OWNER TO supabase_auth_admin;
 
 --
+-- Name: oauth_authorization_status; Type: TYPE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TYPE auth.oauth_authorization_status AS ENUM (
+    'pending',
+    'approved',
+    'denied',
+    'expired'
+);
+
+
+ALTER TYPE auth.oauth_authorization_status OWNER TO supabase_auth_admin;
+
+--
+-- Name: oauth_client_type; Type: TYPE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TYPE auth.oauth_client_type AS ENUM (
+    'public',
+    'confidential'
+);
+
+
+ALTER TYPE auth.oauth_client_type OWNER TO supabase_auth_admin;
+
+--
 -- Name: oauth_registration_type; Type: TYPE; Schema: auth; Owner: supabase_auth_admin
 --
 
@@ -231,6 +257,17 @@ CREATE TYPE auth.oauth_registration_type AS ENUM (
 
 
 ALTER TYPE auth.oauth_registration_type OWNER TO supabase_auth_admin;
+
+--
+-- Name: oauth_response_type; Type: TYPE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TYPE auth.oauth_response_type AS ENUM (
+    'code'
+);
+
+
+ALTER TYPE auth.oauth_response_type OWNER TO supabase_auth_admin;
 
 --
 -- Name: one_time_token_type; Type: TYPE; Schema: auth; Owner: supabase_auth_admin
@@ -329,7 +366,8 @@ ALTER TYPE realtime.wal_rls OWNER TO supabase_admin;
 
 CREATE TYPE storage.buckettype AS ENUM (
     'STANDARD',
-    'ANALYTICS'
+    'ANALYTICS',
+    'VECTOR'
 );
 
 
@@ -737,24 +775,42 @@ COMMENT ON FUNCTION extensions.set_graphql_placeholder() IS 'Reintroduces placeh
 
 CREATE FUNCTION pgbouncer.get_auth(p_usename text) RETURNS TABLE(username text, password text)
     LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO ''
     AS $_$
-begin
-    raise debug 'PgBouncer auth request: %', p_usename;
+  BEGIN
+      RAISE DEBUG 'PgBouncer auth request: %', p_usename;
 
-    return query
-    select 
-        rolname::text, 
-        case when rolvaliduntil < now() 
-            then null 
-            else rolpassword::text 
-        end 
-    from pg_authid 
-    where rolname=$1 and rolcanlogin;
-end;
-$_$;
+      RETURN QUERY
+      SELECT
+          rolname::text,
+          CASE WHEN rolvaliduntil < now()
+              THEN null
+              ELSE rolpassword::text
+          END
+      FROM pg_authid
+      WHERE rolname=$1 and rolcanlogin;
+  END;
+  $_$;
 
 
 ALTER FUNCTION pgbouncer.get_auth(p_usename text) OWNER TO supabase_admin;
+
+--
+-- Name: add_constraint_if_not_exists(text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.add_constraint_if_not_exists(t_name text, c_name text, c_def text) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = c_name) THEN
+        EXECUTE 'ALTER TABLE ' || t_name || ' ADD CONSTRAINT ' || c_name || ' ' || c_def;
+    END IF;
+END;
+$$;
+
+
+ALTER FUNCTION public.add_constraint_if_not_exists(t_name text, c_name text, c_def text) OWNER TO postgres;
 
 --
 -- Name: delete_user(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -773,6 +829,56 @@ $$;
 
 
 ALTER FUNCTION public.delete_user() OWNER TO postgres;
+
+--
+-- Name: get_configurable_switches_for_show(bigint); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.get_configurable_switches_for_show(p_show_id bigint) RETURNS json
+    LANGUAGE sql
+    AS $$
+    WITH rack_items AS (
+        SELECT
+            r.id as rack_id,
+            r.rack_name,
+            rei.id as rack_item_id,
+            rei.instance_name as switch_name,
+            et.switch_model_id
+        FROM public.racks r
+        JOIN public.rack_equipment_instances rei ON r.id = rei.rack_id
+        JOIN public.equipment_templates et ON rei.template_id = et.id
+        WHERE r.show_id = p_show_id AND et.switch_model_id IS NOT NULL
+    ),
+    configs AS (
+        SELECT
+            ri.rack_item_id,
+            sc.id as switch_config_id
+        FROM rack_items ri
+        LEFT JOIN public.switch_configs sc ON ri.rack_item_id = sc.rack_item_id
+    )
+    SELECT json_agg(
+        json_build_object(
+            'rack_id', r.rack_id,
+            'rack_name', r.rack_name,
+            'items', (
+                SELECT json_agg(
+                    json_build_object(
+                        'rack_item_id', ri.rack_item_id,
+                        'switch_name', ri.switch_name,
+                        'switch_config_id', c.switch_config_id
+                    )
+                )
+                FROM rack_items ri
+                LEFT JOIN configs c ON ri.rack_item_id = c.rack_item_id
+                WHERE ri.rack_id = r.rack_id
+            )
+        )
+    )
+    FROM (SELECT DISTINCT rack_id, rack_name FROM rack_items) r;
+$$;
+
+
+ALTER FUNCTION public.get_configurable_switches_for_show(p_show_id bigint) OWNER TO postgres;
 
 --
 -- Name: get_most_used_equipment(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -854,22 +960,74 @@ CREATE FUNCTION public.handle_new_user() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+DECLARE
+  f_name text;
+  l_name text;
 BEGIN
+  f_name := new.raw_user_meta_data ->> 'first_name';
+  l_name := new.raw_user_meta_data ->> 'last_name';
+
+  IF f_name IS NULL OR f_name = '' THEN RAISE EXCEPTION 'First name is required.'; END IF;
+  IF l_name IS NULL OR l_name = '' THEN RAISE EXCEPTION 'Last name is required.'; END IF;
+
   INSERT INTO public.profiles (id, first_name, last_name, company_name, production_role, production_role_other)
+  VALUES (new.id, f_name, l_name, new.raw_user_meta_data ->> 'company_name', new.raw_user_meta_data ->> 'production_role', new.raw_user_meta_data ->> 'production_role_other');
+
+  -- ROSTER (FIXED DESIGN)
+  INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
   VALUES (
-    new.id,
-    new.raw_user_meta_data ->> 'first_name',
-    new.raw_user_meta_data ->> 'last_name',
-    new.raw_user_meta_data ->> 'company_name',
-    new.raw_user_meta_data ->> 'production_role',
-    new.raw_user_meta_data ->> 'production_role_other'
+    new.id, 
+    'ROSTER', 
+    'Standard Crew Call', 
+    'Availability Check: {{showName}}', 
+    '<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;"><tr><td align="center" style="padding: 40px 10px;"><table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);"><tr><td height="6" style="background-color: #14b8a6;"></td></tr><tr><td style="padding: 30px 40px; border-bottom: 1px solid #374151;"><h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700;">Availability Check</h1><p style="color: #14b8a6; margin: 5px 0 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">{{showName}}</p></td></tr><tr><td style="padding: 40px;"><p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 20px;">Hey <strong>{{firstName}}</strong>,</p><p style="color: #d1d5db; font-size: 16px; line-height: 1.6; margin-bottom: 25px;">We''ve got a <strong>[Type of Call]</strong> for <strong>{{showName}}</strong> coming up and we are looking for <strong>[Number]</strong> people. Details are below - partial availability is ok!</p><table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #111827; border-radius: 8px; border: 1px solid #374151; margin-bottom: 30px;"><tr><td style="padding: 25px;"><table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">What:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Type of Call]</td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">When:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">{{schedule}}</td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 16px;"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Where:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Location / Address]</td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td width="80" valign="top" style="color: #9ca3af; font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">Rate:</td><td style="color: #ffffff; font-size: 15px; font-weight: normal;">[Rate Info]</td></tr></table></td></tr></table><table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td align="center"><a href="mailto:?subject=Available: {{showName}}&body=Hi, I am available." style="background-color: #14b8a6; color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">I''m Available</a></td></tr><tr><td align="center" style="padding-top: 20px;"><a href="mailto:?subject=Decline: {{showName}}&body=Hi, I am unavailable for this one." style="color: #6b7280; font-size: 14px; text-decoration: none;">Unavailable / Decline</a></td></tr></table></td></tr><tr><td style="background-color: #111827; padding: 20px; text-align: center; border-top: 1px solid #374151;"><p style="color: #4b5563; font-size: 12px; margin: 0;">Powered by ShowReady</p></td></tr></table></td></tr></table>', 
+    true
   );
+
+  -- CREW TEMPLATE
+  INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
+  VALUES (
+    new.id, 
+    'CREW', 
+    'Crew Assignment', 
+    'Assignment Details: {{showName}}', 
+    '<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;"><tr><td align="center" style="padding: 40px 10px;"><table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);"><tr><td height="6" style="background-color: #3b82f6;"></td></tr><tr><td style="padding: 40px;"><h1 style="color: #ffffff; font-size: 24px; margin-bottom: 20px;">Crew Assignment</h1><p style="color: #d1d5db; font-size: 16px; line-height: 1.6;">Hi {{firstName}},<br>Here are your assignment details for <strong>{{showName}}</strong>.</p><div style="background-color: #1e3a8a; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; color: #d1d5db;">Please confirm receipt of this email.</div></td></tr></table></td></tr></table>', 
+    true
+  );
+
+  -- HOURS TEMPLATE
+  INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
+  VALUES (
+    new.id, 
+    'HOURS', 
+    'Timesheet Review', 
+    'Timesheet Review: {{weekStartDate}}', 
+    '<table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #111827;"><tr><td align="center" style="padding: 40px 10px;"><table border="0" cellpadding="0" cellspacing="0" width="600" style="background-color: #1f2937; border-radius: 12px; overflow: hidden; border: 1px solid #374151; font-family: Helvetica, Arial, sans-serif;"><tr><td height="6" style="background-color: #f59e0b;"></td></tr><tr><td style="padding: 40px;"><h1 style="color: #ffffff; font-size: 24px;">Timesheet Review</h1><p style="color: #d1d5db; font-size: 16px;">Attached is the timesheet for the week of <strong>{{weekStartDate}}</strong>.<br><strong>Total Cost: {{totalCost}}</strong></p></td></tr></table></td></tr></table>', 
+    true
+  );
+
   RETURN new;
 END;
 $$;
 
 
 ALTER FUNCTION public.handle_new_user() OWNER TO postgres;
+
+--
+-- Name: handle_updated_at(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.handle_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.handle_updated_at() OWNER TO postgres;
 
 --
 -- Name: increment_permissions_version(); Type: FUNCTION; Schema: public; Owner: postgres
@@ -892,34 +1050,49 @@ ALTER FUNCTION public.increment_permissions_version() OWNER TO postgres;
 -- Name: suspend_user_by_id(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE OR REPLACE FUNCTION public.suspend_user_by_id(target_user_id uuid) RETURNS void
+CREATE FUNCTION public.suspend_user_by_id(target_user_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path = public
+    SET search_path TO 'public'
     AS $$
 BEGIN
   UPDATE auth.users SET banned_until = '9999-12-31T23:59:59Z' WHERE id = target_user_id;
 END;
 $$;
 
-ALTER FUNCTION public.suspend_user_by_id(uuid) OWNER TO postgres;
-GRANT EXECUTE ON FUNCTION public.suspend_user_by_id(uuid) TO service_role;
+
+ALTER FUNCTION public.suspend_user_by_id(target_user_id uuid) OWNER TO postgres;
 
 --
 -- Name: unsuspend_user_by_id(uuid); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
-CREATE OR REPLACE FUNCTION public.unsuspend_user_by_id(target_user_id uuid) RETURNS void
+CREATE FUNCTION public.unsuspend_user_by_id(target_user_id uuid) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path = public
+    SET search_path TO 'public'
     AS $$
 BEGIN
   UPDATE auth.users SET banned_until = NULL WHERE id = target_user_id;
 END;
 $$;
 
-ALTER FUNCTION public.unsuspend_user_by_id(uuid) OWNER TO postgres;
-GRANT EXECUTE ON FUNCTION public.unsuspend_user_by_id(uuid) TO service_role;
 
+ALTER FUNCTION public.unsuspend_user_by_id(target_user_id uuid) OWNER TO postgres;
+
+--
+-- Name: update_updated_at_column(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+   NEW.updated_at = now();
+   RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.update_updated_at_column() OWNER TO postgres;
 
 --
 -- Name: apply_rls(jsonb, integer); Type: FUNCTION; Schema: realtime; Owner: supabase_admin
@@ -1506,14 +1679,27 @@ ALTER FUNCTION realtime.quote_wal2json(entity regclass) OWNER TO supabase_admin;
 CREATE FUNCTION realtime.send(payload jsonb, event text, topic text, private boolean DEFAULT true) RETURNS void
     LANGUAGE plpgsql
     AS $$
+DECLARE
+  generated_id uuid;
+  final_payload jsonb;
 BEGIN
   BEGIN
+    -- Generate a new UUID for the id
+    generated_id := gen_random_uuid();
+
+    -- Check if payload has an 'id' key, if not, add the generated UUID
+    IF payload ? 'id' THEN
+      final_payload := payload;
+    ELSE
+      final_payload := jsonb_set(payload, '{id}', to_jsonb(generated_id));
+    END IF;
+
     -- Set the topic configuration
     EXECUTE format('SET LOCAL realtime.topic TO %L', topic);
 
     -- Attempt to insert the message
-    INSERT INTO realtime.messages (payload, event, topic, private, extension)
-    VALUES (payload, event, topic, private, 'broadcast');
+    INSERT INTO realtime.messages (id, payload, event, topic, private, extension)
+    VALUES (generated_id, final_payload, event, topic, private, 'broadcast');
   EXCEPTION
     WHEN OTHERS THEN
       -- Capture and notify the error
@@ -1665,6 +1851,73 @@ $$;
 
 
 ALTER FUNCTION storage.can_insert_object(bucketid text, name text, owner uuid, metadata jsonb) OWNER TO supabase_storage_admin;
+
+--
+-- Name: delete_leaf_prefixes(text[], text[]); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.delete_leaf_prefixes(bucket_ids text[], names text[]) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+DECLARE
+    v_rows_deleted integer;
+BEGIN
+    LOOP
+        WITH candidates AS (
+            SELECT DISTINCT
+                t.bucket_id,
+                unnest(storage.get_prefixes(t.name)) AS name
+            FROM unnest(bucket_ids, names) AS t(bucket_id, name)
+        ),
+        uniq AS (
+             SELECT
+                 bucket_id,
+                 name,
+                 storage.get_level(name) AS level
+             FROM candidates
+             WHERE name <> ''
+             GROUP BY bucket_id, name
+        ),
+        leaf AS (
+             SELECT
+                 p.bucket_id,
+                 p.name,
+                 p.level
+             FROM storage.prefixes AS p
+                  JOIN uniq AS u
+                       ON u.bucket_id = p.bucket_id
+                           AND u.name = p.name
+                           AND u.level = p.level
+             WHERE NOT EXISTS (
+                 SELECT 1
+                 FROM storage.objects AS o
+                 WHERE o.bucket_id = p.bucket_id
+                   AND o.level = p.level + 1
+                   AND o.name COLLATE "C" LIKE p.name || '/%'
+             )
+             AND NOT EXISTS (
+                 SELECT 1
+                 FROM storage.prefixes AS c
+                 WHERE c.bucket_id = p.bucket_id
+                   AND c.level = p.level + 1
+                   AND c.name COLLATE "C" LIKE p.name || '/%'
+             )
+        )
+        DELETE
+        FROM storage.prefixes AS p
+            USING leaf AS l
+        WHERE p.bucket_id = l.bucket_id
+          AND p.name = l.name
+          AND p.level = l.level;
+
+        GET DIAGNOSTICS v_rows_deleted = ROW_COUNT;
+        EXIT WHEN v_rows_deleted = 0;
+    END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION storage.delete_leaf_prefixes(bucket_ids text[], names text[]) OWNER TO supabase_storage_admin;
 
 --
 -- Name: delete_prefix(text, text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
@@ -1976,6 +2229,65 @@ $_$;
 ALTER FUNCTION storage.list_objects_with_delimiter(bucket_id text, prefix_param text, delimiter_param text, max_keys integer, start_after text, next_token text) OWNER TO supabase_storage_admin;
 
 --
+-- Name: lock_top_prefixes(text[], text[]); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.lock_top_prefixes(bucket_ids text[], names text[]) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+DECLARE
+    v_bucket text;
+    v_top text;
+BEGIN
+    FOR v_bucket, v_top IN
+        SELECT DISTINCT t.bucket_id,
+            split_part(t.name, '/', 1) AS top
+        FROM unnest(bucket_ids, names) AS t(bucket_id, name)
+        WHERE t.name <> ''
+        ORDER BY 1, 2
+        LOOP
+            PERFORM pg_advisory_xact_lock(hashtextextended(v_bucket || '/' || v_top, 0));
+        END LOOP;
+END;
+$$;
+
+
+ALTER FUNCTION storage.lock_top_prefixes(bucket_ids text[], names text[]) OWNER TO supabase_storage_admin;
+
+--
+-- Name: objects_delete_cleanup(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.objects_delete_cleanup() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+DECLARE
+    v_bucket_ids text[];
+    v_names      text[];
+BEGIN
+    IF current_setting('storage.gc.prefixes', true) = '1' THEN
+        RETURN NULL;
+    END IF;
+
+    PERFORM set_config('storage.gc.prefixes', '1', true);
+
+    SELECT COALESCE(array_agg(d.bucket_id), '{}'),
+           COALESCE(array_agg(d.name), '{}')
+    INTO v_bucket_ids, v_names
+    FROM deleted AS d
+    WHERE d.name <> '';
+
+    PERFORM storage.lock_top_prefixes(v_bucket_ids, v_names);
+    PERFORM storage.delete_leaf_prefixes(v_bucket_ids, v_names);
+
+    RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION storage.objects_delete_cleanup() OWNER TO supabase_storage_admin;
+
+--
 -- Name: objects_insert_prefix_trigger(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
 --
 
@@ -1992,6 +2304,120 @@ $$;
 
 
 ALTER FUNCTION storage.objects_insert_prefix_trigger() OWNER TO supabase_storage_admin;
+
+--
+-- Name: objects_update_cleanup(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.objects_update_cleanup() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+DECLARE
+    -- NEW - OLD (destinations to create prefixes for)
+    v_add_bucket_ids text[];
+    v_add_names      text[];
+
+    -- OLD - NEW (sources to prune)
+    v_src_bucket_ids text[];
+    v_src_names      text[];
+BEGIN
+    IF TG_OP <> 'UPDATE' THEN
+        RETURN NULL;
+    END IF;
+
+    -- 1) Compute NEW−OLD (added paths) and OLD−NEW (moved-away paths)
+    WITH added AS (
+        SELECT n.bucket_id, n.name
+        FROM new_rows n
+        WHERE n.name <> '' AND position('/' in n.name) > 0
+        EXCEPT
+        SELECT o.bucket_id, o.name FROM old_rows o WHERE o.name <> ''
+    ),
+    moved AS (
+         SELECT o.bucket_id, o.name
+         FROM old_rows o
+         WHERE o.name <> ''
+         EXCEPT
+         SELECT n.bucket_id, n.name FROM new_rows n WHERE n.name <> ''
+    )
+    SELECT
+        -- arrays for ADDED (dest) in stable order
+        COALESCE( (SELECT array_agg(a.bucket_id ORDER BY a.bucket_id, a.name) FROM added a), '{}' ),
+        COALESCE( (SELECT array_agg(a.name      ORDER BY a.bucket_id, a.name) FROM added a), '{}' ),
+        -- arrays for MOVED (src) in stable order
+        COALESCE( (SELECT array_agg(m.bucket_id ORDER BY m.bucket_id, m.name) FROM moved m), '{}' ),
+        COALESCE( (SELECT array_agg(m.name      ORDER BY m.bucket_id, m.name) FROM moved m), '{}' )
+    INTO v_add_bucket_ids, v_add_names, v_src_bucket_ids, v_src_names;
+
+    -- Nothing to do?
+    IF (array_length(v_add_bucket_ids, 1) IS NULL) AND (array_length(v_src_bucket_ids, 1) IS NULL) THEN
+        RETURN NULL;
+    END IF;
+
+    -- 2) Take per-(bucket, top) locks: ALL prefixes in consistent global order to prevent deadlocks
+    DECLARE
+        v_all_bucket_ids text[];
+        v_all_names text[];
+    BEGIN
+        -- Combine source and destination arrays for consistent lock ordering
+        v_all_bucket_ids := COALESCE(v_src_bucket_ids, '{}') || COALESCE(v_add_bucket_ids, '{}');
+        v_all_names := COALESCE(v_src_names, '{}') || COALESCE(v_add_names, '{}');
+
+        -- Single lock call ensures consistent global ordering across all transactions
+        IF array_length(v_all_bucket_ids, 1) IS NOT NULL THEN
+            PERFORM storage.lock_top_prefixes(v_all_bucket_ids, v_all_names);
+        END IF;
+    END;
+
+    -- 3) Create destination prefixes (NEW−OLD) BEFORE pruning sources
+    IF array_length(v_add_bucket_ids, 1) IS NOT NULL THEN
+        WITH candidates AS (
+            SELECT DISTINCT t.bucket_id, unnest(storage.get_prefixes(t.name)) AS name
+            FROM unnest(v_add_bucket_ids, v_add_names) AS t(bucket_id, name)
+            WHERE name <> ''
+        )
+        INSERT INTO storage.prefixes (bucket_id, name)
+        SELECT c.bucket_id, c.name
+        FROM candidates c
+        ON CONFLICT DO NOTHING;
+    END IF;
+
+    -- 4) Prune source prefixes bottom-up for OLD−NEW
+    IF array_length(v_src_bucket_ids, 1) IS NOT NULL THEN
+        -- re-entrancy guard so DELETE on prefixes won't recurse
+        IF current_setting('storage.gc.prefixes', true) <> '1' THEN
+            PERFORM set_config('storage.gc.prefixes', '1', true);
+        END IF;
+
+        PERFORM storage.delete_leaf_prefixes(v_src_bucket_ids, v_src_names);
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION storage.objects_update_cleanup() OWNER TO supabase_storage_admin;
+
+--
+-- Name: objects_update_level_trigger(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.objects_update_level_trigger() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Ensure this is an update operation and the name has changed
+    IF TG_OP = 'UPDATE' AND (NEW."name" <> OLD."name" OR NEW."bucket_id" <> OLD."bucket_id") THEN
+        -- Set the new level
+        NEW."level" := "storage"."get_level"(NEW."name");
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION storage.objects_update_level_trigger() OWNER TO supabase_storage_admin;
 
 --
 -- Name: objects_update_prefix_trigger(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
@@ -2051,6 +2477,39 @@ $$;
 
 
 ALTER FUNCTION storage.operation() OWNER TO supabase_storage_admin;
+
+--
+-- Name: prefixes_delete_cleanup(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.prefixes_delete_cleanup() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+DECLARE
+    v_bucket_ids text[];
+    v_names      text[];
+BEGIN
+    IF current_setting('storage.gc.prefixes', true) = '1' THEN
+        RETURN NULL;
+    END IF;
+
+    PERFORM set_config('storage.gc.prefixes', '1', true);
+
+    SELECT COALESCE(array_agg(d.bucket_id), '{}'),
+           COALESCE(array_agg(d.name), '{}')
+    INTO v_bucket_ids, v_names
+    FROM deleted AS d
+    WHERE d.name <> '';
+
+    PERFORM storage.lock_top_prefixes(v_bucket_ids, v_names);
+    PERFORM storage.delete_leaf_prefixes(v_bucket_ids, v_names);
+
+    RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION storage.prefixes_delete_cleanup() OWNER TO supabase_storage_admin;
 
 --
 -- Name: prefixes_insert_trigger(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
@@ -2236,53 +2695,102 @@ $_$;
 ALTER FUNCTION storage.search_v1_optimised(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) OWNER TO supabase_storage_admin;
 
 --
--- Name: search_v2(text, text, integer, integer, text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+-- Name: search_v2(text, text, integer, integer, text, text, text, text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
 --
 
-CREATE FUNCTION storage.search_v2(prefix text, bucket_name text, limits integer DEFAULT 100, levels integer DEFAULT 1, start_after text DEFAULT ''::text) RETURNS TABLE(key text, name text, id uuid, updated_at timestamp with time zone, created_at timestamp with time zone, metadata jsonb)
+CREATE FUNCTION storage.search_v2(prefix text, bucket_name text, limits integer DEFAULT 100, levels integer DEFAULT 1, start_after text DEFAULT ''::text, sort_order text DEFAULT 'asc'::text, sort_column text DEFAULT 'name'::text, sort_column_after text DEFAULT ''::text) RETURNS TABLE(key text, name text, id uuid, updated_at timestamp with time zone, created_at timestamp with time zone, last_accessed_at timestamp with time zone, metadata jsonb)
     LANGUAGE plpgsql STABLE
     AS $_$
+DECLARE
+    sort_col text;
+    sort_ord text;
+    cursor_op text;
+    cursor_expr text;
+    sort_expr text;
 BEGIN
-    RETURN query EXECUTE
+    -- Validate sort_order
+    sort_ord := lower(sort_order);
+    IF sort_ord NOT IN ('asc', 'desc') THEN
+        sort_ord := 'asc';
+    END IF;
+
+    -- Determine cursor comparison operator
+    IF sort_ord = 'asc' THEN
+        cursor_op := '>';
+    ELSE
+        cursor_op := '<';
+    END IF;
+    
+    sort_col := lower(sort_column);
+    -- Validate sort column  
+    IF sort_col IN ('updated_at', 'created_at') THEN
+        cursor_expr := format(
+            '($5 = '''' OR ROW(date_trunc(''milliseconds'', %I), name COLLATE "C") %s ROW(COALESCE(NULLIF($6, '''')::timestamptz, ''epoch''::timestamptz), $5))',
+            sort_col, cursor_op
+        );
+        sort_expr := format(
+            'COALESCE(date_trunc(''milliseconds'', %I), ''epoch''::timestamptz) %s, name COLLATE "C" %s',
+            sort_col, sort_ord, sort_ord
+        );
+    ELSE
+        cursor_expr := format('($5 = '''' OR name COLLATE "C" %s $5)', cursor_op);
+        sort_expr := format('name COLLATE "C" %s', sort_ord);
+    END IF;
+
+    RETURN QUERY EXECUTE format(
         $sql$
         SELECT * FROM (
             (
                 SELECT
                     split_part(name, '/', $4) AS key,
-                    name || '/' AS name,
+                    name,
                     NULL::uuid AS id,
-                    NULL::timestamptz AS updated_at,
-                    NULL::timestamptz AS created_at,
+                    updated_at,
+                    created_at,
+                    NULL::timestamptz AS last_accessed_at,
                     NULL::jsonb AS metadata
                 FROM storage.prefixes
-                WHERE name COLLATE "C" LIKE $1 || '%'
-                AND bucket_id = $2
-                AND level = $4
-                AND name COLLATE "C" > $5
-                ORDER BY prefixes.name COLLATE "C" LIMIT $3
+                WHERE name COLLATE "C" LIKE $1 || '%%'
+                    AND bucket_id = $2
+                    AND level = $4
+                    AND %s
+                ORDER BY %s
+                LIMIT $3
             )
             UNION ALL
-            (SELECT split_part(name, '/', $4) AS key,
-                name,
-                id,
-                updated_at,
-                created_at,
-                metadata
-            FROM storage.objects
-            WHERE name COLLATE "C" LIKE $1 || '%'
-                AND bucket_id = $2
-                AND level = $4
-                AND name COLLATE "C" > $5
-            ORDER BY name COLLATE "C" LIMIT $3)
+            (
+                SELECT
+                    split_part(name, '/', $4) AS key,
+                    name,
+                    id,
+                    updated_at,
+                    created_at,
+                    last_accessed_at,
+                    metadata
+                FROM storage.objects
+                WHERE name COLLATE "C" LIKE $1 || '%%'
+                    AND bucket_id = $2
+                    AND level = $4
+                    AND %s
+                ORDER BY %s
+                LIMIT $3
+            )
         ) obj
-        ORDER BY name COLLATE "C" LIMIT $3;
-        $sql$
-        USING prefix, bucket_name, limits, levels, start_after;
+        ORDER BY %s
+        LIMIT $3
+        $sql$,
+        cursor_expr,    -- prefixes WHERE
+        sort_expr,      -- prefixes ORDER BY
+        cursor_expr,    -- objects WHERE
+        sort_expr,      -- objects ORDER BY
+        sort_expr       -- final ORDER BY
+    )
+    USING prefix, bucket_name, limits, levels, start_after, sort_column_after;
 END;
 $_$;
 
 
-ALTER FUNCTION storage.search_v2(prefix text, bucket_name text, limits integer, levels integer, start_after text) OWNER TO supabase_storage_admin;
+ALTER FUNCTION storage.search_v2(prefix text, bucket_name text, limits integer, levels integer, start_after text, sort_order text, sort_column text, sort_column_after text) OWNER TO supabase_storage_admin;
 
 --
 -- Name: update_updated_at_column(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
@@ -2472,7 +2980,8 @@ CREATE TABLE auth.mfa_factors (
     phone text,
     last_challenged_at timestamp with time zone,
     web_authn_credential jsonb,
-    web_authn_aaguid uuid
+    web_authn_aaguid uuid,
+    last_webauthn_challenge_data jsonb
 );
 
 
@@ -2486,13 +2995,75 @@ COMMENT ON TABLE auth.mfa_factors IS 'auth: stores metadata about factors';
 
 
 --
+-- Name: COLUMN mfa_factors.last_webauthn_challenge_data; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON COLUMN auth.mfa_factors.last_webauthn_challenge_data IS 'Stores the latest WebAuthn challenge data including attestation/assertion for customer verification';
+
+
+--
+-- Name: oauth_authorizations; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.oauth_authorizations (
+    id uuid NOT NULL,
+    authorization_id text NOT NULL,
+    client_id uuid NOT NULL,
+    user_id uuid,
+    redirect_uri text NOT NULL,
+    scope text NOT NULL,
+    state text,
+    resource text,
+    code_challenge text,
+    code_challenge_method auth.code_challenge_method,
+    response_type auth.oauth_response_type DEFAULT 'code'::auth.oauth_response_type NOT NULL,
+    status auth.oauth_authorization_status DEFAULT 'pending'::auth.oauth_authorization_status NOT NULL,
+    authorization_code text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone DEFAULT (now() + '00:03:00'::interval) NOT NULL,
+    approved_at timestamp with time zone,
+    nonce text,
+    CONSTRAINT oauth_authorizations_authorization_code_length CHECK ((char_length(authorization_code) <= 255)),
+    CONSTRAINT oauth_authorizations_code_challenge_length CHECK ((char_length(code_challenge) <= 128)),
+    CONSTRAINT oauth_authorizations_expires_at_future CHECK ((expires_at > created_at)),
+    CONSTRAINT oauth_authorizations_nonce_length CHECK ((char_length(nonce) <= 255)),
+    CONSTRAINT oauth_authorizations_redirect_uri_length CHECK ((char_length(redirect_uri) <= 2048)),
+    CONSTRAINT oauth_authorizations_resource_length CHECK ((char_length(resource) <= 2048)),
+    CONSTRAINT oauth_authorizations_scope_length CHECK ((char_length(scope) <= 4096)),
+    CONSTRAINT oauth_authorizations_state_length CHECK ((char_length(state) <= 4096))
+);
+
+
+ALTER TABLE auth.oauth_authorizations OWNER TO supabase_auth_admin;
+
+--
+-- Name: oauth_client_states; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.oauth_client_states (
+    id uuid NOT NULL,
+    provider_type text NOT NULL,
+    code_verifier text,
+    created_at timestamp with time zone NOT NULL
+);
+
+
+ALTER TABLE auth.oauth_client_states OWNER TO supabase_auth_admin;
+
+--
+-- Name: TABLE oauth_client_states; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON TABLE auth.oauth_client_states IS 'Stores OAuth states for third-party provider authentication flows where Supabase acts as the OAuth client.';
+
+
+--
 -- Name: oauth_clients; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
 --
 
 CREATE TABLE auth.oauth_clients (
     id uuid NOT NULL,
-    client_id text NOT NULL,
-    client_secret_hash text NOT NULL,
+    client_secret_hash text,
     registration_type auth.oauth_registration_type NOT NULL,
     redirect_uris text NOT NULL,
     grant_types text NOT NULL,
@@ -2502,6 +3073,7 @@ CREATE TABLE auth.oauth_clients (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     deleted_at timestamp with time zone,
+    client_type auth.oauth_client_type DEFAULT 'confidential'::auth.oauth_client_type NOT NULL,
     CONSTRAINT oauth_clients_client_name_length CHECK ((char_length(client_name) <= 1024)),
     CONSTRAINT oauth_clients_client_uri_length CHECK ((char_length(client_uri) <= 2048)),
     CONSTRAINT oauth_clients_logo_uri_length CHECK ((char_length(logo_uri) <= 2048))
@@ -2509,6 +3081,25 @@ CREATE TABLE auth.oauth_clients (
 
 
 ALTER TABLE auth.oauth_clients OWNER TO supabase_auth_admin;
+
+--
+-- Name: oauth_consents; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.oauth_consents (
+    id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    client_id uuid NOT NULL,
+    scopes text NOT NULL,
+    granted_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    CONSTRAINT oauth_consents_revoked_after_granted CHECK (((revoked_at IS NULL) OR (revoked_at >= granted_at))),
+    CONSTRAINT oauth_consents_scopes_length CHECK ((char_length(scopes) <= 2048)),
+    CONSTRAINT oauth_consents_scopes_not_empty CHECK ((char_length(TRIM(BOTH FROM scopes)) > 0))
+);
+
+
+ALTER TABLE auth.oauth_consents OWNER TO supabase_auth_admin;
 
 --
 -- Name: one_time_tokens; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
@@ -2663,7 +3254,12 @@ CREATE TABLE auth.sessions (
     refreshed_at timestamp without time zone,
     user_agent text,
     ip inet,
-    tag text
+    tag text,
+    oauth_client_id uuid,
+    refresh_token_hmac_key text,
+    refresh_token_counter bigint,
+    scopes text,
+    CONSTRAINT sessions_scopes_length CHECK ((char_length(scopes) <= 4096))
 );
 
 
@@ -2681,6 +3277,20 @@ COMMENT ON TABLE auth.sessions IS 'Auth: Stores session data associated to a use
 --
 
 COMMENT ON COLUMN auth.sessions.not_after IS 'Auth: Not after is a nullable column that contains a timestamp after which the session should be regarded as expired.';
+
+
+--
+-- Name: COLUMN sessions.refresh_token_hmac_key; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON COLUMN auth.sessions.refresh_token_hmac_key IS 'Holds a HMAC-SHA256 key used to sign refresh tokens for this session.';
+
+
+--
+-- Name: COLUMN sessions.refresh_token_counter; Type: COMMENT; Schema: auth; Owner: supabase_auth_admin
+--
+
+COMMENT ON COLUMN auth.sessions.refresh_token_counter IS 'Holds the ID (counter) of the last issued refresh token.';
 
 
 --
@@ -2797,6 +3407,53 @@ COMMENT ON COLUMN auth.users.is_sso_user IS 'Auth: Set this column to true when 
 
 
 --
+-- Name: agent_api_keys; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.agent_api_keys (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    user_id uuid NOT NULL,
+    key_hash text NOT NULL,
+    key_prefix text NOT NULL,
+    name text NOT NULL,
+    public_key text
+);
+
+
+ALTER TABLE public.agent_api_keys OWNER TO postgres;
+
+--
+-- Name: audit_log; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.audit_log (
+    id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    actor_id uuid,
+    target_id uuid,
+    action text,
+    details text
+);
+
+
+ALTER TABLE public.audit_log OWNER TO postgres;
+
+--
+-- Name: audit_log_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.audit_log ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.audit_log_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: cables; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2824,14 +3481,14 @@ ALTER TABLE public.cables OWNER TO postgres;
 
 CREATE TABLE public.connections (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    show_id text NOT NULL,
     source_device_id uuid NOT NULL,
     source_port_id uuid NOT NULL,
     destination_device_id uuid NOT NULL,
     destination_port_id uuid NOT NULL,
     cable_type text NOT NULL,
     label text,
-    length_ft integer
+    length_ft integer,
+    show_id bigint NOT NULL
 );
 
 
@@ -2855,6 +3512,25 @@ CREATE TABLE public.connector_templates (
 ALTER TABLE public.connector_templates OWNER TO postgres;
 
 --
+-- Name: email_templates; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.email_templates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    category text NOT NULL,
+    name text NOT NULL,
+    subject text NOT NULL,
+    body text NOT NULL,
+    is_default boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT email_templates_category_check CHECK ((category = ANY (ARRAY['ROSTER'::text, 'CREW'::text, 'HOURS'::text, 'GENERAL'::text])))
+);
+
+
+ALTER TABLE public.email_templates OWNER TO postgres;
+
+--
 -- Name: equipment_templates; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2875,7 +3551,13 @@ CREATE TABLE public.equipment_templates (
     gallery_image_urls jsonb,
     specifications jsonb,
     io_ports jsonb,
-    original_id uuid
+    original_id uuid,
+    has_ip_address boolean DEFAULT false,
+    switch_model_id uuid,
+    is_module boolean DEFAULT false,
+    module_type text,
+    slots jsonb DEFAULT '[]'::jsonb,
+    depth numeric(10,2) DEFAULT 0.00
 );
 
 
@@ -2926,13 +3608,32 @@ ALTER TABLE public.folders OWNER TO postgres;
 CREATE TABLE public.looms (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid NOT NULL,
-    show_name text NOT NULL,
     name text NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    show_id bigint NOT NULL
 );
 
 
 ALTER TABLE public.looms OWNER TO postgres;
+
+--
+-- Name: notes; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.notes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    user_id uuid NOT NULL,
+    show_id bigint,
+    parent_entity_type text NOT NULL,
+    parent_entity_id text NOT NULL,
+    content text,
+    is_resolved boolean DEFAULT false,
+    updated_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.notes OWNER TO postgres;
 
 --
 -- Name: panel_layouts; Type: TABLE; Schema: public; Owner: postgres
@@ -2976,7 +3677,11 @@ CREATE TABLE public.profiles (
     production_role_other text,
     updated_at timestamp with time zone DEFAULT now(),
     status text DEFAULT 'active'::text NOT NULL,
-    feedback_button_text text
+    company_logo_url text,
+    company_logo_path text,
+    feedback_button_text text,
+    last_active_at timestamp with time zone,
+    inactivity_warning_sent boolean DEFAULT false
 );
 
 
@@ -2997,7 +3702,8 @@ CREATE TABLE public.rack_equipment_instances (
     ip_address text,
     x_pos integer,
     y_pos integer,
-    page_number integer
+    page_number integer,
+    module_assignments jsonb DEFAULT '{}'::jsonb
 );
 
 
@@ -3009,12 +3715,12 @@ ALTER TABLE public.rack_equipment_instances OWNER TO postgres;
 
 CREATE TABLE public.racks (
     id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
-    show_name text,
     user_id uuid,
     rack_name text NOT NULL,
     ru_height integer NOT NULL,
     saved_to_library boolean DEFAULT false,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    show_id bigint
 );
 
 
@@ -3033,6 +3739,25 @@ CREATE TABLE public.roles (
 
 
 ALTER TABLE public.roles OWNER TO postgres;
+
+--
+-- Name: roster; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.roster (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    first_name text,
+    last_name text,
+    phone_number text,
+    email text,
+    "position" text,
+    created_at timestamp with time zone DEFAULT now(),
+    tags text[] DEFAULT '{}'::text[]
+);
+
+
+ALTER TABLE public.roster OWNER TO postgres;
 
 --
 -- Name: sender_identities; Type: TABLE; Schema: public; Owner: postgres
@@ -3079,6 +3804,25 @@ ALTER TABLE public.show_collaborators ALTER COLUMN id ADD GENERATED BY DEFAULT A
 
 
 --
+-- Name: show_crew; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.show_crew (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_id bigint NOT NULL,
+    roster_id uuid NOT NULL,
+    role text,
+    hourly_rate numeric(8,2),
+    daily_rate numeric(8,2),
+    rate_type text DEFAULT 'hourly'::text,
+    created_at timestamp with time zone DEFAULT now(),
+    "position" text
+);
+
+
+ALTER TABLE public.show_crew OWNER TO postgres;
+
+--
 -- Name: shows; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3087,11 +3831,63 @@ CREATE TABLE public.shows (
     created_at timestamp with time zone DEFAULT now(),
     name text NOT NULL,
     data jsonb,
-    user_id uuid
+    user_id uuid,
+    show_td text,
+    show_pm_name text,
+    show_pm_email text,
+    show_td_name text,
+    show_td_email text,
+    show_designer_name text,
+    show_designer_email text,
+    pay_period_start_day integer DEFAULT 0
 );
 
 
 ALTER TABLE public.shows OWNER TO postgres;
+
+--
+-- Name: shows_duplicate; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.shows_duplicate (
+    id bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    name text NOT NULL,
+    data jsonb,
+    user_id uuid,
+    show_td text,
+    show_pm_name text,
+    show_pm_email text,
+    show_td_name text,
+    show_td_email text,
+    show_designer_name text,
+    show_designer_email text,
+    pay_period_start_day integer DEFAULT 0
+);
+
+
+ALTER TABLE public.shows_duplicate OWNER TO postgres;
+
+--
+-- Name: TABLE shows_duplicate; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.shows_duplicate IS 'This is a backup of shows';
+
+
+--
+-- Name: shows_duplicate_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.shows_duplicate ALTER COLUMN id ADD GENERATED BY DEFAULT AS IDENTITY (
+    SEQUENCE NAME public.shows_duplicate_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: shows_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
@@ -3123,6 +3919,71 @@ CREATE TABLE public.sso_configs (
 ALTER TABLE public.sso_configs OWNER TO postgres;
 
 --
+-- Name: switch_configs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.switch_configs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    rack_item_id uuid NOT NULL,
+    show_id bigint NOT NULL,
+    port_config jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.switch_configs OWNER TO postgres;
+
+--
+-- Name: switch_models; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.switch_models (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    manufacturer text,
+    model_name text NOT NULL,
+    port_count integer DEFAULT 0 NOT NULL,
+    netmiko_driver_type text NOT NULL
+);
+
+
+ALTER TABLE public.switch_models OWNER TO postgres;
+
+--
+-- Name: switch_push_jobs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.switch_push_jobs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_id bigint NOT NULL,
+    switch_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    status text DEFAULT 'pending'::text NOT NULL,
+    target_ip text NOT NULL,
+    target_credentials bytea,
+    result_log text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.switch_push_jobs OWNER TO postgres;
+
+--
+-- Name: timesheet_entries; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.timesheet_entries (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    show_crew_id uuid,
+    date date NOT NULL,
+    hours numeric(4,2) NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.timesheet_entries OWNER TO postgres;
+
+--
 -- Name: user_roles; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3135,6 +3996,25 @@ CREATE TABLE public.user_roles (
 
 ALTER TABLE public.user_roles OWNER TO postgres;
 
+--
+-- Name: user_smtp_settings; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.user_smtp_settings (
+    user_id uuid NOT NULL,
+    from_name text,
+    from_email text,
+    smtp_server text,
+    smtp_port integer,
+    smtp_username text,
+    encrypted_smtp_password text,
+    updated_at timestamp with time zone DEFAULT now(),
+    id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.user_smtp_settings OWNER TO postgres;
 
 --
 -- Name: vlans; Type: TABLE; Schema: public; Owner: postgres
@@ -3246,15 +4126,31 @@ COMMENT ON COLUMN storage.buckets.owner IS 'Field is deprecated, use owner_id in
 --
 
 CREATE TABLE storage.buckets_analytics (
-    id text NOT NULL,
+    name text NOT NULL,
     type storage.buckettype DEFAULT 'ANALYTICS'::storage.buckettype NOT NULL,
     format text DEFAULT 'ICEBERG'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    deleted_at timestamp with time zone
+);
+
+
+ALTER TABLE storage.buckets_analytics OWNER TO supabase_storage_admin;
+
+--
+-- Name: buckets_vectors; Type: TABLE; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE TABLE storage.buckets_vectors (
+    id text NOT NULL,
+    type storage.buckettype DEFAULT 'VECTOR'::storage.buckettype NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
-ALTER TABLE storage.buckets_analytics OWNER TO supabase_storage_admin;
+ALTER TABLE storage.buckets_vectors OWNER TO supabase_storage_admin;
 
 --
 -- Name: migrations; Type: TABLE; Schema: storage; Owner: supabase_storage_admin
@@ -3353,6 +4249,25 @@ CREATE TABLE storage.s3_multipart_uploads_parts (
 
 
 ALTER TABLE storage.s3_multipart_uploads_parts OWNER TO supabase_storage_admin;
+
+--
+-- Name: vector_indexes; Type: TABLE; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE TABLE storage.vector_indexes (
+    id text DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL COLLATE pg_catalog."C",
+    bucket_id text NOT NULL,
+    data_type text NOT NULL,
+    dimension integer NOT NULL,
+    distance_metric text NOT NULL,
+    metadata_configuration jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+ALTER TABLE storage.vector_indexes OWNER TO supabase_storage_admin;
 
 --
 -- Name: schema_migrations; Type: TABLE; Schema: supabase_migrations; Owner: postgres
@@ -3467,11 +4382,35 @@ ALTER TABLE ONLY auth.mfa_factors
 
 
 --
--- Name: oauth_clients oauth_clients_client_id_key; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+-- Name: oauth_authorizations oauth_authorizations_authorization_code_key; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
 --
 
-ALTER TABLE ONLY auth.oauth_clients
-    ADD CONSTRAINT oauth_clients_client_id_key UNIQUE (client_id);
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_authorization_code_key UNIQUE (authorization_code);
+
+
+--
+-- Name: oauth_authorizations oauth_authorizations_authorization_id_key; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_authorization_id_key UNIQUE (authorization_id);
+
+
+--
+-- Name: oauth_authorizations oauth_authorizations_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_client_states oauth_client_states_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_client_states
+    ADD CONSTRAINT oauth_client_states_pkey PRIMARY KEY (id);
 
 
 --
@@ -3480,6 +4419,22 @@ ALTER TABLE ONLY auth.oauth_clients
 
 ALTER TABLE ONLY auth.oauth_clients
     ADD CONSTRAINT oauth_clients_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_consents oauth_consents_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: oauth_consents oauth_consents_user_client_unique; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_user_client_unique UNIQUE (user_id, client_id);
 
 
 --
@@ -3579,6 +4534,38 @@ ALTER TABLE ONLY auth.users
 
 
 --
+-- Name: agent_api_keys agent_api_keys_key_hash_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.agent_api_keys
+    ADD CONSTRAINT agent_api_keys_key_hash_key UNIQUE (key_hash);
+
+
+--
+-- Name: agent_api_keys agent_api_keys_key_prefix_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.agent_api_keys
+    ADD CONSTRAINT agent_api_keys_key_prefix_key UNIQUE (key_prefix);
+
+
+--
+-- Name: agent_api_keys agent_api_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.agent_api_keys
+    ADD CONSTRAINT agent_api_keys_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: audit_log audit_log_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: cables cables_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3600,6 +4587,14 @@ ALTER TABLE ONLY public.connections
 
 ALTER TABLE ONLY public.connector_templates
     ADD CONSTRAINT connector_templates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: email_templates email_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.email_templates
+    ADD CONSTRAINT email_templates_pkey PRIMARY KEY (id);
 
 
 --
@@ -3640,6 +4635,14 @@ ALTER TABLE ONLY public.folders
 
 ALTER TABLE ONLY public.looms
     ADD CONSTRAINT looms_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notes notes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT notes_pkey PRIMARY KEY (id);
 
 
 --
@@ -3699,6 +4702,14 @@ ALTER TABLE ONLY public.roles
 
 
 --
+-- Name: roster roster_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.roster
+    ADD CONSTRAINT roster_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: sender_identities sender_identities_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3731,11 +4742,27 @@ ALTER TABLE ONLY public.show_collaborators
 
 
 --
--- Name: shows shows_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: show_crew show_crew_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.shows
-    ADD CONSTRAINT shows_name_key UNIQUE (name);
+ALTER TABLE ONLY public.show_crew
+    ADD CONSTRAINT show_crew_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: shows_duplicate shows_duplicate_name_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.shows_duplicate
+    ADD CONSTRAINT shows_duplicate_name_user_id_key UNIQUE (name, user_id);
+
+
+--
+-- Name: shows_duplicate shows_duplicate_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.shows_duplicate
+    ADD CONSTRAINT shows_duplicate_pkey PRIMARY KEY (id);
 
 
 --
@@ -3763,6 +4790,62 @@ ALTER TABLE ONLY public.sso_configs
 
 
 --
+-- Name: switch_configs switch_configs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_configs
+    ADD CONSTRAINT switch_configs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: switch_configs switch_configs_rack_item_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_configs
+    ADD CONSTRAINT switch_configs_rack_item_id_key UNIQUE (rack_item_id);
+
+
+--
+-- Name: switch_models switch_models_model_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_models
+    ADD CONSTRAINT switch_models_model_name_key UNIQUE (model_name);
+
+
+--
+-- Name: switch_models switch_models_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_models
+    ADD CONSTRAINT switch_models_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: switch_push_jobs switch_push_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_push_jobs
+    ADD CONSTRAINT switch_push_jobs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: timesheet_entries timesheet_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.timesheet_entries
+    ADD CONSTRAINT timesheet_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: timesheet_entries timesheet_entries_show_crew_id_date_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.timesheet_entries
+    ADD CONSTRAINT timesheet_entries_show_crew_id_date_key UNIQUE (show_crew_id, date);
+
+
+--
 -- Name: user_roles user_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3771,11 +4854,19 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
--- Name: vlans vlans_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+-- Name: user_smtp_settings user_smtp_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.vlans
-    ADD CONSTRAINT vlans_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.user_smtp_settings
+    ADD CONSTRAINT user_smtp_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: user_smtp_settings user_smtp_settings_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.user_smtp_settings
+    ADD CONSTRAINT user_smtp_settings_user_id_key UNIQUE (user_id);
 
 
 --
@@ -3816,6 +4907,14 @@ ALTER TABLE ONLY storage.buckets_analytics
 
 ALTER TABLE ONLY storage.buckets
     ADD CONSTRAINT buckets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: buckets_vectors buckets_vectors_pkey; Type: CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.buckets_vectors
+    ADD CONSTRAINT buckets_vectors_pkey PRIMARY KEY (id);
 
 
 --
@@ -3864,6 +4963,14 @@ ALTER TABLE ONLY storage.s3_multipart_uploads_parts
 
 ALTER TABLE ONLY storage.s3_multipart_uploads
     ADD CONSTRAINT s3_multipart_uploads_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: vector_indexes vector_indexes_pkey; Type: CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.vector_indexes
+    ADD CONSTRAINT vector_indexes_pkey PRIMARY KEY (id);
 
 
 --
@@ -3953,6 +5060,13 @@ CREATE INDEX idx_auth_code ON auth.flow_state USING btree (auth_code);
 
 
 --
+-- Name: idx_oauth_client_states_created_at; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX idx_oauth_client_states_created_at ON auth.oauth_client_states USING btree (created_at);
+
+
+--
 -- Name: idx_user_id_auth_method; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
 --
 
@@ -3981,10 +5095,10 @@ CREATE INDEX mfa_factors_user_id_idx ON auth.mfa_factors USING btree (user_id);
 
 
 --
--- Name: oauth_clients_client_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+-- Name: oauth_auth_pending_exp_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
 --
 
-CREATE INDEX oauth_clients_client_id_idx ON auth.oauth_clients USING btree (client_id);
+CREATE INDEX oauth_auth_pending_exp_idx ON auth.oauth_authorizations USING btree (expires_at) WHERE (status = 'pending'::auth.oauth_authorization_status);
 
 
 --
@@ -3992,6 +5106,27 @@ CREATE INDEX oauth_clients_client_id_idx ON auth.oauth_clients USING btree (clie
 --
 
 CREATE INDEX oauth_clients_deleted_at_idx ON auth.oauth_clients USING btree (deleted_at);
+
+
+--
+-- Name: oauth_consents_active_client_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX oauth_consents_active_client_idx ON auth.oauth_consents USING btree (client_id) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: oauth_consents_active_user_client_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX oauth_consents_active_user_client_idx ON auth.oauth_consents USING btree (user_id, client_id) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: oauth_consents_user_order_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX oauth_consents_user_order_idx ON auth.oauth_consents USING btree (user_id, granted_at DESC);
 
 
 --
@@ -4100,6 +5235,13 @@ CREATE INDEX sessions_not_after_idx ON auth.sessions USING btree (not_after DESC
 
 
 --
+-- Name: sessions_oauth_client_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX sessions_oauth_client_id_idx ON auth.sessions USING btree (oauth_client_id);
+
+
+--
 -- Name: sessions_user_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
 --
 
@@ -4184,17 +5326,24 @@ CREATE INDEX users_is_anonymous_idx ON auth.users USING btree (is_anonymous);
 
 
 --
--- Name: racks_user_id_rack_name_library_idx; Type: INDEX; Schema: public; Owner: postgres
+-- Name: audit_log_action_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE UNIQUE INDEX racks_user_id_rack_name_library_idx ON public.racks USING btree (user_id, rack_name) WHERE (show_name IS NULL);
+CREATE INDEX audit_log_action_idx ON public.audit_log USING btree (action);
 
 
 --
--- Name: racks_user_id_show_name_rack_name_idx; Type: INDEX; Schema: public; Owner: postgres
+-- Name: audit_log_actor_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE UNIQUE INDEX racks_user_id_show_name_rack_name_idx ON public.racks USING btree (user_id, show_name, rack_name) WHERE (show_name IS NOT NULL);
+CREATE INDEX audit_log_actor_id_idx ON public.audit_log USING btree (actor_id);
+
+
+--
+-- Name: audit_log_target_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX audit_log_target_id_idx ON public.audit_log USING btree (target_id);
 
 
 --
@@ -4202,6 +5351,13 @@ CREATE UNIQUE INDEX racks_user_id_show_name_rack_name_idx ON public.racks USING 
 --
 
 CREATE INDEX ix_realtime_subscription_entity ON realtime.subscription USING btree (entity);
+
+
+--
+-- Name: messages_inserted_at_topic_index; Type: INDEX; Schema: realtime; Owner: supabase_realtime_admin
+--
+
+CREATE INDEX messages_inserted_at_topic_index ON ONLY realtime.messages USING btree (inserted_at DESC, topic) WHERE ((extension = 'broadcast'::text) AND (private IS TRUE));
 
 
 --
@@ -4223,6 +5379,13 @@ CREATE UNIQUE INDEX bname ON storage.buckets USING btree (name);
 --
 
 CREATE UNIQUE INDEX bucketid_objname ON storage.objects USING btree (bucket_id, name);
+
+
+--
+-- Name: buckets_analytics_unique_name_idx; Type: INDEX; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE UNIQUE INDEX buckets_analytics_unique_name_idx ON storage.buckets_analytics USING btree (name) WHERE (deleted_at IS NULL);
 
 
 --
@@ -4275,6 +5438,13 @@ CREATE UNIQUE INDEX objects_bucket_id_level_idx ON storage.objects USING btree (
 
 
 --
+-- Name: vector_indexes_name_bucket_id_idx; Type: INDEX; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE UNIQUE INDEX vector_indexes_name_bucket_id_idx ON storage.vector_indexes USING btree (name, bucket_id);
+
+
+--
 -- Name: users on_auth_user_created; Type: TRIGGER; Schema: auth; Owner: supabase_auth_admin
 --
 
@@ -4286,6 +5456,13 @@ CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXEC
 --
 
 CREATE TRIGGER on_show_created AFTER INSERT ON public.shows FOR EACH ROW EXECUTE FUNCTION public.handle_new_show();
+
+
+--
+-- Name: user_smtp_settings update_user_smtp_settings_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER update_user_smtp_settings_updated_at BEFORE UPDATE ON public.user_smtp_settings FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
@@ -4377,6 +5554,38 @@ ALTER TABLE ONLY auth.mfa_factors
 
 
 --
+-- Name: oauth_authorizations oauth_authorizations_client_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_client_id_fkey FOREIGN KEY (client_id) REFERENCES auth.oauth_clients(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_authorizations oauth_authorizations_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_authorizations
+    ADD CONSTRAINT oauth_authorizations_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_consents oauth_consents_client_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_client_id_fkey FOREIGN KEY (client_id) REFERENCES auth.oauth_clients(id) ON DELETE CASCADE;
+
+
+--
+-- Name: oauth_consents oauth_consents_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.oauth_consents
+    ADD CONSTRAINT oauth_consents_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: one_time_tokens one_time_tokens_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
 --
 
@@ -4417,6 +5626,14 @@ ALTER TABLE ONLY auth.saml_relay_states
 
 
 --
+-- Name: sessions sessions_oauth_client_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.sessions
+    ADD CONSTRAINT sessions_oauth_client_id_fkey FOREIGN KEY (oauth_client_id) REFERENCES auth.oauth_clients(id) ON DELETE CASCADE;
+
+
+--
 -- Name: sessions sessions_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
 --
 
@@ -4433,11 +5650,43 @@ ALTER TABLE ONLY auth.sso_domains
 
 
 --
+-- Name: agent_api_keys agent_api_keys_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.agent_api_keys
+    ADD CONSTRAINT agent_api_keys_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: audit_log audit_log_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES auth.users(id);
+
+
+--
+-- Name: audit_log audit_log_target_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.audit_log
+    ADD CONSTRAINT audit_log_target_id_fkey FOREIGN KEY (target_id) REFERENCES auth.users(id);
+
+
+--
 -- Name: cables cables_loom_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.cables
     ADD CONSTRAINT cables_loom_id_fkey FOREIGN KEY (loom_id) REFERENCES public.looms(id) ON DELETE CASCADE;
+
+
+--
+-- Name: connections connections_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.connections
+    ADD CONSTRAINT connections_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
 
 
 --
@@ -4449,11 +5698,27 @@ ALTER TABLE ONLY public.connector_templates
 
 
 --
+-- Name: email_templates email_templates_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.email_templates
+    ADD CONSTRAINT email_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: equipment_templates equipment_templates_folder_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.equipment_templates
     ADD CONSTRAINT equipment_templates_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES public.folders(id) ON DELETE SET NULL;
+
+
+--
+-- Name: equipment_templates equipment_templates_switch_model_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.equipment_templates
+    ADD CONSTRAINT equipment_templates_switch_model_id_fkey FOREIGN KEY (switch_model_id) REFERENCES public.switch_models(id) ON DELETE SET NULL;
 
 
 --
@@ -4481,11 +5746,35 @@ ALTER TABLE ONLY public.folders
 
 
 --
+-- Name: looms looms_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.looms
+    ADD CONSTRAINT looms_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
 -- Name: looms looms_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.looms
     ADD CONSTRAINT looms_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notes notes_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT notes_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notes notes_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.notes
+    ADD CONSTRAINT notes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
 
 
 --
@@ -4521,11 +5810,27 @@ ALTER TABLE ONLY public.rack_equipment_instances
 
 
 --
+-- Name: racks racks_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.racks
+    ADD CONSTRAINT racks_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
 -- Name: racks racks_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.racks
     ADD CONSTRAINT racks_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: roster roster_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.roster
+    ADD CONSTRAINT roster_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -4545,6 +5850,30 @@ ALTER TABLE ONLY public.show_collaborators
 
 
 --
+-- Name: show_crew show_crew_roster_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.show_crew
+    ADD CONSTRAINT show_crew_roster_id_fkey FOREIGN KEY (roster_id) REFERENCES public.roster(id) ON DELETE CASCADE;
+
+
+--
+-- Name: show_crew show_crew_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.show_crew
+    ADD CONSTRAINT show_crew_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: shows_duplicate shows_duplicate_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.shows_duplicate
+    ADD CONSTRAINT shows_duplicate_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: shows shows_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4558,6 +5887,54 @@ ALTER TABLE ONLY public.shows
 
 ALTER TABLE ONLY public.sso_configs
     ADD CONSTRAINT sso_configs_id_fkey FOREIGN KEY (id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+
+
+--
+-- Name: switch_configs switch_configs_rack_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_configs
+    ADD CONSTRAINT switch_configs_rack_item_id_fkey FOREIGN KEY (rack_item_id) REFERENCES public.rack_equipment_instances(id) ON DELETE CASCADE;
+
+
+--
+-- Name: switch_configs switch_configs_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_configs
+    ADD CONSTRAINT switch_configs_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: switch_push_jobs switch_push_jobs_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_push_jobs
+    ADD CONSTRAINT switch_push_jobs_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+
+
+--
+-- Name: switch_push_jobs switch_push_jobs_switch_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_push_jobs
+    ADD CONSTRAINT switch_push_jobs_switch_id_fkey FOREIGN KEY (switch_id) REFERENCES public.switch_configs(id) ON DELETE CASCADE;
+
+
+--
+-- Name: switch_push_jobs switch_push_jobs_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.switch_push_jobs
+    ADD CONSTRAINT switch_push_jobs_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: timesheet_entries timesheet_entries_show_crew_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.timesheet_entries
+    ADD CONSTRAINT timesheet_entries_show_crew_id_fkey FOREIGN KEY (show_crew_id) REFERENCES public.show_crew(id);
 
 
 --
@@ -4577,11 +5954,11 @@ ALTER TABLE ONLY public.user_roles
 
 
 --
--- Name: vlans vlans_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+-- Name: user_smtp_settings user_smtp_settings_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
-ALTER TABLE ONLY public.vlans
-    ADD CONSTRAINT vlans_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
+ALTER TABLE ONLY public.user_smtp_settings
+    ADD CONSTRAINT user_smtp_settings_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
 
 
 --
@@ -4622,6 +5999,14 @@ ALTER TABLE ONLY storage.s3_multipart_uploads_parts
 
 ALTER TABLE ONLY storage.s3_multipart_uploads_parts
     ADD CONSTRAINT s3_multipart_uploads_parts_upload_id_fkey FOREIGN KEY (upload_id) REFERENCES storage.s3_multipart_uploads(id) ON DELETE CASCADE;
+
+
+--
+-- Name: vector_indexes vector_indexes_bucket_id_fkey; Type: FK CONSTRAINT; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE ONLY storage.vector_indexes
+    ADD CONSTRAINT vector_indexes_bucket_id_fkey FOREIGN KEY (bucket_id) REFERENCES storage.buckets_vectors(id);
 
 
 --
@@ -4793,12 +6178,32 @@ CREATE POLICY "Allow collaborative read access" ON public.shows FOR SELECT USING
 
 
 --
+-- Name: notes Allow collaborative read access on Notes; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow collaborative read access on Notes" ON public.notes FOR SELECT USING ((((show_id IS NULL) AND (auth.uid() = user_id)) OR (EXISTS ( SELECT 1
+   FROM public.show_collaborators
+  WHERE ((show_collaborators.show_id = notes.show_id) AND (show_collaborators.user_id = auth.uid()))))));
+
+
+--
 -- Name: shows Allow collaborative update access; Type: POLICY; Schema: public; Owner: postgres
 --
 
 CREATE POLICY "Allow collaborative update access" ON public.shows FOR UPDATE USING ((EXISTS ( SELECT 1
    FROM public.show_collaborators
   WHERE ((show_collaborators.show_id = shows.id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text))))));
+
+
+--
+-- Name: notes Allow collaborative write access on Notes; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow collaborative write access on Notes" ON public.notes USING ((((show_id IS NULL) AND (auth.uid() = user_id)) OR (EXISTS ( SELECT 1
+   FROM public.show_collaborators
+  WHERE ((show_collaborators.show_id = notes.show_id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text))))))) WITH CHECK ((((show_id IS NULL) AND (auth.uid() = user_id)) OR (EXISTS ( SELECT 1
+   FROM public.show_collaborators
+  WHERE ((show_collaborators.show_id = notes.show_id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text)))))));
 
 
 --
@@ -4820,6 +6225,13 @@ CREATE POLICY "Allow full access to equipment on own racks" ON public.rack_equip
 
 
 --
+-- Name: user_smtp_settings Allow full access to own SMTP settings; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to own SMTP settings" ON public.user_smtp_settings USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
 -- Name: cables Allow full access to own cables via loom; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -4833,6 +6245,42 @@ CREATE POLICY "Allow full access to own cables via loom" ON public.cables USING 
 --
 
 CREATE POLICY "Allow full access to own looms" ON public.looms USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: roster Allow full access to own roster; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to own roster" ON public.roster USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: show_crew Allow full access to own show crew; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to own show crew" ON public.show_crew USING ((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))));
+
+
+--
+-- Name: switch_configs Allow full access to own show switch configs; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to own show switch configs" ON public.switch_configs USING ((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = switch_configs.show_id) AND (s.user_id = auth.uid())))));
+
+
+--
+-- Name: switch_push_jobs Allow full access to own show switch push jobs; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to own show switch push jobs" ON public.switch_push_jobs USING ((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = switch_push_jobs.show_id) AND (s.user_id = auth.uid())))));
 
 
 --
@@ -4870,6 +6318,20 @@ CREATE POLICY "Allow insert for authenticated users" ON public.shows FOR INSERT 
 CREATE POLICY "Allow owner delete access" ON public.shows FOR DELETE USING ((EXISTS ( SELECT 1
    FROM public.show_collaborators
   WHERE ((show_collaborators.show_id = shows.id) AND (show_collaborators.user_id = auth.uid()) AND (show_collaborators.role = 'owner'::text)))));
+
+
+--
+-- Name: switch_models Allow read access for all authenticated users; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow read access for all authenticated users" ON public.switch_models FOR SELECT USING ((auth.role() = 'authenticated'::text));
+
+
+--
+-- Name: agent_api_keys Allow users to manage their own API keys; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to manage their own API keys" ON public.agent_api_keys USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
 
 
 --
@@ -4929,12 +6391,19 @@ CREATE POLICY "Users can manage their own racks" ON public.racks USING ((auth.ui
 
 
 --
+-- Name: email_templates Users can manage their own templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Users can manage their own templates" ON public.email_templates USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
 -- Name: connections Users can modify connections for their shows.; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users can modify connections for their shows." ON public.connections USING ((show_id IN ( SELECT shows.name
+CREATE POLICY "Users can modify connections for their shows." ON public.connections USING ((EXISTS ( SELECT 1
    FROM public.shows
-  WHERE (shows.user_id = auth.uid()))));
+  WHERE ((shows.id = connections.show_id) AND (shows.user_id = auth.uid())))));
 
 
 --
@@ -4948,9 +6417,9 @@ CREATE POLICY "Users can update their own SSO config" ON public.sso_configs FOR 
 -- Name: connections Users can view all connections for their shows.; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users can view all connections for their shows." ON public.connections FOR SELECT USING ((show_id IN ( SELECT shows.name
+CREATE POLICY "Users can view all connections for their shows." ON public.connections FOR SELECT USING ((EXISTS ( SELECT 1
    FROM public.shows
-  WHERE (shows.user_id = auth.uid()))));
+  WHERE ((shows.id = connections.show_id) AND (shows.user_id = auth.uid())))));
 
 
 --
@@ -4968,24 +6437,16 @@ CREATE POLICY "Users can view their own SSO config" ON public.sso_configs FOR SE
 
 
 --
--- Name: vlans Allow collaborative read access; Type: POLICY; Schema: public; Owner: postgres
+-- Name: agent_api_keys; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Allow collaborative read access on VLANs" ON public.vlans FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM public.show_collaborators
-  WHERE ((show_collaborators.show_id = vlans.show_id) AND (show_collaborators.user_id = auth.uid())))));
-
+ALTER TABLE public.agent_api_keys ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: vlans Allow collaborative write access; Type: POLICY; Schema: public; Owner: postgres
+-- Name: audit_log; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Allow collaborative write access on VLANs" ON public.vlans FOR ALL USING ((EXISTS ( SELECT 1
-   FROM public.show_collaborators
-  WHERE ((show_collaborators.show_id = vlans.show_id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text)))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.show_collaborators
-  WHERE ((show_collaborators.show_id = vlans.show_id) AND (show_collaborators.user_id = auth.uid()) AND ((show_collaborators.role = 'owner'::text) OR (show_collaborators.role = 'editor'::text))))));
-
+ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: cables; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -5006,10 +6467,22 @@ ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connector_templates ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: email_templates; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.email_templates ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: equipment_templates; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.equipment_templates ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: feature_restrictions; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.feature_restrictions ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: folders; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -5022,6 +6495,12 @@ ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.looms ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notes; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: panel_layouts; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -5060,6 +6539,12 @@ ALTER TABLE public.racks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: roster; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.roster ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: sender_identities; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -5072,10 +6557,22 @@ ALTER TABLE public.sender_identities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.show_collaborators ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: show_crew; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.show_crew ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: shows; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.shows ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: shows_duplicate; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.shows_duplicate ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: sso_configs; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -5084,10 +6581,40 @@ ALTER TABLE public.shows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sso_configs ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: switch_configs; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.switch_configs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: switch_models; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.switch_models ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: switch_push_jobs; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.switch_push_jobs ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: timesheet_entries; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.timesheet_entries ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: user_roles; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_smtp_settings; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.user_smtp_settings ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: vlans; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -5149,6 +6676,12 @@ ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE storage.buckets_analytics ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: buckets_vectors; Type: ROW SECURITY; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE storage.buckets_vectors ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: migrations; Type: ROW SECURITY; Schema: storage; Owner: supabase_storage_admin
 --
 
@@ -5177,6 +6710,12 @@ ALTER TABLE storage.s3_multipart_uploads ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE storage.s3_multipart_uploads_parts ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: vector_indexes; Type: ROW SECURITY; Schema: storage; Owner: supabase_storage_admin
+--
+
+ALTER TABLE storage.vector_indexes ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: supabase_realtime; Type: PUBLICATION; Schema: -; Owner: postgres
@@ -5782,7 +7321,15 @@ GRANT ALL ON FUNCTION graphql_public.graphql("operationName" text, query text, v
 
 REVOKE ALL ON FUNCTION pgbouncer.get_auth(p_usename text) FROM PUBLIC;
 GRANT ALL ON FUNCTION pgbouncer.get_auth(p_usename text) TO pgbouncer;
-GRANT ALL ON FUNCTION pgbouncer.get_auth(p_usename text) TO postgres;
+
+
+--
+-- Name: FUNCTION add_constraint_if_not_exists(t_name text, c_name text, c_def text); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.add_constraint_if_not_exists(t_name text, c_name text, c_def text) TO anon;
+GRANT ALL ON FUNCTION public.add_constraint_if_not_exists(t_name text, c_name text, c_def text) TO authenticated;
+GRANT ALL ON FUNCTION public.add_constraint_if_not_exists(t_name text, c_name text, c_def text) TO service_role;
 
 
 --
@@ -5792,6 +7339,15 @@ GRANT ALL ON FUNCTION pgbouncer.get_auth(p_usename text) TO postgres;
 GRANT ALL ON FUNCTION public.delete_user() TO anon;
 GRANT ALL ON FUNCTION public.delete_user() TO authenticated;
 GRANT ALL ON FUNCTION public.delete_user() TO service_role;
+
+
+--
+-- Name: FUNCTION get_configurable_switches_for_show(p_show_id bigint); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.get_configurable_switches_for_show(p_show_id bigint) TO anon;
+GRANT ALL ON FUNCTION public.get_configurable_switches_for_show(p_show_id bigint) TO authenticated;
+GRANT ALL ON FUNCTION public.get_configurable_switches_for_show(p_show_id bigint) TO service_role;
 
 
 --
@@ -5831,6 +7387,15 @@ GRANT ALL ON FUNCTION public.handle_new_user() TO service_role;
 
 
 --
+-- Name: FUNCTION handle_updated_at(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.handle_updated_at() TO anon;
+GRANT ALL ON FUNCTION public.handle_updated_at() TO authenticated;
+GRANT ALL ON FUNCTION public.handle_updated_at() TO service_role;
+
+
+--
 -- Name: FUNCTION increment_permissions_version(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -5849,21 +7414,21 @@ GRANT ALL ON FUNCTION public.suspend_user_by_id(target_user_id uuid) TO service_
 
 
 --
--- Name: FUNCTION suspend_user_by_id(target_user_id uuid, duration_hours integer); Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON FUNCTION public.suspend_user_by_id(target_user_id uuid, duration_hours integer) TO anon;
-GRANT ALL ON FUNCTION public.suspend_user_by_id(target_user_id uuid, duration_hours integer) TO authenticated;
-GRANT ALL ON FUNCTION public.suspend_user_by_id(target_user_id uuid, duration_hours integer) TO service_role;
-
-
---
 -- Name: FUNCTION unsuspend_user_by_id(target_user_id uuid); Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON FUNCTION public.unsuspend_user_by_id(target_user_id uuid) TO anon;
 GRANT ALL ON FUNCTION public.unsuspend_user_by_id(target_user_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.unsuspend_user_by_id(target_user_id uuid) TO service_role;
+
+
+--
+-- Name: FUNCTION update_updated_at_column(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.update_updated_at_column() TO anon;
+GRANT ALL ON FUNCTION public.update_updated_at_column() TO authenticated;
+GRANT ALL ON FUNCTION public.update_updated_at_column() TO service_role;
 
 
 --
@@ -6086,11 +7651,35 @@ GRANT ALL ON TABLE auth.mfa_factors TO dashboard_user;
 
 
 --
+-- Name: TABLE oauth_authorizations; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.oauth_authorizations TO postgres;
+GRANT ALL ON TABLE auth.oauth_authorizations TO dashboard_user;
+
+
+--
+-- Name: TABLE oauth_client_states; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.oauth_client_states TO postgres;
+GRANT ALL ON TABLE auth.oauth_client_states TO dashboard_user;
+
+
+--
 -- Name: TABLE oauth_clients; Type: ACL; Schema: auth; Owner: supabase_auth_admin
 --
 
 GRANT ALL ON TABLE auth.oauth_clients TO postgres;
 GRANT ALL ON TABLE auth.oauth_clients TO dashboard_user;
+
+
+--
+-- Name: TABLE oauth_consents; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.oauth_consents TO postgres;
+GRANT ALL ON TABLE auth.oauth_consents TO dashboard_user;
 
 
 --
@@ -6135,13 +7724,6 @@ GRANT ALL ON TABLE auth.saml_providers TO dashboard_user;
 GRANT INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE auth.saml_relay_states TO postgres;
 GRANT SELECT ON TABLE auth.saml_relay_states TO postgres WITH GRANT OPTION;
 GRANT ALL ON TABLE auth.saml_relay_states TO dashboard_user;
-
-
---
--- Name: TABLE schema_migrations; Type: ACL; Schema: auth; Owner: supabase_auth_admin
---
-
-GRANT SELECT ON TABLE auth.schema_migrations TO postgres WITH GRANT OPTION;
 
 
 --
@@ -6199,6 +7781,33 @@ GRANT ALL ON TABLE extensions.pg_stat_statements_info TO dashboard_user;
 
 
 --
+-- Name: TABLE agent_api_keys; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.agent_api_keys TO anon;
+GRANT ALL ON TABLE public.agent_api_keys TO authenticated;
+GRANT ALL ON TABLE public.agent_api_keys TO service_role;
+
+
+--
+-- Name: TABLE audit_log; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.audit_log TO anon;
+GRANT ALL ON TABLE public.audit_log TO authenticated;
+GRANT ALL ON TABLE public.audit_log TO service_role;
+
+
+--
+-- Name: SEQUENCE audit_log_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.audit_log_id_seq TO anon;
+GRANT ALL ON SEQUENCE public.audit_log_id_seq TO authenticated;
+GRANT ALL ON SEQUENCE public.audit_log_id_seq TO service_role;
+
+
+--
 -- Name: TABLE cables; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6223,6 +7832,15 @@ GRANT ALL ON TABLE public.connections TO service_role;
 GRANT ALL ON TABLE public.connector_templates TO anon;
 GRANT ALL ON TABLE public.connector_templates TO authenticated;
 GRANT ALL ON TABLE public.connector_templates TO service_role;
+
+
+--
+-- Name: TABLE email_templates; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.email_templates TO anon;
+GRANT ALL ON TABLE public.email_templates TO authenticated;
+GRANT ALL ON TABLE public.email_templates TO service_role;
 
 
 --
@@ -6259,6 +7877,15 @@ GRANT ALL ON TABLE public.folders TO service_role;
 GRANT ALL ON TABLE public.looms TO anon;
 GRANT ALL ON TABLE public.looms TO authenticated;
 GRANT ALL ON TABLE public.looms TO service_role;
+
+
+--
+-- Name: TABLE notes; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.notes TO anon;
+GRANT ALL ON TABLE public.notes TO authenticated;
+GRANT ALL ON TABLE public.notes TO service_role;
 
 
 --
@@ -6316,6 +7943,15 @@ GRANT ALL ON TABLE public.roles TO service_role;
 
 
 --
+-- Name: TABLE roster; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.roster TO anon;
+GRANT ALL ON TABLE public.roster TO authenticated;
+GRANT ALL ON TABLE public.roster TO service_role;
+
+
+--
 -- Name: TABLE sender_identities; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6343,12 +7979,39 @@ GRANT ALL ON SEQUENCE public.show_collaborators_id_seq TO service_role;
 
 
 --
+-- Name: TABLE show_crew; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.show_crew TO anon;
+GRANT ALL ON TABLE public.show_crew TO authenticated;
+GRANT ALL ON TABLE public.show_crew TO service_role;
+
+
+--
 -- Name: TABLE shows; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.shows TO anon;
 GRANT ALL ON TABLE public.shows TO authenticated;
 GRANT ALL ON TABLE public.shows TO service_role;
+
+
+--
+-- Name: TABLE shows_duplicate; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.shows_duplicate TO anon;
+GRANT ALL ON TABLE public.shows_duplicate TO authenticated;
+GRANT ALL ON TABLE public.shows_duplicate TO service_role;
+
+
+--
+-- Name: SEQUENCE shows_duplicate_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.shows_duplicate_id_seq TO anon;
+GRANT ALL ON SEQUENCE public.shows_duplicate_id_seq TO authenticated;
+GRANT ALL ON SEQUENCE public.shows_duplicate_id_seq TO service_role;
 
 
 --
@@ -6370,12 +8033,66 @@ GRANT ALL ON TABLE public.sso_configs TO service_role;
 
 
 --
+-- Name: TABLE switch_configs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.switch_configs TO anon;
+GRANT ALL ON TABLE public.switch_configs TO authenticated;
+GRANT ALL ON TABLE public.switch_configs TO service_role;
+
+
+--
+-- Name: TABLE switch_models; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.switch_models TO anon;
+GRANT ALL ON TABLE public.switch_models TO authenticated;
+GRANT ALL ON TABLE public.switch_models TO service_role;
+
+
+--
+-- Name: TABLE switch_push_jobs; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.switch_push_jobs TO anon;
+GRANT ALL ON TABLE public.switch_push_jobs TO authenticated;
+GRANT ALL ON TABLE public.switch_push_jobs TO service_role;
+
+
+--
+-- Name: TABLE timesheet_entries; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.timesheet_entries TO anon;
+GRANT ALL ON TABLE public.timesheet_entries TO authenticated;
+GRANT ALL ON TABLE public.timesheet_entries TO service_role;
+
+
+--
 -- Name: TABLE user_roles; Type: ACL; Schema: public; Owner: postgres
 --
 
 GRANT ALL ON TABLE public.user_roles TO anon;
 GRANT ALL ON TABLE public.user_roles TO authenticated;
 GRANT ALL ON TABLE public.user_roles TO service_role;
+
+
+--
+-- Name: TABLE user_smtp_settings; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.user_smtp_settings TO anon;
+GRANT ALL ON TABLE public.user_smtp_settings TO authenticated;
+GRANT ALL ON TABLE public.user_smtp_settings TO service_role;
+
+
+--
+-- Name: TABLE vlans; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.vlans TO anon;
+GRANT ALL ON TABLE public.vlans TO authenticated;
+GRANT ALL ON TABLE public.vlans TO service_role;
 
 
 --
@@ -6429,6 +8146,8 @@ GRANT ALL ON SEQUENCE realtime.subscription_id_seq TO supabase_realtime_admin;
 -- Name: TABLE buckets; Type: ACL; Schema: storage; Owner: supabase_storage_admin
 --
 
+REVOKE ALL ON TABLE storage.buckets FROM supabase_storage_admin;
+GRANT ALL ON TABLE storage.buckets TO supabase_storage_admin WITH GRANT OPTION;
 GRANT ALL ON TABLE storage.buckets TO anon;
 GRANT ALL ON TABLE storage.buckets TO authenticated;
 GRANT ALL ON TABLE storage.buckets TO service_role;
@@ -6445,9 +8164,20 @@ GRANT ALL ON TABLE storage.buckets_analytics TO anon;
 
 
 --
+-- Name: TABLE buckets_vectors; Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT SELECT ON TABLE storage.buckets_vectors TO service_role;
+GRANT SELECT ON TABLE storage.buckets_vectors TO authenticated;
+GRANT SELECT ON TABLE storage.buckets_vectors TO anon;
+
+
+--
 -- Name: TABLE objects; Type: ACL; Schema: storage; Owner: supabase_storage_admin
 --
 
+REVOKE ALL ON TABLE storage.objects FROM supabase_storage_admin;
+GRANT ALL ON TABLE storage.objects TO supabase_storage_admin WITH GRANT OPTION;
 GRANT ALL ON TABLE storage.objects TO anon;
 GRANT ALL ON TABLE storage.objects TO authenticated;
 GRANT ALL ON TABLE storage.objects TO service_role;
@@ -6479,6 +8209,15 @@ GRANT SELECT ON TABLE storage.s3_multipart_uploads TO anon;
 GRANT ALL ON TABLE storage.s3_multipart_uploads_parts TO service_role;
 GRANT SELECT ON TABLE storage.s3_multipart_uploads_parts TO authenticated;
 GRANT SELECT ON TABLE storage.s3_multipart_uploads_parts TO anon;
+
+
+--
+-- Name: TABLE vector_indexes; Type: ACL; Schema: storage; Owner: supabase_storage_admin
+--
+
+GRANT SELECT ON TABLE storage.vector_indexes TO service_role;
+GRANT SELECT ON TABLE storage.vector_indexes TO authenticated;
+GRANT SELECT ON TABLE storage.vector_indexes TO anon;
 
 
 --
@@ -6784,107 +8523,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict EouoUhchIJWiehhTRoXUGgv1ISx118ls4qVAcOdlSgAhqYK4k9FJOS6aJByPOwx
+\unrestrict 6iasUipIhFa4geVOrraRBrqlZMrtTuYvr67wRfuDodrYYrh7HryjBgVOIq3dAu2
 
--- Add OT threshold columns to the shows table
-ALTER TABLE public.shows
-ADD COLUMN ot_daily_threshold numeric(4, 2) DEFAULT 10.00,
-ADD COLUMN ot_weekly_threshold numeric(4, 2) DEFAULT 40.00;
-
--- Roster Table: Stores individual crew members in a user's global roster.
-CREATE TABLE public.roster (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid NOT NULL,
-    first_name text,
-    last_name text,
-    phone_number text,
-    email text,
-    "position" text,
-    created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT roster_pkey PRIMARY KEY (id),
-    CONSTRAINT roster_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users (id) ON DELETE CASCADE
-);
-
-ALTER TABLE public.roster ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow full access to own roster" ON public.roster AS PERMISSIVE FOR ALL TO public USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
--- Show Crew Table: Links roster members to a specific show and sets their rate.
-CREATE TABLE public.show_crew (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    show_id bigint NOT NULL,
-    roster_id uuid NOT NULL,
-    "role" text,
-    hourly_rate numeric(8, 2),
-    daily_rate numeric(8, 2),
-    rate_type text DEFAULT 'hourly'::text,
-    created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT show_crew_pkey PRIMARY KEY (id),
-    CONSTRAINT show_crew_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows (id) ON DELETE CASCADE,
-    CONSTRAINT show_crew_roster_id_fkey FOREIGN KEY (roster_id) REFERENCES public.roster (id) ON DELETE CASCADE,
-    CONSTRAINT show_crew_show_id_roster_id_key UNIQUE (show_id, roster_id)
-);
-
-ALTER TABLE public.show_crew ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow full access to own show crew" ON public.show_crew AS PERMISSIVE FOR ALL TO public
-USING ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))))
-WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))));
-
--- Daily Hours Table: Stores the total hours worked by a crew member on a given day.
-CREATE TABLE public.daily_hours (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    show_crew_id uuid NOT NULL,
-    "date" date NOT NULL,
-    hours numeric(4, 2) NOT NULL,
-    created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT daily_hours_pkey PRIMARY KEY (id),
-    CONSTRAINT daily_hours_show_crew_id_fkey FOREIGN KEY (show_crew_id) REFERENCES public.show_crew (id) ON DELETE CASCADE,
-    CONSTRAINT daily_hours_show_crew_id_date_key UNIQUE (show_crew_id, "date")
-);
-
-ALTER TABLE public.daily_hours ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Allow full access to own show hours" ON public.daily_hours
-AS PERMISSIVE FOR ALL
-TO public
-USING (
-    (EXISTS ( SELECT 1
-   FROM public.show_crew sc
-     JOIN public.shows s ON sc.show_id = s.id
-  WHERE ((sc.id = daily_hours.show_crew_id) AND (s.user_id = auth.uid()))))
-)
-WITH CHECK (
-    (EXISTS ( SELECT 1
-   FROM public.show_crew sc
-     JOIN public.shows s ON sc.show_id = s.id
-  WHERE ((sc.id = daily_hours.show_crew_id) AND (s.user_id = auth.uid()))))
-);
--- 1. Add tags to roster
-ALTER TABLE public.roster ADD COLUMN tags text[] DEFAULT '{}';
-
--- 2. Create Email Templates table
-CREATE TABLE public.email_templates (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid NOT NULL,
-    category text NOT NULL CHECK (category IN ('ROSTER', 'CREW', 'HOURS', 'GENERAL')),
-    name text NOT NULL,
-    subject text NOT NULL,
-    body text NOT NULL, -- Stores the Full HTML string
-    is_default boolean DEFAULT false,
-    created_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT email_templates_pkey PRIMARY KEY (id),
-    CONSTRAINT email_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE
-);
-
--- 3. RLS Policies
-ALTER TABLE public.email_templates ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can manage their own templates" ON public.email_templates
-    USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
---
-
-
--- Clear out old bans from the auth table

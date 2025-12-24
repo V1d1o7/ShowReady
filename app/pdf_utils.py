@@ -46,6 +46,12 @@ PAGE_SIZES = {
     "22x17": (22 * inch, 17 * inch),
 }
 
+# --- COLOR CONSTANTS ---
+COLOR_BLUE_ACCENT = colors.Color(0.388, 0.702, 0.929)  # #63b3ed (Front)
+COLOR_ORANGE_ACCENT = colors.Color(0.965, 0.678, 0.333) # #f6ad55 (Rear)
+COLOR_PURPLE_BG = colors.Color(0.502, 0.353, 0.835)     # #805AD5 (Shared)
+COLOR_GRAY_BG = colors.Color(0.29, 0.334, 0.408)        # #4A5568 (Standard)
+
 def parse_color(color_string: Optional[str]) -> colors.Color:
     if not color_string:
         return colors.black
@@ -472,51 +478,169 @@ def draw_single_rack(c: canvas.Canvas, x_start: float, y_top: float, rack_data: 
             c.drawRightString(equip_x_start + equip_width - 0.05 * inch, equip_bottom_y + equip_height - 0.1 * inch, equip_template.model_number)
 
 def draw_rack_side_view(c: canvas.Canvas, x_start: float, y_top: float, rack_data: Rack):
+    """
+    Draws the side view of the rack matching exactly the visual style of draw_single_rack
+    (light grey grid, numbers outside, transparent frame) but adding color-coded mounting markers.
+    """
     RACK_FRAME_WIDTH = 3.5 * inch
-    RACK_DEPTH = 24  # inches
+    RACK_LABEL_WIDTH = 0.3 * inch
+    RACK_DEPTH_INCHES = 24.0
     RU_HEIGHT = 0.22 * inch
+    
+    # We use the FULL frame width for depth calculations now (24" = 3.5 inches)
+    # The visual "Rails" are just overlays, they don't eat capacity.
+    DRAWING_AREA_WIDTH = RACK_FRAME_WIDTH
 
     rack_content_height = rack_data.ru_height * RU_HEIGHT
-    rack_pixel_width = RACK_FRAME_WIDTH # Use the same width for consistency
-
     y_bottom = y_top - rack_content_height
 
+    # --- 1. Draw Container Frame (Exact copy from draw_single_rack) ---
     c.setStrokeColor(colors.black)
     c.setLineWidth(1)
-    c.rect(x_start, y_bottom, rack_pixel_width, rack_content_height)
+    c.rect(x_start, y_bottom, RACK_FRAME_WIDTH, rack_content_height)
+    
+    # Header
     c.setFont("SpaceMono-Bold", 12)
-    c.drawCentredString(x_start + rack_pixel_width / 2, y_top + 0.15 * inch, f"{rack_data.rack_name} - SIDE VIEW")
+    c.setFillColor(colors.black)
+    c.drawCentredString(x_start + RACK_FRAME_WIDTH / 2, y_top + 0.15 * inch, f"{rack_data.rack_name} - SIDE VIEW")
 
-    # Draw rack rails for side view
-    c.setStrokeColor(colors.darkgrey)
-    c.setLineWidth(2)
-    c.line(x_start, y_bottom, x_start, y_top) # Front rail
-    c.line(x_start + rack_pixel_width, y_bottom, x_start + rack_pixel_width, y_top) # Rear rail
-
-    for equip in rack_data.equipment:
-        equip_template = equip.equipment_templates
-        if not equip_template or not hasattr(equip_template, 'depth') or not equip_template.depth:
-            continue
-
-        equip_ru_height = equip_template.ru_height
-        equip_bottom_y = y_bottom + (equip.ru_position - 1) * RU_HEIGHT
-        equip_height = equip_ru_height * RU_HEIGHT
+    # --- 2. Draw Grid & Numbers (Exact loop from draw_single_rack) ---
+    c.setFont("SpaceMono", 5)
+    c.setStrokeColor(colors.lightgrey)
+    for ru in range(1, rack_data.ru_height + 1):
+        ru_y_top = y_bottom + ru * RU_HEIGHT
         
-        item_width = (equip_template.depth / RACK_DEPTH) * rack_pixel_width
+        # Grid line across entire rack
+        c.line(x_start, ru_y_top, x_start + RACK_FRAME_WIDTH, ru_y_top)
         
-        equip_x_start = x_start
-        if equip.rack_side.startswith('rear'):
-            equip_x_start = x_start + rack_pixel_width - item_width
-
-        c.setFillColorRGB(0.88, 0.88, 0.88)
-        c.setStrokeColor(colors.black)
-        c.rect(equip_x_start, equip_bottom_y, item_width, equip_height, fill=1, stroke=1)
-        
+        # Numbers (Left & Right)
         c.setFillColor(colors.black)
-        c.setFont("SpaceMono-Bold", 8)
-        text_x = equip_x_start + (item_width / 2)
-        text_y = equip_bottom_y + (equip_height / 2) - 4
-        c.drawCentredString(text_x, text_y, equip.instance_name)
+        text_y = ru_y_top - (RU_HEIGHT / 2) - 2
+        c.drawCentredString(x_start - (RACK_LABEL_WIDTH / 2), text_y, str(ru))
+        c.drawCentredString(x_start + RACK_FRAME_WIDTH + (RACK_LABEL_WIDTH / 2), text_y, str(ru))
+
+    # --- 3. Process Equipment (Grouping Logic) ---
+    groups = {}
+    for equip in rack_data.equipment:
+        side_key = 'front' if equip.rack_side.lower().startswith('front') else 'rear'
+        key = f"{equip.ru_position}-{side_key}"
+        if key not in groups: groups[key] = []
+        groups[key].append(equip)
+
+    for key in groups:
+        groups[key].sort(key=lambda x: (x.instance_name or ""))
+
+    # --- 4. Draw Equipment ---
+    for key, members in groups.items():
+        count = len(members)
+        is_shared_slot = count > 1
+        
+        for index, equip in enumerate(members):
+            template = equip.equipment_templates
+            if not template: continue
+
+            # Dimensions
+            depth_inches = template.depth if hasattr(template, 'depth') and template.depth else 10.0
+            
+            # Map Depth to Drawing Width (24" = 100%)
+            item_width_pts = (depth_inches / RACK_DEPTH_INCHES) * DRAWING_AREA_WIDTH
+            if item_width_pts > DRAWING_AREA_WIDTH: item_width_pts = DRAWING_AREA_WIDTH
+
+            # Vertical Position
+            full_item_height_pts = template.ru_height * RU_HEIGHT
+            split_height_pts = full_item_height_pts / count
+            
+            # PDF Y is bottom-up
+            item_y_bottom = y_bottom + ((equip.ru_position - 1) * RU_HEIGHT) + (index * split_height_pts)
+
+            # Horizontal Alignment
+            is_front = equip.rack_side.lower().startswith('front')
+            
+            if is_front:
+                # Anchored to Front Rail (Left)
+                item_x = x_start
+            else:
+                # Anchored to Rear Rail (Right)
+                item_x = (x_start + RACK_FRAME_WIDTH) - item_width_pts
+
+            # Styling
+            # Default to Gray background, or Purple if shared
+            fill_color = COLOR_PURPLE_BG if is_shared_slot else COLOR_GRAY_BG
+            c.setFillColor(fill_color)
+            
+            c.setStrokeColor(colors.black)
+            c.setLineWidth(1)
+            
+            # Draw Box
+            box_height = max(split_height_pts, 1) 
+            c.rect(item_x, item_y_bottom, item_width_pts, box_height, fill=1, stroke=1)
+
+            # Draw Mounting Marker (Thick Colored Line)
+            c.setLineWidth(3)
+            if is_front:
+                c.setStrokeColor(COLOR_BLUE_ACCENT)
+                # Line on Left Edge
+                c.line(item_x, item_y_bottom, item_x, item_y_bottom + box_height)
+            else:
+                c.setStrokeColor(COLOR_ORANGE_ACCENT)
+                # Line on Right Edge
+                c.line(item_x + item_width_pts, item_y_bottom, item_x + item_width_pts, item_y_bottom + box_height)
+
+            # Label
+            c.setFillColor(colors.white)
+            font_size = 6 if is_shared_slot and count >= 3 else 8
+            c.setFont("SpaceMono-Bold", font_size)
+            
+            center_x = item_x + (item_width_pts / 2)
+            center_y = item_y_bottom + (box_height / 2) - (font_size / 2) + 1
+            
+            label = equip.instance_name or "Unknown"
+            if len(label) > 15: label = label[:12] + "..."
+            
+            c.drawCentredString(center_x, center_y, label)
+
+    # --- 5. Draw Legend ---
+    # Position below the rack
+    legend_y = y_bottom - 0.25 * inch
+    c.setFont("SpaceMono", 8)
+    
+    # Calculate widths for dynamic centering
+    box_sz = 8
+    gap = 4
+    spacing = 15
+    
+    w_front = box_sz + gap + c.stringWidth("Front Mount", "SpaceMono", 8)
+    w_rear = box_sz + gap + c.stringWidth("Rear Mount", "SpaceMono", 8)
+    w_shared = box_sz + gap + c.stringWidth("Shared Slot", "SpaceMono", 8)
+    
+    total_legend_width = w_front + spacing + w_rear + spacing + w_shared
+    
+    current_x = x_start + (RACK_FRAME_WIDTH - total_legend_width) / 2
+    
+    # Front Legend
+    c.setFillColor(COLOR_BLUE_ACCENT)
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(1)
+    c.rect(current_x, legend_y, box_sz, box_sz, fill=1, stroke=1)
+    c.setFillColor(colors.black)
+    c.drawString(current_x + box_sz + gap, legend_y + 1, "Front Mount")
+    
+    current_x += w_front + spacing
+
+    # Rear Legend
+    c.setFillColor(COLOR_ORANGE_ACCENT)
+    c.rect(current_x, legend_y, box_sz, box_sz, fill=1, stroke=1)
+    c.setFillColor(colors.black)
+    c.drawString(current_x + box_sz + gap, legend_y + 1, "Rear Mount")
+    
+    current_x += w_rear + spacing
+
+    # Shared Legend
+    c.setFillColor(COLOR_PURPLE_BG)
+    c.rect(current_x, legend_y, box_sz, box_sz, fill=1, stroke=1)
+    c.setFillColor(colors.black)
+    c.drawString(current_x + box_sz + gap, legend_y + 1, "Shared Slot")
+
 
 def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
     buffer = io.BytesIO()
@@ -525,38 +649,51 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
     c = canvas.Canvas(buffer, pagesize=page_size)
     width, height = page_size
     
-    MARGIN = 0.25 * inch
+    MARGIN = 0.5 * inch
     
-    for rack in payload.racks:
-        title_x = MARGIN
+    for i, rack in enumerate(payload.racks):
+        # --- PAGE 1: Front and Rear Views ---
+        title_y = height - MARGIN
         if show_branding:
             c.setFont("SpaceMono", 8)
-            c.drawString(MARGIN, height - MARGIN, "Created using ShowReady")
-            title_y_offset = 0.2 * inch
-        else:
-            title_y_offset = 0
-
+            c.setFillColor(colors.grey)
+            c.drawString(MARGIN, title_y + 10, "Created using ShowReady")
+        
+        c.setFillColor(colors.black)
         c.setFont("SpaceMono-Bold", 16)
-        c.drawString(title_x, height - MARGIN - title_y_offset, payload.show_name)
+        c.drawString(MARGIN, title_y - 10, f"{payload.show_name}")
         c.setFont("SpaceMono", 10)
-        c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        date_str = datetime.now().strftime('%Y-%m-%d %H:%M')
+        c.drawRightString(width - MARGIN, title_y - 10, f"Generated: {date_str}")
+
+        # Increased top margin slightly to ensure bottom fits
+        y_top = height - MARGIN - (0.6 * inch)
         
-        y_top = height - MARGIN - (0.5 * inch)
-        
-        RACK_TOTAL_WIDTH = (3.5 * inch) * 2 + 0.5 * inch
-        x_start = (width - RACK_TOTAL_WIDTH) / 2
+        RACK_FRAME_WIDTH = 3.5 * inch
+        SIDE_PADDING = 0.5 * inch
+        TOTAL_WIDTH = (RACK_FRAME_WIDTH * 2) + SIDE_PADDING
+        x_start = (width - TOTAL_WIDTH) / 2
         
         draw_single_rack(c, x_start, y_top, rack)
-        
         c.showPage()
 
-        # Add a new page for the side view
+        # --- PAGE 2: Side View ---
+        title_y = height - MARGIN
+        if show_branding:
+            c.setFont("SpaceMono", 8)
+            c.setFillColor(colors.grey)
+            c.drawString(MARGIN, title_y + 10, "Created using ShowReady")
+        
+        c.setFillColor(colors.black)
         c.setFont("SpaceMono-Bold", 16)
-        c.drawString(title_x, height - MARGIN - title_y_offset, payload.show_name)
+        c.drawString(MARGIN, title_y - 10, f"{payload.show_name}")
         c.setFont("SpaceMono", 10)
-        c.drawRightString(width - MARGIN, height - MARGIN, f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        c.drawRightString(width - MARGIN, title_y - 10, f"Generated: {date_str}")
+
+        y_top = height - MARGIN - (0.6 * inch)
         
         x_start_side = (width - RACK_FRAME_WIDTH) / 2
+        
         draw_rack_side_view(c, x_start_side, y_top, rack)
         c.showPage()
 
@@ -576,21 +713,16 @@ def draw_timesheet_footer(canvas: canvas.Canvas, doc: SimpleDocTemplate):
 
 # --- Shared Header ---
 def _build_header_table(show, user, generation_date, show_logo_bytes, company_logo_bytes, styles):
-    """
-    Builds a flexible header table with show/company logos and info.
-    """
-    MAX_LOGO_HEIGHT = 50  # Max height in points (72 points = 1 inch)
+    MAX_LOGO_HEIGHT = 50
     MAX_LOGO_WIDTH = 180
 
     show_logo_img = None
     company_logo_img = None
 
-    # --- Try to load Show Logo ---
     if show_logo_bytes:
         try:
             img_file = io.BytesIO(show_logo_bytes)
             show_logo_img = Image(img_file, hAlign="LEFT")
-            # Resize image while maintaining aspect ratio
             width, height = show_logo_img.drawWidth, show_logo_img.drawHeight
             aspect_ratio = height / width
             new_width = MAX_LOGO_WIDTH
@@ -604,12 +736,10 @@ def _build_header_table(show, user, generation_date, show_logo_bytes, company_lo
             print(f"Warning: Could not load show logo bytes: {e}")
             show_logo_img = None
 
-    # --- Try to load Company Logo ---
     if company_logo_bytes:
         try:
             img_file = io.BytesIO(company_logo_bytes)
             company_logo_img = Image(img_file, hAlign="RIGHT")
-            # Resize image while maintaining aspect ratio
             width, height = company_logo_img.drawWidth, company_logo_img.drawHeight
             aspect_ratio = height / width
             new_width = MAX_LOGO_WIDTH
@@ -623,50 +753,32 @@ def _build_header_table(show, user, generation_date, show_logo_bytes, company_lo
             print(f"Warning: Could not load company logo bytes: {e}")
             company_logo_img = None
 
-    # --- Build Left Column (Show Info) ---
     header_left = []
     if show_logo_img:
         header_left.append(show_logo_img)
         header_left.append(Spacer(1, 12))
     header_left.append(Paragraph(show.get("name", "Show Name"), styles["HeaderShowName"]))
 
-    # --- Build Right Column (User/Company Info) ---
     header_right = []
     if company_logo_img:
         header_right.append(company_logo_img)
         header_right.append(Spacer(1, 12))
         
-    header_right.append(
-        Paragraph(user.get("full_name", "User Name"), styles["HeaderUserName"])
-    )
+    header_right.append(Paragraph(user.get("full_name", "User Name"), styles["HeaderUserName"]))
     if user.get("position"):
-        header_right.append(
-            Paragraph(user.get("position"), styles["HeaderCompanyName"])
-        )
+        header_right.append(Paragraph(user.get("position"), styles["HeaderCompanyName"]))
     if user.get("company"):
-        header_right.append(
-            Paragraph(user.get("company"), styles["HeaderCompanyName"])
-        )
+        header_right.append(Paragraph(user.get("company"), styles["HeaderCompanyName"]))
     header_right.append(Spacer(1, 6))
-    header_right.append(
-        Paragraph(f"Generated: {generation_date}", styles["HeaderDate"])
-    )
+    header_right.append(Paragraph(f"Generated: {generation_date}", styles["HeaderDate"]))
 
-    # --- Create Table ---
-    header_table = Table(
-        [[header_left, header_right]], colWidths=["60%", "40%"]
-    )
-    header_table.setStyle(
-        TableStyle(
-            [
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("ALIGN", (1, 0), (1, 0), "RIGHT"), # Align the whole right cell block
-            ]
-        )
-    )
+    header_table = Table([[header_left, header_right]], colWidths=["60%", "40%"])
+    header_table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+    ]))
     return header_table
 
-# --- NEW HOURS PDF FUNCTION WITH WATERFALL LOGIC ---
 def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_bytes: Optional[bytes], company_logo_bytes: Optional[bytes], show_branding: bool = True):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -696,7 +808,6 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
 
     story = []
 
-    # --- Header ---
     generation_date = datetime.now().strftime("%B %d, %Y %I:%M %p")
     header = _build_header_table(show, user, generation_date, show_logo_bytes, company_logo_bytes, styles)
     story.append(header)
@@ -706,7 +817,6 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
     
     week_start_date = timesheet_data['week_start_date']
     week_end_date = timesheet_data['week_end_date']
-    # Ensure they are date objects, not strings
     if isinstance(week_start_date, str):
         week_start_date = datetime.strptime(week_start_date, '%Y-%m-%d').date()
     if isinstance(week_end_date, str):
@@ -723,7 +833,6 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
     ot_daily_threshold = timesheet_data.get('ot_daily_threshold', 10)
     ot_weekly_threshold = timesheet_data.get('ot_weekly_threshold', 40)
 
-    # --- WATERFALL LOGIC PRE-CALCULATION ---
     grouped_crew = {}
     for c in crew_hours:
         roster_id = c.get('roster_id') or str(uuid.uuid4())
@@ -741,11 +850,9 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
         for m in members:
             m['calc_stats'] = {'regular': 0.0, 'ot': 0.0, 'cost': 0.0, 'daily_breakdown': {}}
 
-        # Daily Calculations
         for day in dates:
             day_entries = []
             for m in members:
-                # *** THE FIX IS HERE: use the 'day' object directly for lookup ***
                 raw_hours = m.get('hours_by_date', {}).get(day, 0)
                 h_val = float(raw_hours) if raw_hours else 0
                 if h_val > 0:
@@ -773,7 +880,7 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
                         implied_rate = (m.get('daily_rate') or 0) / (ot_daily_threshold if ot_daily_threshold > 0 else 10)
                         entry_cost += ot_h * (implied_rate * 1.5)
                     hours_consumed_in_daily_bucket += ot_daily_threshold
-                else: # Hourly Rate
+                else:
                     current_rate = m.get('hourly_rate') or 0
                     remaining_bucket = max(0, ot_daily_threshold - hours_consumed_in_daily_bucket)
                     
@@ -799,15 +906,12 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
                 if m.get('rate_type') == 'hourly':
                     weekly_regular_hours_tracker += regular_h
 
-        # Weekly OT Calculation
         if weekly_regular_hours_tracker > ot_weekly_threshold:
             weekly_ot_hours = weekly_regular_hours_tracker - ot_weekly_threshold
             
-            # Distribute OT back to hourly positions
-            for m in reversed(members): # Start from last hourly to apply OT
+            for m in reversed(members):
                 if m.get('rate_type') == 'hourly' and weekly_ot_hours > 0:
                     current_rate = m.get('hourly_rate') or 0
-                    # This needs to be the sum of regular hours for this member across the week
                     regular_hours_in_member = m['calc_stats']['regular']
 
                     ot_to_apply = min(weekly_ot_hours, regular_hours_in_member)
@@ -815,13 +919,11 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
                     m['calc_stats']['regular'] -= ot_to_apply
                     m['calc_stats']['ot'] += ot_to_apply
                     
-                    # Adjust cost: remove regular pay, add OT pay
                     m['calc_stats']['cost'] -= ot_to_apply * current_rate
                     m['calc_stats']['cost'] += ot_to_apply * (current_rate * 1.5)
                     
                     weekly_ot_hours -= ot_to_apply
         
-    # --- Render Rows ---
     all_crew_sorted = sorted(crew_hours, key=lambda c: (
         (c.get('first_name') or '').lower(),
         (c.get('last_name') or '').lower()
@@ -861,7 +963,6 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
         grand_total_ot += stats['ot']
         total_cost_grand += stats['cost']
 
-    # --- Totals Row ---
     totals_row = [
         Paragraph("Totals", styles['TotalsLabel']), "",
     ] + [""] * len(dates) + [
@@ -871,7 +972,6 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
     ]
     table_data.append(totals_row)
 
-    # --- Table Style ---
     col_widths = ['16%', '10%'] + ['6%'] * len(dates) + ['8%', '8%', '10%']
     table = Table(table_data, colWidths=col_widths, hAlign='CENTER')
     table.setStyle(TableStyle([
@@ -879,15 +979,13 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
         ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
         ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.lightgrey),
         ("LINEABOVE", (0, -1), (-1, -1), 1.5, colors.black),
-        ('SPAN', (0, -1), (1, -1)), # Span totals label
+        ('SPAN', (0, -1), (1, -1)),
     ]))
     
-    # Apply span for multi-line name/position
     for i, row_data in enumerate(table_data):
-        if i > 0 and i < len(table_data) -1: # Exclude header and footer
+        if i > 0 and i < len(table_data) -1:
             if isinstance(row_data[0], list):
                  table.setStyle(TableStyle([('SPAN', (0, i), (0, i))]))
-
 
     story.append(table)
 
