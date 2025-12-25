@@ -6,6 +6,10 @@ import FeedbackModal from './FeedbackModal';
 import { api } from '../api/api';
 import toast from 'react-hot-toast';
 
+/**
+ * Navbar component for main application navigation.
+ * Links are conditionally rendered based on user permissions (RBAC).
+ */
 const Navbar = () => {
     const { profile } = useAuth();
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
@@ -13,6 +17,7 @@ const Navbar = () => {
 
     useEffect(() => {
         const fetchActivityStatus = async () => {
+            // Activity status polling is restricted to admins
             if (profile?.roles?.includes('admin')) {
                 try {
                     const response = await api.getOverallActivityStatus();
@@ -24,7 +29,6 @@ const Navbar = () => {
         };
 
         fetchActivityStatus();
-        // Optional: Poll for updates every minute
         const interval = setInterval(fetchActivityStatus, 60000);
         return () => clearInterval(interval);
     }, [profile]);
@@ -38,7 +42,9 @@ const Navbar = () => {
         }
     };
 
+    // Feature check helpers
     const canShowFeedbackButton = profile?.permitted_features?.includes('global_feedback_button');
+    const canAccessRoster = profile?.permitted_features?.includes('crew');
 
     const statusColorClass = {
         green: 'text-green-500',
@@ -92,17 +98,21 @@ const Navbar = () => {
                                     <Book size={16} className="mr-2" />
                                     My Library
                                 </NavLink>
-                                <NavLink
-                                    to="/roster"
-                                    className={({ isActive }) =>
-                                        `flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                                            isActive ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                                        }`
-                                    }
-                                >
-                                    <User size={16} className="mr-2" />
-                                    Roster
-                                </NavLink>
+
+                                {canAccessRoster && (
+                                    <NavLink
+                                        to="/roster"
+                                        className={({ isActive }) =>
+                                            `flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                                isActive ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                                            }`
+                                        }
+                                    >
+                                        <User size={16} className="mr-2" />
+                                        Roster
+                                    </NavLink>
+                                )}
+
                                 <NavLink
                                     to="/account"
                                     className={({ isActive }) =>
@@ -114,6 +124,7 @@ const Navbar = () => {
                                     <User size={16} className="mr-2" />
                                     Account
                                 </NavLink>
+                                
                                 {profile?.roles?.includes('admin') && (
                                     <NavLink
                                         to="/mgmt"

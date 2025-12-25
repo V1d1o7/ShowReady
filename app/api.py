@@ -692,22 +692,38 @@ def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
 def feature_check(feature_name: str):
     """
     Dependency factory for checking feature access using an allow-list model.
-    Raises HTTPException 403 if a feature has a defined, non-empty list of permitted
-    roles and the user does not have any of those roles.
+    Implements a Fail-Closed logic: if a feature is not configured, only admins have access.
     """
     async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+        # Fetch user roles using the fixed SECURITY DEFINER function
         user_roles = get_user_roles_sync(user.id, supabase)
         
-        restriction_res = supabase.table('feature_restrictions').select('permitted_roles').eq('feature_name', feature_name).maybe_single().execute()
+        # Query the restriction table
+        restriction_res = supabase.table('feature_restrictions') \
+            .select('permitted_roles') \
+            .eq('feature_name', feature_name) \
+            .maybe_single() \
+            .execute()
         
         permitted_roles = restriction_res.data.get('permitted_roles') if restriction_res and restriction_res.data else None
 
-        # An empty list is falsy, so this block only runs for non-empty lists.
-        if permitted_roles:
-            permitted_roles_set = set(permitted_roles)
-            if user_roles.isdisjoint(permitted_roles_set):
-                raise HTTPException(status_code=403, detail=f"Your role does not have permission to access the '{feature_name}' feature.")
-        # If no restrictions are set, or the list is empty, access is allowed by default.
+        # FAIL-CLOSED LOGIC:
+        # If no roles are configured in the DB, only 'admin' is granted access by default.
+        if not permitted_roles:
+             if 'admin' not in user_roles:
+                 raise HTTPException(
+                     status_code=403, 
+                     detail=f"Access to '{feature_name}' is restricted to administrators."
+                 )
+             return
+
+        # Explicit allow-list check
+        permitted_roles_set = set(permitted_roles)
+        if user_roles.isdisjoint(permitted_roles_set):
+            raise HTTPException(
+                status_code=403, 
+                detail=f"Your role does not have permission to access the '{feature_name}' feature."
+            )
     return checker
 
 async def get_branding_visibility(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)) -> bool:
@@ -837,17 +853,24 @@ async def get_metrics(admin_user=Depends(get_admin_user)):
 # --- Profile Management Endpoints ---
 @router.get("/profile", response_model=UserProfile, tags=["User Profile"])
 async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Retrieves the profile for the authenticated user, including their roles and permissions."""
+    """
+    Retrieves the profile for the authenticated user, including their roles and permissions.
+    Implements a Fail-Closed logic for features: unconfigured features are hidden from non-admins.
+    """
     try:
+        # 1. Fetch the user's base profile
         profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
         profile_data = profile_res.data
         
+        # Create profile if it doesn't exist (fallback for new signups)
         if not profile_data:
             user_meta = user.user_metadata or {}
             profile_to_create = {
                 'id': str(user.id),
-                'first_name': user_meta.get('first_name'), 'last_name': user_meta.get('last_name'),
-                'company_name': user_meta.get('company_name'), 'production_role': user_meta.get('production_role'),
+                'first_name': user_meta.get('first_name'), 
+                'last_name': user_meta.get('last_name'),
+                'company_name': user_meta.get('company_name'), 
+                'production_role': user_meta.get('production_role'),
                 'production_role_other': user_meta.get('production_role_other'),
             }
             insert_response = supabase.table('profiles').insert(profile_to_create).execute()
@@ -855,36 +878,53 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
                  raise HTTPException(status_code=500, detail="Failed to create user profile.")
             profile_data = insert_response.data[0]
 
+        # 2. Get user roles using the fixed SECURITY DEFINER function
         user_roles = get_user_roles_sync(user.id, supabase)
         profile_data['roles'] = list(user_roles)
 
-        # --- Add permitted features ---
+        # 3. Add permitted features using FAIL-CLOSED logic
         try:
+            # Fetch the global list of restrictions
             all_restrictions_res = supabase.table('feature_restrictions').select('*').execute()
             restrictions_map = {item['feature_name']: item['permitted_roles'] for item in all_restrictions_res.data}
             
             permitted_features = []
             for feature in ALL_FEATURES:
-                permitted_roles = restrictions_map.get(feature["key"])
-                # An undefined restriction or an empty list (falsy) means the feature is accessible to all.
+                feature_key = feature["key"]
+                
+                # ADMIN BYPASS: Administrators see all features by default
+                if 'admin' in user_roles:
+                    permitted_features.append(feature_key)
+                    continue
+
+                permitted_roles = restrictions_map.get(feature_key)
+
+                # FAIL-CLOSED LOGIC:
+                # If no roles are configured (None or empty list), 
+                # non-admins are denied access.
                 if not permitted_roles:
-                    permitted_features.append(feature["key"])
-                # If a non-empty list of roles exists, the user must have one of those roles.
-                elif not user_roles.isdisjoint(set(permitted_roles)):
-                    permitted_features.append(feature["key"])
+                    continue 
+
+                # Explicit Allow-list Check:
+                # If the user has any of the roles listed in the restriction, they get access.
+                if not user_roles.isdisjoint(set(permitted_roles)):
+                    permitted_features.append(feature_key)
             
             profile_data['permitted_features'] = permitted_features
+            
         except Exception as e:
             print(f"Error fetching permitted features for user {user.id}: {e}")
             profile_data['permitted_features'] = []
 
+        # Default UI settings
         profile_data['feedback_button_text'] = "Feedback"
 
         return UserProfile(**profile_data)
+
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
+        
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
 async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

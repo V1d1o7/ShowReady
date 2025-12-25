@@ -6,6 +6,11 @@ import MultiSelect from '../../components/MultiSelect';
 import toast, { Toaster } from 'react-hot-toast';
 import { ShieldCheck, HelpCircle } from 'lucide-react';
 
+/**
+ * RbacView manages the Role-Based Access Control settings for the application.
+ * Updated to support a "Fail-Closed" model where unconfigured features are
+ * restricted to Administrators by default.
+ */
 const RbacView = () => {
     const { refetchProfile } = useAuth();
     const [restrictions, setRestrictions] = useState([]);
@@ -23,7 +28,7 @@ const RbacView = () => {
             ]);
             setRestrictions(restrictionsData);
             setOriginalRestrictions(JSON.parse(JSON.stringify(restrictionsData)));
-            // The MultiSelect component expects an array of objects with value and label properties.
+            // Format roles for the MultiSelect component
             const formattedRoles = (rolesData.roles || []).map(role => ({ value: role, label: role }));
             setRoles(formattedRoles);
         } catch (error) {
@@ -48,6 +53,8 @@ const RbacView = () => {
         setIsSaving(true);
         const toastId = toast.loading("Saving changes...");
 
+        // Note: Individual updates are still used here. 
+        // A bulk update endpoint is recommended for atomic operations.
         const promises = restrictions.map(feature => 
             api.updateFeatureRestriction(feature.feature_name, { permitted_roles: feature.permitted_roles })
         );
@@ -56,8 +63,6 @@ const RbacView = () => {
             await Promise.all(promises);
             toast.success("All changes saved successfully! Permissions will update on next page load.", { id: toastId, duration: 4000 });
             setOriginalRestrictions(JSON.parse(JSON.stringify(restrictions)));
-            // NOTE: The refetchProfile() call is removed for now to prevent a redirect bug.
-            // The user's permissions will be updated the next time they load the app or refresh the page.
         } catch (error) {
             toast.error(`Failed to save changes: ${error.message}`, { id: toastId });
         } finally {
@@ -91,7 +96,7 @@ const RbacView = () => {
                     )}
                 </div>
                 <p className="text-sm text-gray-400 mb-6">
-                    For each feature, select the roles that should have access. If no roles are selected for a feature, <span className="font-bold text-green-400">ALL</span> users will have access by default.
+                    For each feature, select the roles that should have access. If no roles are selected for a feature, access is restricted to <span className="font-bold text-amber-400">Administrators</span> by default.
                 </p>
                 <div className="space-y-5 max-h-[70vh] overflow-y-auto pr-2">
                     {restrictions.map(feature => (
@@ -112,7 +117,7 @@ const RbacView = () => {
                                     options={roles}
                                     selected={feature.permitted_roles}
                                     onChange={(selectedRoles) => handleRoleChange(feature.feature_name, selectedRoles)}
-                                    placeholder="All roles have access"
+                                    placeholder="Restricted to Admin"
                                 />
                             </div>
                         </div>

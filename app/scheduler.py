@@ -119,7 +119,7 @@ async def grim_reaper_task():
     supabase_admin = create_client(SUPABASE_URL, service_key)
 
     # Fetch the admin sender identity
-    sender_res = supabase_admin.table('sender_identities').select('*').eq('email', 'admin@showready.k-p.video').single().execute()
+    sender_res = supabase_admin.table('sender_identities').select('*').eq('email', 'showready@kuiper-productions.com').single().execute()
     if not sender_res.data:
         print("Admin sender identity not found. Cannot send emails.")
         return

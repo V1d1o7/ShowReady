@@ -8,6 +8,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { LayoutContext } from '../contexts/LayoutContext';
 import ConfirmationModal from '../components/ConfirmationModal';
 
+/**
+ * AccountView allows users to manage their profile, account settings, 
+ * and feature-specific configurations like SMTP and API keys.
+ * Updated to support conditional rendering based on RBAC permissions.
+ */
 const AccountView = () => {
     const navigate = useNavigate();
     const { profile, isLoading, refetchProfile, session } = useAuth();
@@ -35,12 +40,10 @@ const AccountView = () => {
     // Effect to control page scrolling
     useEffect(() => {
         setShouldScroll(true);
-        // Cleanup function to reset scroll behavior when the component unmounts
         return () => setShouldScroll(false);
     }, [setShouldScroll]);
 
     useEffect(() => {
-        // When the profile from the context changes, update the local editable state
         setEditableProfile(profile || {});
         setNewEmail(user?.email || '');
 
@@ -59,7 +62,7 @@ const AccountView = () => {
             setCompanyLogoUrl(null);
         }
         
-        // Fetch existing settings (minus password) to populate form
+        // Fetch existing SMTP settings to populate form
         api.getUserSmtpSettings()
             .then(data => setSmtpSettings(prev => ({ ...prev, ...data, smtp_password: '' })))
             .catch(err => console.log("No SMTP settings found yet"));
@@ -96,7 +99,7 @@ const AccountView = () => {
     const handleUpdateProfile = async () => {
         try {
             await api.updateProfile(editableProfile);
-            await refetchProfile(); // Refetch to get the latest profile data into context
+            await refetchProfile();
             alert("Profile updated successfully!");
         } catch (error) {
             alert(`Failed to update profile: ${error.message}`);
@@ -121,7 +124,7 @@ const AccountView = () => {
         try {
             await api.createUserSmtpSettings(smtpSettings);
             setSmtpStatus({ message: 'Settings saved successfully!', isError: false });
-            setSmtpSettings({ ...smtpSettings, smtp_password: '' }); // Clear password field
+            setSmtpSettings({ ...smtpSettings, smtp_password: '' });
         } catch (err) {
             setSmtpStatus({ message: `Failed to save settings: ${err.message}`, isError: true });
         }
@@ -176,6 +179,10 @@ const AccountView = () => {
         });
     };
 
+    // RBAC Feature Checks
+    const canAccessCommunications = profile?.permitted_features?.includes('communications');
+    const canAccessSwitchConfig = profile?.permitted_features?.includes('switch_config');
+
     if (isLoading) {
         return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Profile...</div></div>;
     }
@@ -188,37 +195,45 @@ const AccountView = () => {
                 </div>
             </header>
             <main className="space-y-8">
-                <Card>
-                    <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><Mail size={20} /> Communications Suite</h2>
-                    <p className="text-gray-400 mb-4">
-                        Manage your email templates for communicating with roster members, show crew, and sending reports.
-                    </p>
-                    <Link to="/settings/templates" className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">
-                        <Settings size={16} /> Manage Templates
-                    </Link>
-                </Card>
-                 <Card>
-                    <h2 className="text-xl font-bold mb-4 text-white">ShowReady Local Agent</h2>
-                    <p className="text-gray-400 mb-4">
-                        To push configurations to your network switches, you need to run the Local Agent application on a computer on the same network.
-                    </p>
-                    {agentKey ? (
-                        <div>
-                             <p className="text-gray-400">Your new API Key. Please copy this into the Local Agent application. This key will only be shown once.</p>
-                             <div className="mt-2 p-3 bg-gray-900 rounded-lg font-mono text-amber-400 break-all">{agentKey}</div>
-                        </div>
-                    ) : (
-                        <div className="flex items-end gap-2">
-                             <InputField label="API Key Name" value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="e.g., My Laptop" />
-                             <button onClick={handleGenerateApiKey} disabled={!apiKeyName} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white h-10 disabled:bg-gray-500">
-                                 <KeyRound size={16} /> Generate API Key
-                             </button>
-                        </div>
-                    )}
-                     <a href="#" onClick={(e) => { e.preventDefault(); alert("Download link will be available soon."); }} className="mt-4 w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">
-                        <Download size={16} /> Download Local Agent
-                    </a>
-                </Card>
+                {/* Conditional Rendering: Communications Suite */}
+                {canAccessCommunications && (
+                    <Card>
+                        <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><Mail size={20} /> Communications Suite</h2>
+                        <p className="text-gray-400 mb-4">
+                            Manage your email templates for communicating with roster members, show crew, and sending reports.
+                        </p>
+                        <Link to="/settings/templates" className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">
+                            <Settings size={16} /> Manage Templates
+                        </Link>
+                    </Card>
+                )}
+
+                {/* Conditional Rendering: Switch Configuration (Local Agent) */}
+                 {canAccessSwitchConfig && (
+                    <Card>
+                        <h2 className="text-xl font-bold mb-4 text-white">ShowReady Local Agent</h2>
+                        <p className="text-gray-400 mb-4">
+                            To push configurations to your network switches, you need to run the Local Agent application on a computer on the same network.
+                        </p>
+                        {agentKey ? (
+                            <div>
+                                 <p className="text-gray-400">Your new API Key. Please copy this into the Local Agent application. This key will only be shown once.</p>
+                                 <div className="mt-2 p-3 bg-gray-900 rounded-lg font-mono text-amber-400 break-all">{agentKey}</div>
+                            </div>
+                        ) : (
+                            <div className="flex items-end gap-2">
+                                 <InputField label="API Key Name" value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="e.g., My Laptop" />
+                                 <button onClick={handleGenerateApiKey} disabled={!apiKeyName} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white h-10 disabled:bg-gray-500">
+                                     <KeyRound size={16} /> Generate API Key
+                                 </button>
+                            </div>
+                        )}
+                         <a href="#" onClick={(e) => { e.preventDefault(); alert("Download link will be available soon."); }} className="mt-4 w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">
+                            <Download size={16} /> Download Local Agent
+                        </a>
+                    </Card>
+                 )}
+
                 <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">Profile Details</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
