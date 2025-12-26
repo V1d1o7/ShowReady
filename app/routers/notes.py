@@ -7,7 +7,7 @@ from postgrest import APIResponse
 
 router = APIRouter()
 
-@router.get("/notes/{parent_entity_type}/{parent_entity_id}", response_model=List[models.Note], dependencies=[Depends(feature_check("contextual_notes"))])
+@router.get("/notes/{parent_entity_type}/{parent_entity_id}", tags=["Notes"], response_model=List[models.Note], dependencies=[Depends(feature_check("contextual_notes"))])
 def get_notes_for_entity(
     parent_entity_type: str,
     parent_entity_id: str,
@@ -47,7 +47,7 @@ def get_notes_for_entity(
     return notes
 
 
-@router.post("/notes", response_model=models.Note, status_code=201, dependencies=[Depends(feature_check("contextual_notes"))])
+@router.post("/notes", tags=["Notes"], response_model=models.Note, status_code=201, dependencies=[Depends(feature_check("contextual_notes"))])
 def create_note(
     note: models.NoteCreate,
     supabase=Depends(get_supabase_client),
@@ -87,7 +87,7 @@ def create_note(
     return created_note
 
 
-@router.patch("/notes/{note_id}", response_model=models.Note)
+@router.patch("/notes/{note_id}", tags=["Notes"], response_model=models.Note)
 def update_note(
     note_id: str,
     note_update: models.NoteUpdate,
@@ -129,7 +129,7 @@ def update_note(
     return updated_note
 
 
-@router.delete("/notes/{note_id}", status_code=204)
+@router.delete("/notes/{note_id}", tags=["Notes"], status_code=204)
 def delete_note(
     note_id: str,
     supabase=Depends(get_supabase_client),

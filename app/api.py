@@ -106,7 +106,10 @@ async def get_user_from_token(authorization: str = Header(...)):
 
 # --- Admin Authentication Dependency ---
 async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Dependency that checks if the user has the 'global_admin' role."""
+    """
+    Dependency that checks if the user has the 'global_admin' role in the user_roles table.
+    Replaces previous logic to strictly enforce 'global_admin'.
+    """
     user_roles = get_user_roles_sync(user.id, supabase)
     if 'global_admin' not in user_roles:
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
@@ -175,7 +178,7 @@ async def admin_send_new_user_list_email(payload: NewUserListPayload, admin_user
 
 @router.post("/admin/send-email", tags=["Admin"])
 async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_admin_user)):
-    """Admin: Sends an email to users based on their tier."""
+    """Admin: Sends an email to users based on their tier or entitlement group."""
     try:
         admin_client = get_service_client()
 
@@ -184,18 +187,36 @@ async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_
             raise HTTPException(status_code=404, detail="Sender identity not found.")
         sender = SenderIdentity(**sender_res.data)
 
+        recipient_profiles = []
+
         if payload.to_tier == "all":
             profiles_res = admin_client.table('profiles').select('*').execute()
+            recipient_profiles = profiles_res.data
+        elif payload.to_tier == "beta":
+            # Fetch beta users from entitlements
+            entitlements_res = admin_client.table('user_entitlements').select('user_id').eq('is_beta', True).execute()
+            user_ids = [item['user_id'] for item in entitlements_res.data] if entitlements_res.data else []
+            if user_ids:
+                profiles_res = admin_client.table('profiles').select('*').in_('id', user_ids).execute()
+                recipient_profiles = profiles_res.data
+        elif payload.to_tier == "founding":
+            # Fetch founding users from entitlements
+            entitlements_res = admin_client.table('user_entitlements').select('user_id').eq('is_founding', True).execute()
+            user_ids = [item['user_id'] for item in entitlements_res.data] if entitlements_res.data else []
+            if user_ids:
+                profiles_res = admin_client.table('profiles').select('*').in_('id', user_ids).execute()
+                recipient_profiles = profiles_res.data
         else:
+            # Assume it's a specific tier name (core, build, run)
             tier_res = admin_client.table('tiers').select('id').eq('name', payload.to_tier).single().execute()
             if not tier_res.data:
                 raise HTTPException(status_code=404, detail=f"Tier '{payload.to_tier}' not found.")
             tier_id = tier_res.data['id']
             profiles_res = admin_client.table('profiles').select('*').eq('tier_id', tier_id).execute()
+            recipient_profiles = profiles_res.data
         
-        recipient_profiles = profiles_res.data
         if not recipient_profiles:
-            return JSONResponse(content={"message": f"No users found in tier '{payload.to_tier}'. No emails sent."}, status_code=200)
+            return JSONResponse(content={"message": f"No users found in group '{payload.to_tier}'. No emails sent."}, status_code=200)
 
         auth_users_response = admin_client.auth.admin.list_users()
         all_users_list = auth_users_response.users if hasattr(auth_users_response, 'users') else auth_users_response
@@ -220,7 +241,7 @@ async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An error occurred while sending emails: {str(e)}")
-
+        
 @router.get("/admin/tiers", tags=["Admin"])
 async def get_all_tiers(admin_user = Depends(get_admin_user)):
     """Admin: Gets a list of all unique user tiers for the email composer."""
@@ -348,13 +369,9 @@ async def get_overall_activity_status(admin_user=Depends(get_admin_user)):
         twenty_four_hours_ago = now - timedelta(hours=24)
 
         # Get admin user IDs to exclude them from activity status
-        admin_role_res = admin_client.table('roles').select('id').eq('name', 'admin').single().execute()
-        admin_role_id = admin_role_res.data['id'] if admin_role_res.data else None
-        
-        admin_user_ids = []
-        if admin_role_id:
-            admin_users_res = admin_client.table('user_roles').select('user_id').eq('role_id', admin_role_id).execute()
-            admin_user_ids = [item['user_id'] for item in admin_users_res.data]
+        # FIX: Query 'role' column directly, 'role_id' no longer exists
+        admin_users_res = admin_client.table('user_roles').select('user_id').eq('role', 'global_admin').execute()
+        admin_user_ids = [item['user_id'] for item in admin_users_res.data] if admin_users_res.data else []
 
         # Check for green status (active in last 5 mins)
         query_green = admin_client.table('profiles').select('id', count='exact').gt('last_active_at', five_minutes_ago.isoformat())
@@ -470,19 +487,21 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
 
 @router.put("/admin/users/{user_id}/tier", tags=["Admin"], status_code=204)
 async def update_user_tier(user_id: uuid.UUID, payload: UserTierUpdate, admin_user=Depends(get_admin_user)):
-    """Admin: Updates a user's tier."""
+    """Admin: Modify a user's tier (core, build, run)."""
     try:
         admin_client = get_service_client()
         
-        # 1. Validate the tier exists
+        # 1. Validate the tier exists and is canonical
+        if payload.tier not in ['core', 'build', 'run']:
+             raise HTTPException(status_code=400, detail=f"Invalid tier '{payload.tier}'. Must be 'core', 'build', or 'run'.")
+
         tier_res = admin_client.table('tiers').select('id').eq('name', payload.tier).single().execute()
         if not tier_res.data:
-            raise HTTPException(status_code=400, detail=f"Tier '{payload.tier}' does not exist.")
+            raise HTTPException(status_code=400, detail=f"Tier '{payload.tier}' configuration not found.")
         tier_id = tier_res.data['id']
         
         # 2. Update the user's profile
         admin_client.table('profiles').update({'tier_id': tier_id}).eq('id', str(user_id)).execute()
-        
         return
     except Exception as e:
         traceback.print_exc()
@@ -490,21 +509,23 @@ async def update_user_tier(user_id: uuid.UUID, payload: UserTierUpdate, admin_us
 
 @router.put("/admin/users/{user_id}/entitlement", tags=["Admin"], status_code=204)
 async def update_user_entitlement(user_id: uuid.UUID, payload: UserEntitlementUpdate, admin_user=Depends(get_admin_user)):
-    """Admin: Updates a user's 'is_founding' entitlement."""
+    """Admin: Updates a user's entitlements (Founding, Beta)."""
     try:
         admin_client = get_service_client()
         
-        update_data = {
-            'user_id': str(user_id),
-            'is_founding': payload.is_founding,
-        }
+        update_data = {'user_id': str(user_id)}
         
-        # Add timestamp only when granting the entitlement
-        if payload.is_founding:
-            update_data['founding_granted_at'] = datetime.now(timezone.utc).isoformat()
-        
+        # Handle is_founding
+        if payload.is_founding is not None:
+            update_data['is_founding'] = payload.is_founding
+            if payload.is_founding:
+                update_data['founding_granted_at'] = datetime.now(timezone.utc).isoformat()
+
+        # Handle is_beta
+        if payload.is_beta is not None:
+            update_data['is_beta'] = payload.is_beta
+
         admin_client.table('user_entitlements').upsert(update_data, on_conflict='user_id').execute()
-        
         return
     except Exception as e:
         traceback.print_exc()
@@ -670,70 +691,62 @@ ALL_FEATURES = [
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
-    """Helper to fetch user roles."""
-    user_roles_res = supabase.table('user_roles').select('role').eq('user_id', user_id).execute()
+    """
+    Helper to fetch user roles from the user_roles table.
+    Now uses the 'role' text column directly.
+    """
+    user_roles_res = supabase.table('user_roles').select('role').eq('user_id', str(user_id)).execute()
 
-    # Be defensive: response or data can be None depending on client behavior
-    data = None
-    if user_roles_res is not None:
-        data = getattr(user_roles_res, "data", None)
-
-    if not data:
-        return set()
-
-    # Filter out null/empty roles and force to strings
     roles = set()
-    for row in data:
-        role_val = row.get("role")
-        if role_val is None:
-            continue
-        role_str = str(role_val).strip()
-        if not role_str:
-            continue
-        roles.add(role_str)
-
+    if user_roles_res.data:
+        for row in user_roles_res.data:
+            role_val = row.get("role")
+            if role_val:
+                roles.add(str(role_val).strip())
     return roles
 
 def feature_check(feature_name: str, paywalled: bool = True):
     """
-    Dependency factory for checking feature access based on tiers and entitlements.
-    - Admins always have access.
-    - Tier check is primary.
-    - 'Founding' users can bypass paywalled features.
+    Dependency factory for checking feature access based on layered evaluation:
+    1. Admin Override (implicit for system ops, strict for feature gating) -> Admin does NOT get auto-access to features, strictly Tier/Entitlement based unless logic dictates otherwise.
+       (Prompt says: "Admin authority will never be used for product feature gating.")
+    2. Tier Check
+    3. Founding Paywall Override
     """
     async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-        # 1. Admin Override for system features, not product features
-        user_roles = get_user_roles_sync(user.id, supabase)
-        if 'global_admin' in user_roles:
-            # This check is for product features. Admins do not get automatic access.
-            # Admin-only API endpoints should be protected by the get_admin_user dependency.
-            pass
-
-        # 2. Fetch User's Tier and Entitlements
+        # 1. Fetch User Data (Tier & Entitlements)
+        # We assume get_profile logic or similar fetches this. To be efficient, we fetch directly.
+        
+        # Fetch Tier
         profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user.id).single().execute()
         if not profile_res.data:
             raise HTTPException(status_code=403, detail="User profile not found.")
         
-        entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
-        
         user_tier = profile_res.data.get('tiers', {}).get('name')
+        
+        # Fetch Entitlements
+        entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
         is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
 
-        # 3. Fetch Feature Restrictions
+        # 2. Fetch Feature Restrictions
         restriction_res = supabase.table('feature_restrictions').select('permitted_tiers').eq('feature_name', feature_name).maybe_single().execute()
-        
         permitted_tiers = restriction_res.data.get('permitted_tiers') if restriction_res and restriction_res.data else []
 
-        # 4. Tier Check
+        # 3. Layered Evaluation
+        
+        # Tier Check
         if user_tier and user_tier in permitted_tiers:
             return # Access granted by tier
 
-        # 5. Founding User Paywall Override
+        # Founding Paywall Override
+        # If the feature is paywalled AND user is founding, grant access.
+        # Note: Founding entitlement does NOT grant access to features that are restricted to specific tiers if not paywalled?
+        # Prompt says: "If the feature is paywalled and the user has the is_founding entitlement, access is granted."
         if paywalled and is_founding:
-            return # Access granted by founding entitlement for paywalled feature
+            return # Access granted by entitlement
 
-        # 6. Deny Access
-        raise HTTPException(status_code=403, detail=f"Your current plan does not include the '{feature_name}' feature.")
+        # 4. Deny Access
+        raise HTTPException(status_code=403, detail=f"Your current plan ({user_tier}) does not include the '{feature_name}' feature.")
     return checker
 
 async def get_branding_visibility(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)) -> bool:
@@ -890,13 +903,19 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
         user_roles = get_user_roles_sync(user.id, supabase)
         profile_data['roles'] = list(user_roles)
 
-        # 4. Get user entitlements
-        entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
+        # 4. Get user entitlements (Including is_beta)
+        entitlements_res = supabase.table('user_entitlements').select('*').eq('user_id', user.id).maybe_single().execute()
+        
+        entitlements_data = {
+            'is_founding': False,
+            'is_beta': False
+        }
+        
         if entitlements_res and entitlements_res.data:
-            profile_data['entitlements'] = {'is_founding': entitlements_res.data.get('is_founding', False)}
-        else:
-            profile_data['entitlements'] = {'is_founding': False}
-
+            entitlements_data['is_founding'] = entitlements_res.data.get('is_founding', False)
+            entitlements_data['is_beta'] = entitlements_res.data.get('is_beta', False)
+        
+        profile_data['entitlements'] = entitlements_data
 
         # 5. Calculate and add permitted features
         try:
@@ -942,7 +961,7 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-        
+
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
 async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

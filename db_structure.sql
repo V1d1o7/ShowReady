@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict IpqmMe3J1IFsfR1WDZH8JfUQPIADEMlNzCVQIK3KTPBOGkEkT4ndTDu5g9MNzNw
+\restrict ZiI9Bw33mym5FcANioa6dOalR7bXYLlyiyBe1PYdResgrTCvSedKZu4difRxSCi
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -963,23 +963,40 @@ CREATE FUNCTION public.handle_new_user() RETURNS trigger
 DECLARE
   f_name text;
   l_name text;
+  core_tier_id uuid;
 BEGIN
+  -- Get metadata
   f_name := new.raw_user_meta_data ->> 'first_name';
   l_name := new.raw_user_meta_data ->> 'last_name';
 
+  -- Validate
   IF f_name IS NULL OR f_name = '' THEN RAISE EXCEPTION 'First name is required.'; END IF;
   IF l_name IS NULL OR l_name = '' THEN RAISE EXCEPTION 'Last name is required.'; END IF;
 
-  -- Create Profile
-  INSERT INTO public.profiles (id, first_name, last_name, company_name, production_role, production_role_other)
-  VALUES (new.id, f_name, l_name, new.raw_user_meta_data ->> 'company_name', new.raw_user_meta_data ->> 'production_role', new.raw_user_meta_data ->> 'production_role_other');
+  -- Get the ID for the 'core' tier to assign as default
+  SELECT id INTO core_tier_id FROM public.tiers WHERE name = 'core';
 
-  -- Assign default 'user' role
-  INSERT INTO public.user_roles (user_id, role_id)
-  SELECT new.id, r.id FROM public.roles r WHERE r.name = 'user'
-  ON CONFLICT DO NOTHING;
+  -- Create Profile with Default Tier
+  INSERT INTO public.profiles (
+      id, 
+      first_name, 
+      last_name, 
+      company_name, 
+      production_role, 
+      production_role_other,
+      tier_id -- Assign the tier relation
+  )
+  VALUES (
+      new.id, 
+      f_name, 
+      l_name, 
+      new.raw_user_meta_data ->> 'company_name', 
+      new.raw_user_meta_data ->> 'production_role', 
+      new.raw_user_meta_data ->> 'production_role_other',
+      core_tier_id
+  );
 
-  -- Insert Branded Default Email Templates (HARDCODED DESIGNS)
+  -- Insert Default Email Templates (Existing logic preserved)
   INSERT INTO public.email_templates (user_id, category, name, subject, body, is_default)
   VALUES 
   (new.id, 'ROSTER', 'Default Roster Email', 'Availability Check: {{showName}}', 
@@ -1033,14 +1050,17 @@ ALTER FUNCTION public.increment_permissions_version() OWNER TO postgres;
 --
 
 CREATE FUNCTION public.is_global_admin() RETURNS boolean
-    LANGUAGE sql STABLE SECURITY DEFINER
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
     AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.user_roles
-    WHERE user_id = auth.uid()
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 
+    FROM public.user_roles 
+    WHERE user_id = auth.uid() 
       AND role = 'global_admin'
   );
+END;
 $$;
 
 
@@ -4005,7 +4025,8 @@ CREATE TABLE public.user_entitlements (
     user_id uuid NOT NULL,
     is_founding boolean DEFAULT false NOT NULL,
     founding_granted_at timestamp with time zone,
-    notes text
+    notes text,
+    is_beta boolean DEFAULT false NOT NULL
 );
 
 
@@ -4024,9 +4045,8 @@ COMMENT ON TABLE public.user_entitlements IS 'Stores special entitlements for us
 
 CREATE TABLE public.user_roles (
     user_id uuid NOT NULL,
-    role_id uuid NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    role text,
+    role text NOT NULL,
     granted_at timestamp with time zone DEFAULT now()
 );
 
@@ -4918,7 +4938,7 @@ ALTER TABLE ONLY public.user_entitlements
 --
 
 ALTER TABLE ONLY public.user_roles
-    ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role_id);
+    ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role);
 
 
 --
@@ -6036,14 +6056,6 @@ ALTER TABLE ONLY public.user_entitlements
 
 
 --
--- Name: user_roles user_roles_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.user_roles
-    ADD CONSTRAINT user_roles_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id) ON DELETE CASCADE;
-
-
---
 -- Name: user_roles user_roles_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6232,6 +6244,13 @@ CREATE POLICY "Allow admins to insert sender identities" ON public.sender_identi
 
 
 --
+-- Name: user_entitlements Allow admins to manage entitlements; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow admins to manage entitlements" ON public.user_entitlements USING (public.is_global_admin());
+
+
+--
 -- Name: feature_restrictions Allow admins to manage feature restrictions; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6249,7 +6268,7 @@ CREATE POLICY "Allow admins to manage roles" ON public.roles TO authenticated WI
 -- Name: user_roles Allow admins to manage user roles; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Allow admins to manage user roles" ON public.user_roles TO authenticated WITH CHECK (('admin'::text = ANY (public.get_my_roles())));
+CREATE POLICY "Allow admins to manage user roles" ON public.user_roles USING (public.is_global_admin());
 
 
 --
@@ -6524,6 +6543,13 @@ CREATE POLICY "Allow users to read default equipment templates" ON public.equipm
 --
 
 CREATE POLICY "Allow users to read default library folders" ON public.folders FOR SELECT USING ((is_default = true));
+
+
+--
+-- Name: user_entitlements Allow users to see their own entitlements; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to see their own entitlements" ON public.user_entitlements FOR SELECT TO authenticated USING ((auth.uid() = user_id));
 
 
 --
@@ -8779,5 +8805,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict IpqmMe3J1IFsfR1WDZH8JfUQPIADEMlNzCVQIK3KTPBOGkEkT4ndTDu5g9MNzNw
+\unrestrict ZiI9Bw33mym5FcANioa6dOalR7bXYLlyiyBe1PYdResgrTCvSedKZu4difRxSCi
 

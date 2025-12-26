@@ -42,6 +42,7 @@ class UserRole(BaseModel):
 # --- User Profile Model ---
 class UserEntitlements(BaseModel):
     is_founding: bool = False
+    is_beta: bool = False
 
 class UserProfile(BaseModel):
     id: uuid.UUID
@@ -74,7 +75,8 @@ class UserTierUpdate(BaseModel):
     tier: str
 
 class UserEntitlementUpdate(BaseModel):
-    is_founding: bool
+    is_founding: Optional[bool] = None
+    is_beta: Optional[bool] = None
 
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):

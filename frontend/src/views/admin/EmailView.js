@@ -99,7 +99,7 @@ const SenderManager = ({ senders, onUpdate }) => {
 const EmailComposer = ({ senders }) => {
     const [sendMode, setSendMode] = useState('users'); // 'users' or 'new_users'
     const [tiers, setTiers] = useState([]);
-    const [selectedTier, setSelectedTier] = useState('all');
+    const [selectedGroup, setSelectedGroup] = useState('all');
     const [newUsers, setNewUsers] = useState([]);
     const [senderId, setSenderId] = useState('');
     const [subject, setSubject] = useState('');
@@ -146,11 +146,12 @@ const EmailComposer = ({ senders }) => {
         let apiCall;
 
         if (sendMode === 'users') {
-            if (!selectedTier) {
-                toast.error("Please select a tier.");
+            if (!selectedGroup) {
+                toast.error("Please select a target group.");
                 return;
             }
-            payload = { to_tier: selectedTier, subject, body, sender_id: senderId };
+            // 'to_tier' is the backend field name, we re-use it for 'beta' and 'founding' keys
+            payload = { to_tier: selectedGroup, subject, body, sender_id: senderId };
             apiCall = api.adminSendEmail;
         } else { // 'new_users'
             if (newUsers.length === 0) {
@@ -193,10 +194,15 @@ const EmailComposer = ({ senders }) => {
 
                 {sendMode === 'users' ? (
                     <div>
-                        <label htmlFor="tier" className="block text-sm font-medium text-gray-300">User Tier</label>
-                        <select id="tier" value={selectedTier} onChange={(e) => setSelectedTier(e.target.value)} required className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                        <label htmlFor="group" className="block text-sm font-medium text-gray-300">Recipient Group</label>
+                        <select id="group" value={selectedGroup} onChange={(e) => setSelectedGroup(e.target.value)} required className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
                             <option value="all">All Users</option>
-                            {tiers.map(tier => <option key={tier} value={tier}>{tier}</option>)}
+                            <option value="beta">Beta Users (Entitlement)</option>
+                            <option value="founding">Founding Members (Entitlement)</option>
+                            <option disabled>──────────</option>
+                            {tiers.map(tier => (
+                                <option key={tier} value={tier}>{tier.charAt(0).toUpperCase() + tier.slice(1)} Tier</option>
+                            ))}
                         </select>
                     </div>
                 ) : (
@@ -242,7 +248,7 @@ const EmailComposer = ({ senders }) => {
                         value={body}
                         onChange={(e) => setBody(e.target.value)}
                         required
-                        placeholder="Type your message here. Use '----' on a new line to create a section break."
+                        placeholder="Type your message here. HTML is supported. Use '----' on a new line to create a section break."
                         className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg h-48 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500"
                     />
                 </div>

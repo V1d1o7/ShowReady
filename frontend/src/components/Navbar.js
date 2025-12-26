@@ -18,7 +18,8 @@ const Navbar = () => {
     useEffect(() => {
         const fetchActivityStatus = async () => {
             // Activity status polling is restricted to admins
-            if (profile?.roles?.includes('admin')) {
+            // UPDATED: Check for global_admin role
+            if (profile?.roles?.includes('global_admin')) {
                 try {
                     const response = await api.getOverallActivityStatus();
                     setActivityStatus(response.status);
@@ -125,7 +126,8 @@ const Navbar = () => {
                                     Account
                                 </NavLink>
                                 
-                                {profile?.roles?.includes('admin') && (
+                                {/* UPDATED: Check for global_admin role string */}
+                                {profile?.roles?.includes('global_admin') && (
                                     <NavLink
                                         to="/mgmt"
                                         className={({ isActive }) =>
