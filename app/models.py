@@ -769,3 +769,20 @@ class EmailTemplateCreate(BaseModel):
     name: str
     subject: str
     body: str
+
+# --- Collaboration Models ---
+class CollaboratorInvite(BaseModel):
+    email: str
+    role: str = "viewer" # 'viewer', 'editor', 'owner'
+
+class CollaboratorUpdate(BaseModel):
+    role: str
+
+class Collaborator(BaseModel):
+    user_id: uuid.UUID
+    show_id: int
+    role: str
+    # We will join profile info for display
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None

@@ -39,6 +39,7 @@ import ShowCrewView from './views/ShowCrewView';
 import HoursTrackingView from './views/HoursTrackingView';
 import SwitchConfigView from './views/SwitchConfigView';
 import TemplateManager from './views/settings/TemplateManager';
+import ShowTeamView from './views/ShowTeamView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -154,6 +155,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
                                                 <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
                                                 <Route path="vlan" element={<ProtectedRoute feature="vlan_management"><VLANView /></ProtectedRoute>} />
+                                                <Route path="team" element={<ProtectedRoute feature="show_collaboration"><ShowTeamView /></ProtectedRoute>} />
                                             </Route>
                                         </Route>
                                     </Route>

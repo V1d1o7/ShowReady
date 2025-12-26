@@ -12,6 +12,7 @@ else:
     # Fallback for environments where .env might not be present (like some containers)
     print("Warning: .env file not found. Relying on system environment variables.")
 
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,7 @@ from app.routers.switch_config import router as switch_config_router
 from app.routers.switch_agent import router as switch_agent_router
 from app.routers.notes import router as notes_router
 from app.routers.communications import router as communications_router
+from app.routers.collaboration import router as collaboration_router 
 from .scheduler import scheduler
 
 
@@ -117,6 +119,7 @@ async def track_user_activity(request: Request, call_next):
 # Include the API router BEFORE mounting the static files.
 # Routers with more specific paths should be included before
 # routers with more general paths.
+app.include_router(collaboration_router, prefix="/api") 
 app.include_router(vlan_router, prefix="/api/vlans")
 app.include_router(vlan_script_router, prefix="/api")
 app.include_router(feedback_router, prefix="/api")

@@ -4,7 +4,7 @@ import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare } from 'lucide-react';
 import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
@@ -50,6 +50,8 @@ const ShowSidebar = () => {
     const allTabs = [
         { path: 'info', label: 'Show Info', icon: Info, feature: null },
         { path: 'crew', label: 'Crew', icon: Users, feature: 'crew' },
+        // CORRECTED: Path is 'team' and feature is 'show_collaboration' per App.js
+        { path: 'team', label: 'Team Collab', icon: MessageSquare, feature: 'show_collaboration' },
         { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'hours_tracking' },
         { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },

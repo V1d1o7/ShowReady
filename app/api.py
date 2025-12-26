@@ -671,6 +671,31 @@ async def stop_impersonation(user=Depends(get_user), supabase: Client = Depends(
 
     return {"message": "Impersonation stopped"}
 
+
+# --- Admin Tier Management ---
+class TierLimitUpdate(BaseModel):
+    max_collaborators: Optional[int] = None # None means unlimited
+
+@router.get("/admin/tiers/detailed", tags=["Admin"])
+async def get_detailed_tiers(admin_user = Depends(get_admin_user)):
+    """Fetches tiers with their configured limits."""
+    admin_client = get_service_client()
+    res = admin_client.table('tiers').select('*').order('name').execute()
+    return res.data
+
+@router.put("/admin/tiers/{tier_name}/limits", tags=["Admin"])
+async def update_tier_limits(tier_name: str, limits: TierLimitUpdate, admin_user = Depends(get_admin_user)):
+    """Updates limits (like max collaborators) for a specific tier."""
+    admin_client = get_service_client()
+    # Accept -1 from frontend to represent "Unlimited" (NULL in DB)
+    val = limits.max_collaborators
+    if val is not None and val < 0: val = None
+    
+    res = admin_client.table('tiers').update({'max_collaborators': val}).eq('name', tier_name).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Tier not found.")
+    return res.data[0]
+
 # --- Feature Restriction Dependencies ---
 
 # A list of all manageable features in the system.
@@ -688,6 +713,7 @@ ALL_FEATURES = [
     {"key": "global_feedback_button", "name": "Global Feedback Button", "paywalled": False},
     {"key": "switch_config", "name": "Switch Configuration", "paywalled": True},
     {"key": "communications", "name": "Communications Suite", "paywalled": True},
+    {"key": "show_collaboration", "name": "Show Collaboration", "paywalled": True},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:

@@ -66,6 +66,26 @@ export const api = {
         headers: await getAuthHeader() 
     }).then(res => { if (!res.ok) throw new Error("Delete failed") }),
     
+    // --- Collaboration ---
+    getCollaborators: async (showId) => fetch(`/api/shows/${showId}/collaborators`, { headers: await getAuthHeader() }).then(handleResponse),
+    
+    inviteCollaborator: async (showId, email, role) => fetch(`/api/shows/${showId}/collaborators`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ email, role }),
+    }).then(handleResponse),
+    
+    updateCollaboratorRole: async (showId, userId, role) => fetch(`/api/shows/${showId}/collaborators/${userId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ role }),
+    }).then(handleResponse),
+    
+    removeCollaborator: async (showId, userId) => fetch(`/api/shows/${showId}/collaborators/${userId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
     // --- Assets & Feedback ---
     uploadLogo: async (formData) => fetch('/api/upload/logo', {
         method: 'POST',
@@ -419,7 +439,7 @@ export const api = {
     updateUserEntitlement: async (userId, isFounding, isBeta) => fetch(`/api/admin/users/${userId}/entitlement`, { 
         method: 'PUT', 
         headers: await getAuthHeader(), 
-        body: JSON.stringify({ is_founding: isFounding, is_beta: isBeta }), // Send both
+        body: JSON.stringify({ is_founding: isFounding, is_beta: isBeta }), 
     }).then(handleResponse),
     
     deactivateUser: async (userId) => fetch(`/api/admin/users/${userId}/deactivate`, { method: 'POST', headers: await getAuthHeader(), }).then(handleResponse),
@@ -433,6 +453,14 @@ export const api = {
     
     stopImpersonation: async () => fetch('/api/admin/impersonate/stop', { method: 'POST', headers: await getAuthHeader(), }).then(handleResponse),
     
+    // --- Admin Tier Limits ---
+    getDetailedTiers: async () => fetch('/api/admin/tiers/detailed', { headers: await getAuthHeader() }).then(handleResponse),
+    updateTierLimits: async (tierName, maxCollaborators) => fetch(`/api/admin/tiers/${tierName}/limits`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ max_collaborators: maxCollaborators }),
+    }).then(handleResponse),
+
     // --- Admin Email ---
     getAdminTiers: async () => fetch('/api/admin/tiers', { headers: await getAuthHeader() }).then(handleResponse),
     
