@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 9btlQEu1CoEQmQrIfgaOvedSgspmC2FNOyHJJCQeZuQllT91egVZ3y177M5SYXn
+\restrict IpqmMe3J1IFsfR1WDZH8JfUQPIADEMlNzCVQIK3KTPBOGkEkT4ndTDu5g9MNzNw
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -922,10 +922,10 @@ CREATE FUNCTION public.get_my_roles() RETURNS text[]
     LANGUAGE sql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
-    SELECT array_agg(roles.name)
-    FROM user_roles
-    JOIN roles ON user_roles.role_id = roles.id
-    WHERE user_roles.user_id = auth.uid()
+    SELECT array_agg(r.name)
+    FROM public.user_roles ur
+    JOIN public.roles r ON ur.role_id = r.id
+    WHERE ur.user_id = auth.uid();
 $$;
 
 
@@ -1027,6 +1027,24 @@ $$;
 
 
 ALTER FUNCTION public.increment_permissions_version() OWNER TO postgres;
+
+--
+-- Name: is_global_admin(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.is_global_admin() RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles
+    WHERE user_id = auth.uid()
+      AND role = 'global_admin'
+  );
+$$;
+
+
+ALTER FUNCTION public.is_global_admin() OWNER TO postgres;
 
 --
 -- Name: suspend_user_by_id(uuid); Type: FUNCTION; Schema: public; Owner: postgres
@@ -3552,7 +3570,7 @@ ALTER TABLE public.equipment_templates OWNER TO postgres;
 CREATE TABLE public.feature_restrictions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     feature_name text NOT NULL,
-    permitted_roles text[] NOT NULL,
+    permitted_tiers text[] NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -3663,7 +3681,8 @@ CREATE TABLE public.profiles (
     company_logo_path text,
     feedback_button_text text,
     last_active_at timestamp with time zone,
-    inactivity_warning_sent boolean DEFAULT false
+    inactivity_warning_sent boolean DEFAULT false,
+    tier_id uuid
 );
 
 
@@ -3951,6 +3970,19 @@ CREATE TABLE public.switch_push_jobs (
 ALTER TABLE public.switch_push_jobs OWNER TO postgres;
 
 --
+-- Name: tiers; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.tiers (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.tiers OWNER TO postgres;
+
+--
 -- Name: timesheet_entries; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3966,17 +3998,47 @@ CREATE TABLE public.timesheet_entries (
 ALTER TABLE public.timesheet_entries OWNER TO postgres;
 
 --
+-- Name: user_entitlements; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.user_entitlements (
+    user_id uuid NOT NULL,
+    is_founding boolean DEFAULT false NOT NULL,
+    founding_granted_at timestamp with time zone,
+    notes text
+);
+
+
+ALTER TABLE public.user_entitlements OWNER TO postgres;
+
+--
+-- Name: TABLE user_entitlements; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.user_entitlements IS 'Stores special entitlements for users (e.g. founding status).';
+
+
+--
 -- Name: user_roles; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.user_roles (
     user_id uuid NOT NULL,
     role_id uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    role text,
+    granted_at timestamp with time zone DEFAULT now()
 );
 
 
 ALTER TABLE public.user_roles OWNER TO postgres;
+
+--
+-- Name: TABLE user_roles; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.user_roles IS 'Assigns system-level roles to users (e.g. global_admin).';
+
 
 --
 -- Name: user_smtp_settings; Type: TABLE; Schema: public; Owner: postgres
@@ -4812,6 +4874,22 @@ ALTER TABLE ONLY public.switch_push_jobs
 
 
 --
+-- Name: tiers tiers_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.tiers
+    ADD CONSTRAINT tiers_name_key UNIQUE (name);
+
+
+--
+-- Name: tiers tiers_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.tiers
+    ADD CONSTRAINT tiers_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: timesheet_entries timesheet_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -4825,6 +4903,14 @@ ALTER TABLE ONLY public.timesheet_entries
 
 ALTER TABLE ONLY public.timesheet_entries
     ADD CONSTRAINT timesheet_entries_show_crew_id_date_key UNIQUE (show_crew_id, date);
+
+
+--
+-- Name: user_entitlements user_entitlements_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.user_entitlements
+    ADD CONSTRAINT user_entitlements_pkey PRIMARY KEY (user_id);
 
 
 --
@@ -5329,6 +5415,20 @@ CREATE INDEX audit_log_target_id_idx ON public.audit_log USING btree (target_id)
 
 
 --
+-- Name: user_entitlements_user_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX user_entitlements_user_id_idx ON public.user_entitlements USING btree (user_id);
+
+
+--
+-- Name: user_roles_user_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX user_roles_user_id_idx ON public.user_roles USING btree (user_id);
+
+
+--
 -- Name: ix_realtime_subscription_entity; Type: INDEX; Schema: realtime; Owner: supabase_admin
 --
 
@@ -5776,6 +5876,14 @@ ALTER TABLE ONLY public.profiles
 
 
 --
+-- Name: profiles profiles_tier_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.profiles
+    ADD CONSTRAINT profiles_tier_id_fkey FOREIGN KEY (tier_id) REFERENCES public.tiers(id);
+
+
+--
 -- Name: rack_equipment_instances rack_equipment_instances_rack_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5917,6 +6025,14 @@ ALTER TABLE ONLY public.switch_push_jobs
 
 ALTER TABLE ONLY public.timesheet_entries
     ADD CONSTRAINT timesheet_entries_show_crew_id_fkey FOREIGN KEY (show_crew_id) REFERENCES public.show_crew(id);
+
+
+--
+-- Name: user_entitlements user_entitlements_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.user_entitlements
+    ADD CONSTRAINT user_entitlements_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -6144,10 +6260,10 @@ CREATE POLICY "Allow admins to read all sender identities" ON public.sender_iden
 
 
 --
--- Name: roles Allow admins to read roles; Type: POLICY; Schema: public; Owner: postgres
+-- Name: roles Allow all authenticated users to read role names; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Allow admins to read roles" ON public.roles FOR SELECT TO authenticated USING (('admin'::text = ANY (public.get_my_roles())));
+CREATE POLICY "Allow all authenticated users to read role names" ON public.roles FOR SELECT TO authenticated USING (true);
 
 
 --
@@ -6287,6 +6403,30 @@ CREATE POLICY "Allow full access to own shows" ON public.shows USING ((auth.uid(
 
 
 --
+-- Name: timesheet_entries Allow full access to timesheet entries for show owners; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to timesheet entries for show owners" ON public.timesheet_entries USING ((EXISTS ( SELECT 1
+   FROM (public.show_crew sc
+     JOIN public.shows s ON ((sc.show_id = s.id)))
+  WHERE ((sc.id = timesheet_entries.show_crew_id) AND (s.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM (public.show_crew sc
+     JOIN public.shows s ON ((sc.show_id = s.id)))
+  WHERE ((sc.id = timesheet_entries.show_crew_id) AND (s.user_id = auth.uid())))));
+
+
+--
+-- Name: vlans Allow full access to vlans for show owners; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow full access to vlans for show owners" ON public.vlans USING ((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = vlans.show_id) AND (shows.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = vlans.show_id) AND (shows.user_id = auth.uid())))));
+
+
+--
 -- Name: profiles Allow individual user access to their own profile; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6321,6 +6461,34 @@ CREATE POLICY "Allow owner delete access" ON public.shows FOR DELETE USING ((EXI
 --
 
 CREATE POLICY "Allow read access for all authenticated users" ON public.switch_models FOR SELECT USING ((auth.role() = 'authenticated'::text));
+
+
+--
+-- Name: equipment_templates Allow users to delete their own equipment templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to delete their own equipment templates" ON public.equipment_templates FOR DELETE USING ((auth.uid() = user_id));
+
+
+--
+-- Name: folders Allow users to delete their own folders; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to delete their own folders" ON public.folders FOR DELETE USING ((auth.uid() = user_id));
+
+
+--
+-- Name: equipment_templates Allow users to insert their own equipment templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to insert their own equipment templates" ON public.equipment_templates FOR INSERT WITH CHECK (((auth.uid() = user_id) AND (is_default = false)));
+
+
+--
+-- Name: folders Allow users to insert their own folders; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to insert their own folders" ON public.folders FOR INSERT WITH CHECK (((auth.uid() = user_id) AND (is_default = false)));
 
 
 --
@@ -6363,6 +6531,34 @@ CREATE POLICY "Allow users to read default library folders" ON public.folders FO
 --
 
 CREATE POLICY "Allow users to see their own roles" ON public.user_roles FOR SELECT TO authenticated USING ((auth.uid() = user_id));
+
+
+--
+-- Name: equipment_templates Allow users to update their own equipment templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to update their own equipment templates" ON public.equipment_templates FOR UPDATE USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: folders Allow users to update their own folders; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to update their own folders" ON public.folders FOR UPDATE USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: equipment_templates Allow users to view equipment templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to view equipment templates" ON public.equipment_templates FOR SELECT USING (((auth.uid() = user_id) OR (is_default = true)));
+
+
+--
+-- Name: folders Allow users to view folders; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow users to view folders" ON public.folders FOR SELECT USING (((auth.uid() = user_id) OR (is_default = true)));
 
 
 --
@@ -6599,6 +6795,12 @@ ALTER TABLE public.switch_push_jobs ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.timesheet_entries ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_entitlements; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.user_entitlements ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: user_roles; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -7401,6 +7603,15 @@ GRANT ALL ON FUNCTION public.increment_permissions_version() TO service_role;
 
 
 --
+-- Name: FUNCTION is_global_admin(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.is_global_admin() TO anon;
+GRANT ALL ON FUNCTION public.is_global_admin() TO authenticated;
+GRANT ALL ON FUNCTION public.is_global_admin() TO service_role;
+
+
+--
 -- Name: FUNCTION suspend_user_by_id(target_user_id uuid); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7783,6 +7994,7 @@ GRANT ALL ON TABLE extensions.pg_stat_statements_info TO dashboard_user;
 GRANT ALL ON TABLE public.agent_api_keys TO anon;
 GRANT ALL ON TABLE public.agent_api_keys TO authenticated;
 GRANT ALL ON TABLE public.agent_api_keys TO service_role;
+GRANT ALL ON TABLE public.agent_api_keys TO supabase_admin;
 
 
 --
@@ -7792,6 +8004,7 @@ GRANT ALL ON TABLE public.agent_api_keys TO service_role;
 GRANT ALL ON TABLE public.audit_log TO anon;
 GRANT ALL ON TABLE public.audit_log TO authenticated;
 GRANT ALL ON TABLE public.audit_log TO service_role;
+GRANT ALL ON TABLE public.audit_log TO supabase_admin;
 
 
 --
@@ -7810,6 +8023,7 @@ GRANT ALL ON SEQUENCE public.audit_log_id_seq TO service_role;
 GRANT ALL ON TABLE public.cables TO anon;
 GRANT ALL ON TABLE public.cables TO authenticated;
 GRANT ALL ON TABLE public.cables TO service_role;
+GRANT ALL ON TABLE public.cables TO supabase_admin;
 
 
 --
@@ -7819,6 +8033,7 @@ GRANT ALL ON TABLE public.cables TO service_role;
 GRANT ALL ON TABLE public.connections TO anon;
 GRANT ALL ON TABLE public.connections TO authenticated;
 GRANT ALL ON TABLE public.connections TO service_role;
+GRANT ALL ON TABLE public.connections TO supabase_admin;
 
 
 --
@@ -7828,6 +8043,7 @@ GRANT ALL ON TABLE public.connections TO service_role;
 GRANT ALL ON TABLE public.connector_templates TO anon;
 GRANT ALL ON TABLE public.connector_templates TO authenticated;
 GRANT ALL ON TABLE public.connector_templates TO service_role;
+GRANT ALL ON TABLE public.connector_templates TO supabase_admin;
 
 
 --
@@ -7837,6 +8053,7 @@ GRANT ALL ON TABLE public.connector_templates TO service_role;
 GRANT ALL ON TABLE public.email_templates TO anon;
 GRANT ALL ON TABLE public.email_templates TO authenticated;
 GRANT ALL ON TABLE public.email_templates TO service_role;
+GRANT ALL ON TABLE public.email_templates TO supabase_admin;
 
 
 --
@@ -7846,6 +8063,7 @@ GRANT ALL ON TABLE public.email_templates TO service_role;
 GRANT ALL ON TABLE public.equipment_templates TO anon;
 GRANT ALL ON TABLE public.equipment_templates TO authenticated;
 GRANT ALL ON TABLE public.equipment_templates TO service_role;
+GRANT ALL ON TABLE public.equipment_templates TO supabase_admin;
 
 
 --
@@ -7855,6 +8073,7 @@ GRANT ALL ON TABLE public.equipment_templates TO service_role;
 GRANT ALL ON TABLE public.feature_restrictions TO anon;
 GRANT ALL ON TABLE public.feature_restrictions TO authenticated;
 GRANT ALL ON TABLE public.feature_restrictions TO service_role;
+GRANT ALL ON TABLE public.feature_restrictions TO supabase_admin;
 
 
 --
@@ -7864,6 +8083,7 @@ GRANT ALL ON TABLE public.feature_restrictions TO service_role;
 GRANT ALL ON TABLE public.folders TO anon;
 GRANT ALL ON TABLE public.folders TO authenticated;
 GRANT ALL ON TABLE public.folders TO service_role;
+GRANT ALL ON TABLE public.folders TO supabase_admin;
 
 
 --
@@ -7873,6 +8093,7 @@ GRANT ALL ON TABLE public.folders TO service_role;
 GRANT ALL ON TABLE public.looms TO anon;
 GRANT ALL ON TABLE public.looms TO authenticated;
 GRANT ALL ON TABLE public.looms TO service_role;
+GRANT ALL ON TABLE public.looms TO supabase_admin;
 
 
 --
@@ -7882,6 +8103,7 @@ GRANT ALL ON TABLE public.looms TO service_role;
 GRANT ALL ON TABLE public.notes TO anon;
 GRANT ALL ON TABLE public.notes TO authenticated;
 GRANT ALL ON TABLE public.notes TO service_role;
+GRANT ALL ON TABLE public.notes TO supabase_admin;
 
 
 --
@@ -7891,6 +8113,7 @@ GRANT ALL ON TABLE public.notes TO service_role;
 GRANT ALL ON TABLE public.panel_layouts TO anon;
 GRANT ALL ON TABLE public.panel_layouts TO authenticated;
 GRANT ALL ON TABLE public.panel_layouts TO service_role;
+GRANT ALL ON TABLE public.panel_layouts TO supabase_admin;
 
 
 --
@@ -7900,6 +8123,7 @@ GRANT ALL ON TABLE public.panel_layouts TO service_role;
 GRANT ALL ON TABLE public.permissions_meta TO anon;
 GRANT ALL ON TABLE public.permissions_meta TO authenticated;
 GRANT ALL ON TABLE public.permissions_meta TO service_role;
+GRANT ALL ON TABLE public.permissions_meta TO supabase_admin;
 
 
 --
@@ -7909,6 +8133,7 @@ GRANT ALL ON TABLE public.permissions_meta TO service_role;
 GRANT ALL ON TABLE public.profiles TO anon;
 GRANT ALL ON TABLE public.profiles TO authenticated;
 GRANT ALL ON TABLE public.profiles TO service_role;
+GRANT ALL ON TABLE public.profiles TO supabase_admin;
 
 
 --
@@ -7918,6 +8143,7 @@ GRANT ALL ON TABLE public.profiles TO service_role;
 GRANT ALL ON TABLE public.rack_equipment_instances TO anon;
 GRANT ALL ON TABLE public.rack_equipment_instances TO authenticated;
 GRANT ALL ON TABLE public.rack_equipment_instances TO service_role;
+GRANT ALL ON TABLE public.rack_equipment_instances TO supabase_admin;
 
 
 --
@@ -7927,6 +8153,7 @@ GRANT ALL ON TABLE public.rack_equipment_instances TO service_role;
 GRANT ALL ON TABLE public.racks TO anon;
 GRANT ALL ON TABLE public.racks TO authenticated;
 GRANT ALL ON TABLE public.racks TO service_role;
+GRANT ALL ON TABLE public.racks TO supabase_admin;
 
 
 --
@@ -7936,6 +8163,7 @@ GRANT ALL ON TABLE public.racks TO service_role;
 GRANT ALL ON TABLE public.roles TO anon;
 GRANT ALL ON TABLE public.roles TO authenticated;
 GRANT ALL ON TABLE public.roles TO service_role;
+GRANT ALL ON TABLE public.roles TO supabase_admin;
 
 
 --
@@ -7945,6 +8173,7 @@ GRANT ALL ON TABLE public.roles TO service_role;
 GRANT ALL ON TABLE public.roster TO anon;
 GRANT ALL ON TABLE public.roster TO authenticated;
 GRANT ALL ON TABLE public.roster TO service_role;
+GRANT ALL ON TABLE public.roster TO supabase_admin;
 
 
 --
@@ -7954,6 +8183,7 @@ GRANT ALL ON TABLE public.roster TO service_role;
 GRANT ALL ON TABLE public.sender_identities TO anon;
 GRANT ALL ON TABLE public.sender_identities TO authenticated;
 GRANT ALL ON TABLE public.sender_identities TO service_role;
+GRANT ALL ON TABLE public.sender_identities TO supabase_admin;
 
 
 --
@@ -7963,6 +8193,7 @@ GRANT ALL ON TABLE public.sender_identities TO service_role;
 GRANT ALL ON TABLE public.show_collaborators TO anon;
 GRANT ALL ON TABLE public.show_collaborators TO authenticated;
 GRANT ALL ON TABLE public.show_collaborators TO service_role;
+GRANT ALL ON TABLE public.show_collaborators TO supabase_admin;
 
 
 --
@@ -7981,6 +8212,7 @@ GRANT ALL ON SEQUENCE public.show_collaborators_id_seq TO service_role;
 GRANT ALL ON TABLE public.show_crew TO anon;
 GRANT ALL ON TABLE public.show_crew TO authenticated;
 GRANT ALL ON TABLE public.show_crew TO service_role;
+GRANT ALL ON TABLE public.show_crew TO supabase_admin;
 
 
 --
@@ -7990,6 +8222,7 @@ GRANT ALL ON TABLE public.show_crew TO service_role;
 GRANT ALL ON TABLE public.shows TO anon;
 GRANT ALL ON TABLE public.shows TO authenticated;
 GRANT ALL ON TABLE public.shows TO service_role;
+GRANT ALL ON TABLE public.shows TO supabase_admin;
 
 
 --
@@ -7999,6 +8232,7 @@ GRANT ALL ON TABLE public.shows TO service_role;
 GRANT ALL ON TABLE public.shows_duplicate TO anon;
 GRANT ALL ON TABLE public.shows_duplicate TO authenticated;
 GRANT ALL ON TABLE public.shows_duplicate TO service_role;
+GRANT ALL ON TABLE public.shows_duplicate TO supabase_admin;
 
 
 --
@@ -8026,6 +8260,7 @@ GRANT ALL ON SEQUENCE public.shows_id_seq TO service_role;
 GRANT ALL ON TABLE public.sso_configs TO anon;
 GRANT ALL ON TABLE public.sso_configs TO authenticated;
 GRANT ALL ON TABLE public.sso_configs TO service_role;
+GRANT ALL ON TABLE public.sso_configs TO supabase_admin;
 
 
 --
@@ -8035,6 +8270,7 @@ GRANT ALL ON TABLE public.sso_configs TO service_role;
 GRANT ALL ON TABLE public.switch_configs TO anon;
 GRANT ALL ON TABLE public.switch_configs TO authenticated;
 GRANT ALL ON TABLE public.switch_configs TO service_role;
+GRANT ALL ON TABLE public.switch_configs TO supabase_admin;
 
 
 --
@@ -8044,6 +8280,7 @@ GRANT ALL ON TABLE public.switch_configs TO service_role;
 GRANT ALL ON TABLE public.switch_models TO anon;
 GRANT ALL ON TABLE public.switch_models TO authenticated;
 GRANT ALL ON TABLE public.switch_models TO service_role;
+GRANT ALL ON TABLE public.switch_models TO supabase_admin;
 
 
 --
@@ -8053,6 +8290,16 @@ GRANT ALL ON TABLE public.switch_models TO service_role;
 GRANT ALL ON TABLE public.switch_push_jobs TO anon;
 GRANT ALL ON TABLE public.switch_push_jobs TO authenticated;
 GRANT ALL ON TABLE public.switch_push_jobs TO service_role;
+GRANT ALL ON TABLE public.switch_push_jobs TO supabase_admin;
+
+
+--
+-- Name: TABLE tiers; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.tiers TO anon;
+GRANT ALL ON TABLE public.tiers TO authenticated;
+GRANT ALL ON TABLE public.tiers TO service_role;
 
 
 --
@@ -8062,6 +8309,16 @@ GRANT ALL ON TABLE public.switch_push_jobs TO service_role;
 GRANT ALL ON TABLE public.timesheet_entries TO anon;
 GRANT ALL ON TABLE public.timesheet_entries TO authenticated;
 GRANT ALL ON TABLE public.timesheet_entries TO service_role;
+GRANT ALL ON TABLE public.timesheet_entries TO supabase_admin;
+
+
+--
+-- Name: TABLE user_entitlements; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.user_entitlements TO anon;
+GRANT ALL ON TABLE public.user_entitlements TO authenticated;
+GRANT ALL ON TABLE public.user_entitlements TO service_role;
 
 
 --
@@ -8071,6 +8328,7 @@ GRANT ALL ON TABLE public.timesheet_entries TO service_role;
 GRANT ALL ON TABLE public.user_roles TO anon;
 GRANT ALL ON TABLE public.user_roles TO authenticated;
 GRANT ALL ON TABLE public.user_roles TO service_role;
+GRANT ALL ON TABLE public.user_roles TO supabase_admin;
 
 
 --
@@ -8080,6 +8338,7 @@ GRANT ALL ON TABLE public.user_roles TO service_role;
 GRANT ALL ON TABLE public.user_smtp_settings TO anon;
 GRANT ALL ON TABLE public.user_smtp_settings TO authenticated;
 GRANT ALL ON TABLE public.user_smtp_settings TO service_role;
+GRANT ALL ON TABLE public.user_smtp_settings TO supabase_admin;
 
 
 --
@@ -8089,6 +8348,7 @@ GRANT ALL ON TABLE public.user_smtp_settings TO service_role;
 GRANT ALL ON TABLE public.vlans TO anon;
 GRANT ALL ON TABLE public.vlans TO authenticated;
 GRANT ALL ON TABLE public.vlans TO service_role;
+GRANT ALL ON TABLE public.vlans TO supabase_admin;
 
 
 --
@@ -8519,5 +8779,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 9btlQEu1CoEQmQrIfgaOvedSgspmC2FNOyHJJCQeZuQllT91egVZ3y177M5SYXn
+\unrestrict IpqmMe3J1IFsfR1WDZH8JfUQPIADEMlNzCVQIK3KTPBOGkEkT4ndTDu5g9MNzNw
 
