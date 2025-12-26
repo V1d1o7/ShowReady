@@ -98,8 +98,8 @@ const SenderManager = ({ senders, onUpdate }) => {
 // --- Email Composer Component ---
 const EmailComposer = ({ senders }) => {
     const [sendMode, setSendMode] = useState('users'); // 'users' or 'new_users'
-    const [roles, setRoles] = useState([]);
-    const [selectedRole, setSelectedRole] = useState('all');
+    const [tiers, setTiers] = useState([]);
+    const [selectedTier, setSelectedTier] = useState('all');
     const [newUsers, setNewUsers] = useState([]);
     const [senderId, setSenderId] = useState('');
     const [subject, setSubject] = useState('');
@@ -116,9 +116,9 @@ const EmailComposer = ({ senders }) => {
     }, [senders, senderId]);
 
     useEffect(() => {
-        api.getAdminUserRoles()
-            .then(data => setRoles(data.roles || []))
-            .catch(err => console.error("Failed to fetch roles:", err));
+        api.getAdminTiers()
+            .then(data => setTiers(data.tiers || []))
+            .catch(err => console.error("Failed to fetch tiers:", err));
     }, []);
 
     const handleAddUser = (e) => {
@@ -146,11 +146,11 @@ const EmailComposer = ({ senders }) => {
         let apiCall;
 
         if (sendMode === 'users') {
-            if (!selectedRole) {
-                toast.error("Please select a role.");
+            if (!selectedTier) {
+                toast.error("Please select a tier.");
                 return;
             }
-            payload = { to_role: selectedRole, subject, body, sender_id: senderId };
+            payload = { to_tier: selectedTier, subject, body, sender_id: senderId };
             apiCall = api.adminSendEmail;
         } else { // 'new_users'
             if (newUsers.length === 0) {
@@ -193,10 +193,10 @@ const EmailComposer = ({ senders }) => {
 
                 {sendMode === 'users' ? (
                     <div>
-                        <label htmlFor="role" className="block text-sm font-medium text-gray-300">User Role</label>
-                        <select id="role" value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} required className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
+                        <label htmlFor="tier" className="block text-sm font-medium text-gray-300">User Tier</label>
+                        <select id="tier" value={selectedTier} onChange={(e) => setSelectedTier(e.target.value)} required className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm">
                             <option value="all">All Users</option>
-                            {roles.map(role => <option key={role} value={role}>{role}</option>)}
+                            {tiers.map(tier => <option key={tier} value={tier}>{tier}</option>)}
                         </select>
                     </div>
                 ) : (

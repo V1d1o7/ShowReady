@@ -24,7 +24,7 @@ from .models import (
     SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
     Loom, LoomCreate, LoomUpdate, LoomWithCables,
     Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload,
-    ImpersonateRequest, Token, UserRolesUpdate, User
+    ImpersonateRequest, Token, UserRolesUpdate, User, UserTierUpdate, UserEntitlementUpdate
 )
 from .pdf_utils import (
     generate_loom_label_pdf, 
@@ -106,45 +106,16 @@ async def get_user_from_token(authorization: str = Header(...)):
 
 # --- Admin Authentication Dependency ---
 async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Dependency that checks if the user has the 'admin' role."""
-    try:
-        # Check if the user has the 'admin' role in the user_roles table
-        # Uses the authenticated client to respect RLS
-        user_roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
-        
-        if not user_roles_res.data:
-            raise HTTPException(status_code=403, detail="User has no assigned roles.")
-
-        roles = [role['roles']['name'] for role in user_roles_res.data if 'roles' in role and role['roles']]
-        
-        if 'admin' not in roles:
-            raise HTTPException(status_code=403, detail="User is not an administrator.")
-            
-        return user
-    except Exception as e:
-        # Log the exception for debugging purposes
-        traceback.print_exc()
+    """Dependency that checks if the user has the 'global_admin' role."""
+    user_roles = get_user_roles_sync(user.id, supabase)
+    if 'global_admin' not in user_roles:
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
-
-async def get_beta_user(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Verifies beta or admin role using the user's RLS context."""
-    if not user: raise HTTPException(status_code=401, detail="Not authenticated")
-    
-    res = supabase.table('user_roles').select('roles(name)').eq('user_id', user.id).execute()
-    
-    if not res.data:
-        if user.email == os.environ.get("ADMIN_EMAIL"): return user
-        raise HTTPException(status_code=403, detail="User has no assigned roles.")
-    
-    roles = [r['roles']['name'] for r in res.data if r.get('roles')]
-    if 'beta' not in roles and 'admin' not in roles:
-        raise HTTPException(status_code=403, detail="User does not have beta access.")
     return user
 
 # --- Email Payload Models ---
 class AdminEmailPayload(BaseModel):
     sender_id: uuid.UUID
-    to_role: str
+    to_tier: str
     subject: str
     body: str
 
@@ -201,54 +172,33 @@ async def admin_send_new_user_list_email(payload: NewUserListPayload, admin_user
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An error occurred while sending emails: {str(e)}")
 
+
 @router.post("/admin/send-email", tags=["Admin"])
 async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_admin_user)):
-    """Admin: Sends an email to users based on their role."""
+    """Admin: Sends an email to users based on their tier."""
     try:
-        # Use Service Client for Admin API access
         admin_client = get_service_client()
 
-        # Fetch the selected sender identity
         sender_res = admin_client.table('sender_identities').select('*').eq('id', str(payload.sender_id)).single().execute()
         if not sender_res.data:
             raise HTTPException(status_code=404, detail="Sender identity not found.")
         sender = SenderIdentity(**sender_res.data)
 
-        # 1. Fetch users based on role criteria
-        if payload.to_role == "all":
+        if payload.to_tier == "all":
             profiles_res = admin_client.table('profiles').select('*').execute()
-            recipient_profiles = profiles_res.data
         else:
-            # Find the role_id for the given role name
-            role_res = admin_client.table('roles').select('id').eq('name', payload.to_role).single().execute()
-            if not role_res.data:
-                raise HTTPException(status_code=404, detail=f"Role '{payload.to_role}' not found.")
-            role_id = role_res.data['id']
-            
-            # Find all user_ids with that role
-            user_roles_res = admin_client.table('user_roles').select('user_id').eq('role_id', role_id).execute()
-            if not user_roles_res.data:
-                 return JSONResponse(content={"message": f"No users found with the role '{payload.to_role}'. No emails sent."}, status_code=200)
-            
-            user_ids = [item['user_id'] for item in user_roles_res.data]
-            
-            # Fetch the profiles for those user_ids
-            profiles_res = admin_client.table('profiles').select('*').in_('id', user_ids).execute()
-            recipient_profiles = profiles_res.data
-
+            tier_res = admin_client.table('tiers').select('id').eq('name', payload.to_tier).single().execute()
+            if not tier_res.data:
+                raise HTTPException(status_code=404, detail=f"Tier '{payload.to_tier}' not found.")
+            tier_id = tier_res.data['id']
+            profiles_res = admin_client.table('profiles').select('*').eq('tier_id', tier_id).execute()
+        
+        recipient_profiles = profiles_res.data
         if not recipient_profiles:
-            return JSONResponse(content={"message": f"No users found with the role '{payload.to_role}'. No emails sent."}, status_code=200)
-        
-        # 2. Get all users from auth schema using Service Key
-        auth_users_response = admin_client.auth.admin.list_users()
-        
-        if isinstance(auth_users_response, list):
-            all_users_list = auth_users_response
-        elif hasattr(auth_users_response, 'users'):
-            all_users_list = auth_users_response.users
-        else:
-            all_users_list = []
+            return JSONResponse(content={"message": f"No users found in tier '{payload.to_tier}'. No emails sent."}, status_code=200)
 
+        auth_users_response = admin_client.auth.admin.list_users()
+        all_users_list = auth_users_response.users if hasattr(auth_users_response, 'users') else auth_users_response
         email_map = {user.id: user.email for user in all_users_list}
 
         sent_count = 0
@@ -256,7 +206,6 @@ async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_
         for profile in recipient_profiles:
             user_id = profile.get('id')
             user_email = email_map.get(user_id)
-            
             if user_email:
                 try:
                     html_content = create_email_html(profile, payload.body)
@@ -272,23 +221,18 @@ async def admin_send_email(payload: AdminEmailPayload, admin_user = Depends(get_
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An error occurred while sending emails: {str(e)}")
 
-
-@router.get("/admin/user-roles", tags=["Admin"])
-async def get_user_roles(admin_user = Depends(get_admin_user)):
-    """Admin: Gets a list of all unique user roles for the email composer."""
+@router.get("/admin/tiers", tags=["Admin"])
+async def get_all_tiers(admin_user = Depends(get_admin_user)):
+    """Admin: Gets a list of all unique user tiers for the email composer."""
     try:
-        # Use Service Client to ensure we can read all roles regardless of RLS
         admin_client = get_service_client()
-        
-        roles_response = admin_client.table('roles').select('name').execute()
-        if not roles_response.data:
-            return {"roles": []}
-        
-        all_roles = sorted([role['name'] for role in roles_response.data])
-        return {"roles": all_roles}
-        
+        tiers_response = admin_client.table('tiers').select('name').execute()
+        if not tiers_response.data:
+            return {"tiers": []}
+        all_tiers = sorted([tier['name'] for tier in tiers_response.data])
+        return {"tiers": all_tiers}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch roles: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch tiers: {str(e)}")
 
 # --- Sender Identity Management ---
 @router.get("/admin/senders", tags=["Admin"], response_model=List[SenderIdentityPublic])
@@ -445,47 +389,51 @@ class UserWithProfile(UserProfile):
 @router.get("/admin/users", tags=["Admin"], response_model=List[UserWithProfile])
 async def get_all_users(admin_user=Depends(get_admin_user)):
     try:
-        # Use Service Client
         admin_client = get_service_client()
         
+        # 1. Fetch all authenticated users
         auth_users_response = admin_client.auth.admin.list_users()
-        
-        if isinstance(auth_users_response, list):
-            auth_users_res = auth_users_response
-        elif hasattr(auth_users_response, 'users'):
-            auth_users_res = auth_users_response.users
-        else:
-            auth_users_res = []
+        auth_users_list = auth_users_response.users if hasattr(auth_users_response, 'users') else auth_users_response
+        auth_users_map = {user.id: user for user in auth_users_list}
+        user_ids = list(auth_users_map.keys())
 
-        auth_users_map = {user.id: user for user in auth_users_res}
-        
-        # Use admin client for profiles to ignore RLS
-        profiles_res = admin_client.table('profiles').select('*').in_('id', list(auth_users_map.keys())).execute()
-        
-        roles_res = admin_client.table('user_roles').select('user_id, roles(name)').execute()
+        # 2. Fetch all profiles with their tiers
+        profiles_res = admin_client.table('profiles').select('*, tier:tiers(name)').in_('id', user_ids).execute()
+        profiles_map = {p['id']: p for p in profiles_res.data}
+
+        # 3. Fetch all roles
+        roles_res = admin_client.table('user_roles').select('user_id, role').in_('user_id', user_ids).execute()
         roles_map = {}
-        for item in roles_res.data:
-            if item['user_id'] not in roles_map:
-                roles_map[item['user_id']] = []
-            if item.get('roles'):
-                roles_map[item['user_id']].append(item['roles']['name'])
+        for r in roles_res.data:
+            roles_map.setdefault(r['user_id'], []).append(r['role'])
 
+        # 4. Fetch all entitlements
+        entitlements_res = admin_client.table('user_entitlements').select('user_id, is_founding').in_('user_id', user_ids).execute()
+        entitlements_map = {e['user_id']: e for e in entitlements_res.data}
+
+        # 5. Combine all data
         users_with_profiles = []
-        for profile in profiles_res.data:
-            user_id = profile['id']
-            auth_user = auth_users_map.get(user_id)
-            if auth_user:
-                user_roles = roles_map.get(user_id, [])
-                
-                user_data = {
-                    **profile,
-                    "email": auth_user.email,
-                    "roles": user_roles,
-                    "status": profile.get('status', 'active'),
-                    # Disregard admin activity by setting last_active_at to None
-                    "last_active_at": None if 'admin' in user_roles else profile.get('last_active_at')
-                }
-                users_with_profiles.append(UserWithProfile(**user_data))
+        for user_id, auth_user in auth_users_map.items():
+            profile = profiles_map.get(user_id)
+            if not profile:
+                continue
+
+            user_roles = roles_map.get(user_id, [])
+            entitlements = entitlements_map.get(user_id, {})
+            tier_data = profile.get('tier')
+
+            user_data = {
+                **profile,
+                "email": auth_user.email,
+                "roles": user_roles,
+                "tier": tier_data['name'] if tier_data else None,
+                "entitlements": {
+                    "is_founding": entitlements.get('is_founding', False)
+                },
+                "status": profile.get('status', 'active'),
+                "last_active_at": None if 'global_admin' in user_roles else profile.get('last_active_at')
+            }
+            users_with_profiles.append(UserWithProfile(**user_data))
                 
         return users_with_profiles
     except Exception as e:
@@ -495,17 +443,14 @@ async def get_all_users(admin_user=Depends(get_admin_user)):
 @router.put("/admin/users/{user_id}/roles", tags=["Admin"], status_code=204)
 async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_user=Depends(get_admin_user)):
     try:
-        # Use Service Client
         admin_client = get_service_client()
 
-        # Get all role IDs from the roles table
-        all_roles_res = admin_client.table('roles').select('id, name').execute()
-        role_name_to_id = {role['name']: role['id'] for role in all_roles_res.data}
-        
-        # Validate that all provided roles exist
+        # For this version, we only support 'global_admin'.
+        # Validate that only allowed roles are being assigned.
+        allowed_roles = {'global_admin'}
         for role_name in payload.roles:
-            if role_name not in role_name_to_id:
-                raise HTTPException(status_code=400, detail=f"Role '{role_name}' does not exist.")
+            if role_name not in allowed_roles:
+                raise HTTPException(status_code=400, detail=f"Role '{role_name}' is not a valid assignable role.")
         
         # Delete existing roles for the user
         admin_client.table('user_roles').delete().eq('user_id', str(user_id)).execute()
@@ -513,7 +458,7 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
         # Insert new roles
         if payload.roles:
             new_user_roles = [
-                {'user_id': str(user_id), 'role_id': role_name_to_id[role_name]}
+                {'user_id': str(user_id), 'role': role_name}
                 for role_name in payload.roles
             ]
             admin_client.table('user_roles').insert(new_user_roles).execute()
@@ -522,6 +467,48 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to update user roles: {str(e)}")
+
+@router.put("/admin/users/{user_id}/tier", tags=["Admin"], status_code=204)
+async def update_user_tier(user_id: uuid.UUID, payload: UserTierUpdate, admin_user=Depends(get_admin_user)):
+    """Admin: Updates a user's tier."""
+    try:
+        admin_client = get_service_client()
+        
+        # 1. Validate the tier exists
+        tier_res = admin_client.table('tiers').select('id').eq('name', payload.tier).single().execute()
+        if not tier_res.data:
+            raise HTTPException(status_code=400, detail=f"Tier '{payload.tier}' does not exist.")
+        tier_id = tier_res.data['id']
+        
+        # 2. Update the user's profile
+        admin_client.table('profiles').update({'tier_id': tier_id}).eq('id', str(user_id)).execute()
+        
+        return
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update user tier: {str(e)}")
+
+@router.put("/admin/users/{user_id}/entitlement", tags=["Admin"], status_code=204)
+async def update_user_entitlement(user_id: uuid.UUID, payload: UserEntitlementUpdate, admin_user=Depends(get_admin_user)):
+    """Admin: Updates a user's 'is_founding' entitlement."""
+    try:
+        admin_client = get_service_client()
+        
+        update_data = {
+            'user_id': str(user_id),
+            'is_founding': payload.is_founding,
+        }
+        
+        # Add timestamp only when granting the entitlement
+        if payload.is_founding:
+            update_data['founding_granted_at'] = datetime.now(timezone.utc).isoformat()
+        
+        admin_client.table('user_entitlements').upsert(update_data, on_conflict='user_id').execute()
+        
+        return
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to update user entitlement: {str(e)}")
 
 @router.post("/admin/users/{user_id}/deactivate", tags=["Admin"], status_code=204)
 async def deactivate_user(user_id: uuid.UUID, admin_user=Depends(get_admin_user)):
@@ -667,108 +654,122 @@ async def stop_impersonation(user=Depends(get_user), supabase: Client = Depends(
 
 # A list of all manageable features in the system.
 ALL_FEATURES = [
-    {"key": "pdf_logo", "name": "PDF Logo"},
-    {"key": "contextual_notes", "name": "Contextual Notes"},
-    {"key": "loom_labels", "name": "Loom Labels"},
-    {"key": "case_labels", "name": "Case Labels"},
-    {"key": "rack_builder", "name": "Rack Builder"},
-    {"key": "wire_diagram", "name": "Wire Diagram"},
-    {"key": "loom_builder", "name": "Loom Builder"},
-    {"key": "vlan_management", "name": "VLAN Management"},
-    {"key": "crew", "name": "Crew Management"},
-    {"key": "hours_tracking", "name": "Hours Tracking"},
-    {"key": "global_feedback_button", "name": "Global Feedback Button"},
-    {"key": "switch_config", "name": "Switch Configuration"},
-    {"key": "communications", "name": "Communications Suite"},
+    {"key": "pdf_logo", "name": "PDF Logo", "paywalled": True},
+    {"key": "contextual_notes", "name": "Contextual Notes", "paywalled": True},
+    {"key": "loom_labels", "name": "Loom Labels", "paywalled": True},
+    {"key": "case_labels", "name": "Case Labels", "paywalled": True},
+    {"key": "rack_builder", "name": "Rack Builder", "paywalled": False},
+    {"key": "wire_diagram", "name": "Wire Diagram", "paywalled": True},
+    {"key": "loom_builder", "name": "Loom Builder", "paywalled": True},
+    {"key": "vlan_management", "name": "VLAN Management", "paywalled": True},
+    {"key": "crew", "name": "Crew Management", "paywalled": True},
+    {"key": "hours_tracking", "name": "Hours Tracking", "paywalled": True},
+    {"key": "global_feedback_button", "name": "Global Feedback Button", "paywalled": False},
+    {"key": "switch_config", "name": "Switch Configuration", "paywalled": True},
+    {"key": "communications", "name": "Communications Suite", "paywalled": True},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
     """Helper to fetch user roles."""
-    user_roles_res = supabase.table('user_roles').select('roles(name)').eq('user_id', user_id).execute()
-    if user_roles_res.data:
-        return {role['roles']['name'] for role in user_roles_res.data if 'roles' in role and role['roles']}
-    return set()
+    user_roles_res = supabase.table('user_roles').select('role').eq('user_id', user_id).execute()
 
-def feature_check(feature_name: str):
+    # Be defensive: response or data can be None depending on client behavior
+    data = None
+    if user_roles_res is not None:
+        data = getattr(user_roles_res, "data", None)
+
+    if not data:
+        return set()
+
+    # Filter out null/empty roles and force to strings
+    roles = set()
+    for row in data:
+        role_val = row.get("role")
+        if role_val is None:
+            continue
+        role_str = str(role_val).strip()
+        if not role_str:
+            continue
+        roles.add(role_str)
+
+    return roles
+
+def feature_check(feature_name: str, paywalled: bool = True):
     """
-    Dependency factory for checking feature access using an allow-list model.
-    Implements a Fail-Closed logic: if a feature is not configured, only admins have access.
+    Dependency factory for checking feature access based on tiers and entitlements.
+    - Admins always have access.
+    - Tier check is primary.
+    - 'Founding' users can bypass paywalled features.
     """
     async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-        # Fetch user roles using the fixed SECURITY DEFINER function
+        # 1. Admin Override for system features, not product features
         user_roles = get_user_roles_sync(user.id, supabase)
-        
-        # Query the restriction table
-        restriction_res = supabase.table('feature_restrictions') \
-            .select('permitted_roles') \
-            .eq('feature_name', feature_name) \
-            .maybe_single() \
-            .execute()
-        
-        permitted_roles = restriction_res.data.get('permitted_roles') if restriction_res and restriction_res.data else None
+        if 'global_admin' in user_roles:
+            # This check is for product features. Admins do not get automatic access.
+            # Admin-only API endpoints should be protected by the get_admin_user dependency.
+            pass
 
-        # FAIL-CLOSED LOGIC:
-        # If no roles are configured in the DB, only 'admin' is granted access by default.
-        if not permitted_roles:
-             if 'admin' not in user_roles:
-                 raise HTTPException(
-                     status_code=403, 
-                     detail=f"Access to '{feature_name}' is restricted to administrators."
-                 )
-             return
+        # 2. Fetch User's Tier and Entitlements
+        profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user.id).single().execute()
+        if not profile_res.data:
+            raise HTTPException(status_code=403, detail="User profile not found.")
+        
+        entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
+        
+        user_tier = profile_res.data.get('tiers', {}).get('name')
+        is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
 
-        # Explicit allow-list check
-        permitted_roles_set = set(permitted_roles)
-        if user_roles.isdisjoint(permitted_roles_set):
-            raise HTTPException(
-                status_code=403, 
-                detail=f"Your role does not have permission to access the '{feature_name}' feature."
-            )
+        # 3. Fetch Feature Restrictions
+        restriction_res = supabase.table('feature_restrictions').select('permitted_tiers').eq('feature_name', feature_name).maybe_single().execute()
+        
+        permitted_tiers = restriction_res.data.get('permitted_tiers') if restriction_res and restriction_res.data else []
+
+        # 4. Tier Check
+        if user_tier and user_tier in permitted_tiers:
+            return # Access granted by tier
+
+        # 5. Founding User Paywall Override
+        if paywalled and is_founding:
+            return # Access granted by founding entitlement for paywalled feature
+
+        # 6. Deny Access
+        raise HTTPException(status_code=403, detail=f"Your current plan does not include the '{feature_name}' feature.")
     return checker
 
 async def get_branding_visibility(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)) -> bool:
-    """Dependency that returns True if the ShowReady branding should be visible for the user."""
-    user_roles = get_user_roles_sync(user.id, supabase)
-    
-    restriction_res = supabase.table('feature_restrictions').select('permitted_roles').eq('feature_name', 'pdf_logo').maybe_single().execute()
-    
-    permitted_roles = restriction_res.data.get('permitted_roles') if restriction_res and restriction_res.data else None
-
-    # An empty list is falsy.
-    if permitted_roles:
-        return not user_roles.isdisjoint(set(permitted_roles))
-            
-    return True
-
+    """
+    Dependency that returns True if ShowReady branding should be visible.
+    Branding is hidden if the user has access to the 'pdf_logo' feature.
+    """
+    try:
+        # We can reuse the feature_check logic. If it doesn't raise an exception, the user has the feature.
+        await feature_check("pdf_logo")(user, supabase)
+        return False # User has the feature, so hide branding
+    except HTTPException:
+        return True # User does not have the feature, so show branding
 
 # --- Admin Feature Restriction Endpoints ---
 @router.get("/admin/feature_restrictions", tags=["Admin", "RBAC"])
 async def get_all_feature_restrictions(admin_user=Depends(get_admin_user)):
     """Admin: Gets all feature restrictions with their display names."""
-    try:
-        # Use Service Client to ensure we can read/write global settings
-        admin_client = get_service_client()
+    admin_client = get_service_client()
+    response = admin_client.table('feature_restrictions').select('*').execute()
+    
+    restrictions_map = {item['feature_name']: item.get('permitted_tiers', []) for item in response.data}
+    
+    all_restrictions = [
+        {
+            "feature_name": feature["key"],
+            "display_name": feature["name"],
+            "permitted_tiers": restrictions_map.get(feature["key"], [])
+        }
+        for feature in ALL_FEATURES
+    ]
+    
+    return all_restrictions
 
-        response = admin_client.table('feature_restrictions').select('*').execute()
-        
-        restrictions_map = {item['feature_name']: item['permitted_roles'] for item in response.data}
-        
-        all_restrictions = [
-            {
-                "feature_name": feature["key"],
-                "display_name": feature["name"],
-                "permitted_roles": restrictions_map.get(feature["key"], [])
-            }
-            for feature in ALL_FEATURES
-        ]
-        
-        return all_restrictions
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-class PermittedRolesUpdate(BaseModel):
-    permitted_roles: List[str]
+class PermittedTiersUpdate(BaseModel):
+    permitted_tiers: List[str]
 
 class PermissionsVersion(BaseModel):
     version: int
@@ -780,43 +781,33 @@ async def get_permissions_version(supabase: Client = Depends(get_supabase_client
         response = supabase.table('permissions_meta').select('version').eq('id', 1).single().execute()
         return response.data
     except Exception as e:
-        # If the table/row doesn't exist, return a default version
         print(f"Could not fetch permissions version, returning default. Error: {e}")
         return {"version": 1}
-
 
 @router.put("/admin/feature_restrictions/{feature_name}", tags=["Admin", "RBAC"])
 async def update_feature_restriction(
     feature_name: str,
-    restriction_data: PermittedRolesUpdate,
+    restriction_data: PermittedTiersUpdate,
     admin_user=Depends(get_admin_user)
 ):
     """Admin: Creates or updates the feature restriction settings for a given feature."""
-    try:
-        # Use Service Client for global setting updates
-        admin_client = get_service_client()
+    admin_client = get_service_client()
 
-        # First, update the feature restriction
-        upsert_data = {
-            'feature_name': feature_name,
-            'permitted_roles': restriction_data.permitted_roles,
-        }
-        response = admin_client.table('feature_restrictions').upsert(
-            upsert_data,
-            on_conflict='feature_name',
-        ).execute()
-        
-        if not response.data:
-            raise HTTPException(status_code=500, detail="Failed to update feature restriction.")
-        
-        # Then, increment the permissions version
-        # Use an RPC call to safely increment the value on the database
-        admin_client.rpc('increment_permissions_version', {}).execute()
+    upsert_data = {
+        'feature_name': feature_name,
+        'permitted_tiers': restriction_data.permitted_tiers,
+    }
+    response = admin_client.table('feature_restrictions').upsert(
+        upsert_data,
+        on_conflict='feature_name',
+    ).execute()
+    
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to update feature restriction.")
+    
+    admin_client.rpc('increment_permissions_version', {}).execute()
 
-        return response.data[0]
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"An error occurred while updating feature restriction: {str(e)}")
+    return response.data[0]
 
 # --- Admin Metrics ---
 @router.get("/admin/metrics", tags=["Admin"])
@@ -858,15 +849,22 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
     Implements a Fail-Closed logic for features: unconfigured features are hidden from non-admins.
     """
     try:
-        # 1. Fetch the user's base profile
-        profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute()
+        # 1. Fetch the user's base profile and tier name
+        profile_res = supabase.table('profiles').select('*, tiers(name)').eq('id', user.id).single().execute()
         profile_data = profile_res.data
         
         # Create profile if it doesn't exist (fallback for new signups)
         if not profile_data:
+            # Get the default tier ID to ensure new profiles are valid
+            core_tier_res = supabase.table('tiers').select('id').eq('name', 'core').single().execute()
+            if not core_tier_res.data:
+                raise HTTPException(status_code=500, detail="Configuration error: Default tier 'core' not found.")
+            core_tier_id = core_tier_res.data['id']
+
             user_meta = user.user_metadata or {}
             profile_to_create = {
                 'id': str(user.id),
+                'tier_id': core_tier_id,
                 'first_name': user_meta.get('first_name'), 
                 'last_name': user_meta.get('last_name'),
                 'company_name': user_meta.get('company_name'), 
@@ -876,41 +874,61 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
             insert_response = supabase.table('profiles').insert(profile_to_create).execute()
             if not insert_response.data:
                  raise HTTPException(status_code=500, detail="Failed to create user profile.")
-            profile_data = insert_response.data[0]
+            
+            # Re-fetch the profile with the tier information joined
+            profile_res = supabase.table('profiles').select('*, tiers(name)').eq('id', user.id).single().execute()
+            profile_data = profile_res.data
 
-        # 2. Get user roles using the fixed SECURITY DEFINER function
+        # 2. Normalize tier data
+        if profile_data and profile_data.get('tiers'):
+            profile_data['tier'] = profile_data['tiers']['name']
+            del profile_data['tiers']
+        else:
+            profile_data['tier'] = None
+
+        # 3. Get user roles 
         user_roles = get_user_roles_sync(user.id, supabase)
         profile_data['roles'] = list(user_roles)
 
-        # 3. Add permitted features using FAIL-CLOSED logic
+        # 4. Get user entitlements
+        entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
+        if entitlements_res and entitlements_res.data:
+            profile_data['entitlements'] = {'is_founding': entitlements_res.data.get('is_founding', False)}
+        else:
+            profile_data['entitlements'] = {'is_founding': False}
+
+
+        # 5. Calculate and add permitted features
         try:
-            # Fetch the global list of restrictions
-            all_restrictions_res = supabase.table('feature_restrictions').select('*').execute()
-            restrictions_map = {item['feature_name']: item['permitted_roles'] for item in all_restrictions_res.data}
+            all_restrictions_res = supabase.table('feature_restrictions').select('feature_name, permitted_tiers').execute()
+            restrictions_map = {item['feature_name']: item.get('permitted_tiers', []) for item in all_restrictions_res.data}
+            
+            user_tier = profile_data.get('tier')
+            is_founding = profile_data.get('entitlements', {}).get('is_founding', False)
             
             permitted_features = []
             for feature in ALL_FEATURES:
                 feature_key = feature["key"]
-                
-                # ADMIN BYPASS: Administrators see all features by default
-                if 'admin' in user_roles:
+                is_paywalled = feature.get("paywalled", True)
+
+                # Admins get all features
+                if 'global_admin' in user_roles:
                     permitted_features.append(feature_key)
                     continue
 
-                permitted_roles = restrictions_map.get(feature_key)
+                permitted_tiers = restrictions_map.get(feature_key, [])
 
-                # FAIL-CLOSED LOGIC:
-                # If no roles are configured (None or empty list), 
-                # non-admins are denied access.
-                if not permitted_roles:
-                    continue 
-
-                # Explicit Allow-list Check:
-                # If the user has any of the roles listed in the restriction, they get access.
-                if not user_roles.isdisjoint(set(permitted_roles)):
+                # Tier Check
+                if user_tier and user_tier in permitted_tiers:
                     permitted_features.append(feature_key)
+                    continue
+
+                # Founding User Paywall Override
+                if is_paywalled and is_founding:
+                    permitted_features.append(feature_key)
+                    continue
             
-            profile_data['permitted_features'] = permitted_features
+            profile_data['permitted_features'] = list(set(permitted_features)) # Ensure uniqueness
             
         except Exception as e:
             print(f"Error fetching permitted features for user {user.id}: {e}")

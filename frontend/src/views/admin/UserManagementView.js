@@ -6,45 +6,54 @@ import toast, { Toaster } from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
 import ConfirmationModal from '../../components/ConfirmationModal';
 
-const EditRolesModal = ({ isOpen, onClose, user, allRoles, onSave }) => {
-    const [selectedRoles, setSelectedRoles] = useState(user?.roles || []);
+const EditUserAccessModal = ({ isOpen, onClose, user, onSave }) => {
+    const [tier, setTier] = useState(user?.tier || 'core');
+    const [isFounding, setIsFounding] = useState(user?.entitlements?.is_founding || false);
+
+    const TIER_OPTIONS = ['core', 'build', 'run'];
 
     useEffect(() => {
         if (user) {
-            setSelectedRoles(user.roles);
+            setTier(user.tier || 'core');
+            setIsFounding(user.entitlements?.is_founding || false);
         }
     }, [user]);
 
-    const handleRoleChange = (roleName) => {
-        setSelectedRoles(prev =>
-            prev.includes(roleName)
-                ? prev.filter(r => r !== roleName)
-                : [...prev, roleName]
-        );
-    };
-
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(user.id, selectedRoles);
+        onSave(user.id, tier, isFounding);
     };
 
     if (!user) return null;
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Edit Roles for ${user.first_name} ${user.last_name}`}>
+        <Modal isOpen={isOpen} onClose={onClose} title={`Edit Access for ${user.first_name} ${user.last_name}`}>
             <form onSubmit={handleSubmit}>
-                <div className="space-y-2">
-                    {allRoles.map(role => (
-                        <label key={role} className="flex items-center space-x-3">
+                <div className="space-y-4">
+                    <div>
+                        <label htmlFor="tier-select" className="block text-sm font-medium text-gray-300 mb-2">Tier</label>
+                        <select
+                            id="tier-select"
+                            value={tier}
+                            onChange={(e) => setTier(e.target.value)}
+                            className="w-full p-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        >
+                            {TIER_OPTIONS.map(option => (
+                                <option key={option} value={option}>{option.charAt(0).toUpperCase() + option.slice(1)}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="flex items-center space-x-3">
                             <input
                                 type="checkbox"
                                 className="form-checkbox h-5 w-5 text-amber-600 bg-gray-800 border-gray-600 rounded focus:ring-amber-500"
-                                checked={selectedRoles.includes(role)}
-                                onChange={() => handleRoleChange(role)}
+                                checked={isFounding}
+                                onChange={(e) => setIsFounding(e.target.checked)}
                             />
-                            <span className="text-gray-300">{role}</span>
+                            <span className="text-gray-300">Founding (grandfathered access)</span>
                         </label>
-                    ))}
+                    </div>
                 </div>
                 <div className="flex justify-end gap-4 pt-6">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
@@ -68,9 +77,8 @@ const UserManagementView = () => {
     };
 
     const [users, setUsers] = useState([]);
-    const [allRoles, setAllRoles] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [isRolesModalOpen, setIsRolesModalOpen] = useState(false);
+    const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const { profile, startImpersonation } = useAuth();
@@ -91,39 +99,33 @@ const UserManagementView = () => {
     useEffect(() => {
         const debounceTimeout = setTimeout(() => {
             fetchUsers();
-        }, 300); // 300ms debounce delay
+        }, 300);
 
         return () => clearTimeout(debounceTimeout);
     }, [searchTerm, fetchUsers]);
-    
-    useEffect(() => {
-        const fetchRoles = () => {
-            api.getAllRoles()
-                .then(data => setAllRoles(data.roles || []))
-                .catch(err => toast.error("Failed to fetch roles."));
-        };
-        fetchRoles();
-    }, []);
 
-    const handleOpenRolesModal = (user) => {
+    const handleOpenAccessModal = (user) => {
         setEditingUser(user);
-        setIsRolesModalOpen(true);
+        setIsAccessModalOpen(true);
     };
 
-    const handleCloseRolesModal = () => {
+    const handleCloseAccessModal = () => {
         setEditingUser(null);
-        setIsRolesModalOpen(false);
+        setIsAccessModalOpen(false);
     };
 
-    const handleSaveRoles = async (userId, roles) => {
-        const toastId = toast.loading("Updating roles...");
+    const handleSaveAccess = async (userId, tier, isFounding) => {
+        const toastId = toast.loading("Updating user access...");
         try {
-            await api.updateUserRoles(userId, roles);
-            toast.success("Roles updated successfully!", { id: toastId });
+            await Promise.all([
+                api.updateUserTier(userId, tier),
+                api.updateUserEntitlement(userId, isFounding)
+            ]);
+            toast.success("User access updated successfully!", { id: toastId });
             fetchUsers();
-            handleCloseRolesModal();
+            handleCloseAccessModal();
         } catch (error) {
-            toast.error(`Failed to update roles: ${error.message}`, { id: toastId });
+            toast.error(`Failed to update access: ${error.message}`, { id: toastId });
         }
     };
 
@@ -212,7 +214,7 @@ const UserManagementView = () => {
                         <thead className="text-xs text-gray-300 uppercase bg-gray-700 sticky top-0 z-10">
                             <tr>
                                 <th scope="col" className="px-6 py-3">User</th>
-                                <th scope="col" className="px-6 py-3">Roles</th>
+                                <th scope="col" className="px-6 py-3">Tier & Entitlements</th>
                                 <th scope="col" className="px-6 py-3">Account Status</th>
                                 <th scope="col" className="px-6 py-3">Actions</th>
                             </tr>
@@ -239,9 +241,10 @@ const UserManagementView = () => {
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex flex-wrap gap-1">
-                                            {user.roles.map(role => (
-                                                <span key={role} className="bg-gray-600 text-gray-200 text-xs font-medium px-2.5 py-0.5 rounded-full">{role}</span>
-                                            ))}
+                                            <span className="bg-blue-600 text-blue-100 text-xs font-medium px-2.5 py-0.5 rounded-full capitalize">{user.tier || 'N/A'}</span>
+                                            {user.entitlements?.is_founding && (
+                                                <span className="bg-purple-600 text-purple-100 text-xs font-medium px-2.5 py-0.5 rounded-full">Founding</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
@@ -253,10 +256,10 @@ const UserManagementView = () => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <button 
-                                            onClick={() => handleOpenRolesModal(user)} 
+                                            onClick={() => handleOpenAccessModal(user)} 
                                             className="font-medium text-amber-500 hover:underline mr-4"
                                         >
-                                            Edit Roles
+                                            Edit Access
                                         </button>
                                         <button 
                                             onClick={() => handleImpersonate(user)} 
@@ -278,13 +281,12 @@ const UserManagementView = () => {
                     </table>
                 </div>
             </Card>
-            {isRolesModalOpen && editingUser && (
-                <EditRolesModal
-                    isOpen={isRolesModalOpen}
-                    onClose={handleCloseRolesModal}
+            {isAccessModalOpen && editingUser && (
+                <EditUserAccessModal
+                    isOpen={isAccessModalOpen}
+                    onClose={handleCloseAccessModal}
                     user={editingUser}
-                    allRoles={allRoles}
-                    onSave={handleSaveRoles}
+                    onSave={handleSaveAccess}
                 />
             )}
             {confirmationModal.isOpen && (

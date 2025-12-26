@@ -363,6 +363,16 @@ export const api = {
         headers: await getAuthHeader(),
         body: JSON.stringify({ roles }),
     }).then(handleResponse),
+    updateUserTier: async (userId, tier) => fetch(`/api/admin/users/${userId}/tier`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ tier }),
+    }).then(handleResponse),
+    updateUserEntitlement: async (userId, isFounding) => fetch(`/api/admin/users/${userId}/entitlement`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ is_founding: isFounding }),
+    }).then(handleResponse),
     deactivateUser: async (userId) => fetch(`/api/admin/users/${userId}/deactivate`, {
         method: 'POST',
         headers: await getAuthHeader(),
@@ -384,7 +394,7 @@ export const api = {
     }).then(handleResponse),
     
     // --- Admin Email Endpoints ---
-    getAdminUserRoles: async () => fetch('/api/admin/user-roles', { headers: await getAuthHeader() }).then(handleResponse),
+    getAdminTiers: async () => fetch('/api/admin/tiers', { headers: await getAuthHeader() }).then(handleResponse),
     adminSendEmail: async (payload) => fetch('/api/admin/send-email', {
         method: 'POST',
         headers: await getAuthHeader(),

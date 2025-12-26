@@ -40,6 +40,9 @@ class UserRole(BaseModel):
     role_id: uuid.UUID
 
 # --- User Profile Model ---
+class UserEntitlements(BaseModel):
+    is_founding: bool = False
+
 class UserProfile(BaseModel):
     id: uuid.UUID
     first_name: Optional[str] = None
@@ -49,6 +52,8 @@ class UserProfile(BaseModel):
     production_role_other: Optional[str] = None
     company_logo_path: Optional[str] = None
     roles: List[str] = []
+    tier: Optional[str] = None
+    entitlements: UserEntitlements = Field(default_factory=UserEntitlements)
     permitted_features: List[str] = []
     feedback_button_text: Optional[str] = None
 
@@ -63,6 +68,13 @@ class UserProfileUpdate(BaseModel):
 # --- User Roles Update Model ---
 class UserRolesUpdate(BaseModel):
     roles: List[str]
+
+# --- Admin User Management Models ---
+class UserTierUpdate(BaseModel):
+    tier: str
+
+class UserEntitlementUpdate(BaseModel):
+    is_founding: bool
 
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):

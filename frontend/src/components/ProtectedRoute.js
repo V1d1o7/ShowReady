@@ -15,7 +15,7 @@ const ProtectedRoute = ({ adminOnly = false, feature = null, children }) => {
     }
 
     // Check for admin role if required
-    if (adminOnly && (!profile.roles || !profile.roles.includes('admin'))) {
+    if (adminOnly && (!profile.roles || !profile.roles.includes('global_admin'))) {
         return <Navigate to="/" replace />;
     }
 
