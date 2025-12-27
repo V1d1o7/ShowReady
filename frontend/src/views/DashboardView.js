@@ -1,3 +1,4 @@
+// frontend/src/views/DashboardView.js
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, LogOut } from 'lucide-react';
 import { supabase, api } from '../api/api';
@@ -53,7 +54,13 @@ const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, isLoading
                 ) : shows.length > 0 ? (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {shows.map(show => (
-                            <ShowCard key={show.id} show={show} onSelect={() => onSelectShow(show.id)} onDelete={() => onDeleteShow(show.id, show.name)} />
+                            <ShowCard 
+                                key={show.id} 
+                                show={show} 
+                                onSelect={() => onSelectShow(show.id)} 
+                                onDelete={() => onDeleteShow(show.id, show.name)}
+                                currentUserId={user?.id} // Pass user ID to check ownership
+                            />
                         ))}
                     </div>
                 ) : (

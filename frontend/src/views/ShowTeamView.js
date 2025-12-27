@@ -1,8 +1,10 @@
+// frontend/src/views/ShowTeamView.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
 import { api } from '../api/api';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
+import ConfirmationModal from '../components/ConfirmationModal'; //
 import InputField from '../components/InputField';
 import toast, { Toaster } from 'react-hot-toast';
 import { Users, UserPlus, Trash2, Shield, Search, Info } from 'lucide-react';
@@ -29,6 +31,9 @@ const ShowTeamView = () => {
     const [inviteEmail, setInviteEmail] = useState('');
     const [inviteRole, setInviteRole] = useState('viewer');
     const [isInviting, setIsInviting] = useState(false);
+
+    // Removal Confirmation State
+    const [userToDelete, setUserToDelete] = useState(null);
 
     // Resolve Show ID
     useEffect(() => {
@@ -90,14 +95,23 @@ const ShowTeamView = () => {
         }
     };
 
-    const handleRemove = async (userId) => {
-        if (!window.confirm("Remove this user?")) return;
+    // Trigger the confirmation modal
+    const promptRemove = (userId) => {
+        setUserToDelete(userId);
+    };
+
+    // Execute removal after confirmation
+    const handleConfirmRemove = async () => {
+        if (!userToDelete) return;
+
         try {
-            await api.removeCollaborator(showId, userId);
-            setCollaborators(prev => prev.filter(c => c.user_id !== userId));
+            await api.removeCollaborator(showId, userToDelete);
+            setCollaborators(prev => prev.filter(c => c.user_id !== userToDelete));
             toast.success("Removed.");
         } catch (error) {
             toast.error(error.message);
+        } finally {
+            setUserToDelete(null); // Close modal
         }
     };
 
@@ -217,7 +231,7 @@ const ShowTeamView = () => {
                                         <td className="py-3 px-4 text-right">
                                             {/* Only Owners can remove people (and not other owners) */}
                                             {isOwner && m.role !== 'owner' && (
-                                                <button onClick={() => handleRemove(m.user_id)} className="text-gray-500 hover:text-red-500 p-2">
+                                                <button onClick={() => promptRemove(m.user_id)} className="text-gray-500 hover:text-red-500 p-2">
                                                     <Trash2 size={18} />
                                                 </button>
                                             )}
@@ -253,6 +267,15 @@ const ShowTeamView = () => {
                     </div>
                 </form>
             </Modal>
+
+            {/* Confirmation Modal */}
+            {userToDelete && (
+                <ConfirmationModal 
+                    message="Are you sure you want to remove this user from the team?" 
+                    onConfirm={handleConfirmRemove} 
+                    onCancel={() => setUserToDelete(null)} 
+                />
+            )}
         </div>
     );
 };

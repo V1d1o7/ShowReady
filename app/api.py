@@ -1114,15 +1114,20 @@ async def get_show_by_name(show_name: str, user = Depends(get_user), supabase: C
 async def list_shows(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Lists all shows for the authenticated user, including their logo paths."""
     try:
-        # FIX: Removed .eq('user_id', user.id) to allow RLS to return shared shows too
-        response = supabase.table('shows').select('id, name, data').execute()
+        # FIX: Added user_id to the select query so the frontend can detect ownership
+        response = supabase.table('shows').select('id, name, data, user_id').execute()
         if not response.data:
             return []
         
         shows_with_logos = []
         for item in response.data:
             logo_path = item.get('data', {}).get('info', {}).get('logo_path')
-            shows_with_logos.append({'id': item['id'], 'name': item['name'], 'logo_path': logo_path})
+            shows_with_logos.append({
+                'id': item['id'], 
+                'name': item['name'], 
+                'logo_path': logo_path,
+                'user_id': item['user_id'] # Pass this to the frontend
+            })
             
         return shows_with_logos
     except Exception as e:
