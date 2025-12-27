@@ -792,3 +792,63 @@ class Collaborator(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
+
+# --- LABEL ENGINE MODELS --- 
+ 
+class LabelStock(BaseModel): 
+    id: uuid.UUID 
+    name: str 
+    description: Optional[str] = None 
+    page_width: float 
+    page_height: float 
+    top_margin: float 
+    left_margin: float 
+    row_spacing: float 
+    col_spacing: float 
+    rows_per_page: int 
+    cols_per_page: int 
+    corner_radius: float 
+ 
+class LabelElement(BaseModel): 
+    id: str 
+    type: str  # 'text', 'image', 'shape', 'qrcode' 
+    x: float   # inches 
+    y: float   # inches 
+    width: float 
+    height: float 
+    # Text Props 
+    text_content: Optional[str] = None  
+    variable_field: Optional[str] = None # e.g. 'case_number', 'source', 'destination' 
+    font_family: Optional[str] = 'SpaceMono' 
+    font_size: Optional[int] = 10 
+    font_weight: Optional[str] = 'normal' 
+    text_align: Optional[str] = 'left'  
+    text_color: Optional[str] = '#000000' 
+    # Shape/Visual Props 
+    fill_color: Optional[str] = None # Hex or 'transparent' 
+    stroke_color: Optional[str] = '#000000' 
+    stroke_width: Optional[float] = 1.0 
+    z_index: int = 0 
+    # QR Props 
+    qr_content: Optional[str] = None # Variable field to encode 
+ 
+class LabelTemplate(BaseModel): 
+    id: uuid.UUID 
+    stock_id: uuid.UUID 
+    name: str 
+    category: str 
+    elements: List[LabelElement] 
+    is_public: bool 
+ 
+class LabelTemplateCreate(BaseModel): 
+    stock_id: uuid.UUID 
+    name: str 
+    category: str 
+    elements: List[LabelElement] 
+ 
+# Payload for generating the PDF 
+class DynamicLabelPdfPayload(BaseModel): 
+    template_id: uuid.UUID 
+    # Dynamic data: Keys must match 'variable_field' in elements 
+    data_rows: List[Dict[str, str]]  
+    show_logo_bytes: Optional[str] = None
