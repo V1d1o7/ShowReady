@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Plus, Package, HardDrive } from 'lucide-react';
+import { Plus, Package, HardDrive, FileText } from 'lucide-react';
 import { api } from '../api/api';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import NewUserFolderModal from '../components/NewUserFolderModal';
@@ -187,6 +187,9 @@ const UserLibraryView = () => {
                     </NavLink>
                     <NavLink to="/library/racks" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
                         <HardDrive size={18} /> Rack Library
+                    </NavLink>
+                    <NavLink to="/library/label-templates" className={({ isActive }) => `flex items-center gap-2 px-4 py-3 font-bold ${isActive ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400'}`}>
+                        <FileText size={18} /> Label Templates
                     </NavLink>
                 </div>
 

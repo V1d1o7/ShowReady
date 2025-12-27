@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Save, Trash2, KeyRound, UploadCloud, Download, Mail, Settings } from 'lucide-react';
+import { Save, Trash2, KeyRound, UploadCloud, Download, Mail, Settings, FileText } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
@@ -182,6 +182,7 @@ const AccountView = () => {
     // RBAC Feature Checks
     const canAccessCommunications = profile?.permitted_features?.includes('communications');
     const canAccessSwitchConfig = profile?.permitted_features?.includes('switch_config');
+    const canAccessLabelEngine = profile?.permitted_features?.includes('label_engine_access');
 
     if (isLoading) {
         return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Profile...</div></div>;
@@ -204,6 +205,19 @@ const AccountView = () => {
                         </p>
                         <Link to="/settings/templates" className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">
                             <Settings size={16} /> Manage Templates
+                        </Link>
+                    </Card>
+                )}
+
+                {/* Pro Tools Section */}
+                {canAccessLabelEngine && (
+                    <Card>
+                        <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><Settings size={20} /> Pro Tools</h2>
+                        <p className="text-gray-400 mb-4">
+                            Access advanced tools for creating and managing reusable templates.
+                        </p>
+                        <Link to="/library/label-templates" className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">
+                            <FileText size={16} /> Label Template Builder
                         </Link>
                     </Card>
                 )}

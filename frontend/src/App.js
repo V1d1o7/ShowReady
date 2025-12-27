@@ -41,6 +41,8 @@ import HoursTrackingView from './views/HoursTrackingView';
 import SwitchConfigView from './views/SwitchConfigView';
 import TemplateManager from './views/settings/TemplateManager';
 import ShowTeamView from './views/ShowTeamView';
+import LabelTemplateListView from './views/library/LabelTemplateListView';
+import LabelTemplateBuilder from './views/settings/LabelTemplateBuilder';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -181,10 +183,12 @@ const MainLayout = ({ session }) => {
                                     <Route path="/account" element={<AccountView />} />
                                     <Route path="/sso-setup" element={<AdvancedSSOView />} />
                                     <Route path="/settings/templates" element={<ProtectedRoute><TemplateManager /></ProtectedRoute>} />
+                                    <Route path="/settings/label-template-builder" element={<ProtectedRoute feature="label_engine_access"><LabelTemplateBuilder /></ProtectedRoute>} />
                                     <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
                                         <Route index element={<Navigate to="equipment" replace />} />
                                         <Route path="equipment" element={<EquipmentLibraryView />} />
                                         <Route path="racks" element={<UserRackBuilderView />} />
+                                        <Route path="label-templates" element={<LabelTemplateListView />} />
                                     </Route>
                                     <Route path="/roster" element={<ProtectedRoute><RosterView /></ProtectedRoute>} />
                                     <Route
