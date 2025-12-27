@@ -794,6 +794,7 @@ ALL_FEATURES = [
     {"key": "switch_config", "name": "Switch Configuration", "paywalled": True},
     {"key": "communications", "name": "Communications Suite", "paywalled": True},
     {"key": "show_collaboration", "name": "Show Collaboration", "paywalled": True},
+    {"key": "label_engine", "name": "Label Engine", "paywalled": True},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
@@ -813,46 +814,60 @@ def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
 
 def feature_check(feature_name: str, paywalled: bool = True):
     """
-    Dependency factory for checking feature access based on layered evaluation:
-    1. Admin Override (implicit for system ops, strict for feature gating) -> Admin does NOT get auto-access to features, strictly Tier/Entitlement based unless logic dictates otherwise.
-       (Prompt says: "Admin authority will never be used for product feature gating.")
-    2. Tier Check
-    3. Founding Paywall Override
+    Dependency factory with added DEBUGGING to trace evaluation failures.
     """
     async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-        # 1. Fetch User Data (Tier & Entitlements)
-        # We assume get_profile logic or similar fetches this. To be efficient, we fetch directly.
-        
-        # Fetch Tier
+        print(f"\n--- [DEBUG] Feature Check: {feature_name} for User {user.id} ---")
+
+        # 1. Fetch User Roles for Admin Check
+        user_roles = get_user_roles_sync(user.id, supabase)
+        print(f"[DEBUG] User Roles: {user_roles}")
+        if 'global_admin' in user_roles:
+            print("[DEBUG] Access Granted: User is global_admin")
+            return 
+
+        # 2. Fetch User Profile and Tier
         profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user.id).single().execute()
         if not profile_res.data:
+            print("[DEBUG] Access Denied: Profile not found")
             raise HTTPException(status_code=403, detail="User profile not found.")
         
-        user_tier = profile_res.data.get('tiers', {}).get('name')
+        raw_tier = profile_res.data.get('tiers', {}).get('name')
+        user_tier = raw_tier.lower() if raw_tier else None
+        print(f"[DEBUG] User Tier: {user_tier}")
         
-        # Fetch Entitlements
+        # 3. Fetch Entitlements
         entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
         is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
+        print(f"[DEBUG] Is Founding User: {is_founding}")
 
-        # 2. Fetch Feature Restrictions
+        # 4. Fetch Feature Restrictions from DB
         restriction_res = supabase.table('feature_restrictions').select('permitted_tiers').eq('feature_name', feature_name).maybe_single().execute()
-        permitted_tiers = restriction_res.data.get('permitted_tiers') if restriction_res and restriction_res.data else []
-
-        # 3. Layered Evaluation
         
+        permitted_tiers = []
+        if restriction_res and restriction_res.data:
+            permitted_tiers = [t.lower() for t in (restriction_res.data.get('permitted_tiers') or [])]
+        
+        print(f"[DEBUG] DB Permitted Tiers for '{feature_name}': {permitted_tiers}")
+
+        # 5. Layered Evaluation
         # Tier Check
         if user_tier and user_tier in permitted_tiers:
-            return # Access granted by tier
+            print(f"[DEBUG] Access Granted: Tier '{user_tier}' is in {permitted_tiers}")
+            return 
 
-        # Founding Paywall Override
-        # If the feature is paywalled AND user is founding, grant access.
-        # Note: Founding entitlement does NOT grant access to features that are restricted to specific tiers if not paywalled?
-        # Prompt says: "If the feature is paywalled and the user has the is_founding entitlement, access is granted."
+        # Founding User Override
         if paywalled and is_founding:
-            return # Access granted by entitlement
+            print(f"[DEBUG] Access Granted: Founding User Override (Paywalled={paywalled})")
+            return 
 
-        # 4. Deny Access
-        raise HTTPException(status_code=403, detail=f"Your current plan ({user_tier}) does not include the '{feature_name}' feature.")
+        # 6. Final Denial
+        print(f"[DEBUG] Access DENIED for {feature_name}")
+        feature_display_name = feature_name.replace('_', ' ').title()
+        raise HTTPException(
+            status_code=403, 
+            detail=f"You do not have access to the {feature_display_name}. Please contact support to upgrade."
+        )
     return checker
 
 async def get_branding_visibility(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)) -> bool:
@@ -998,12 +1013,12 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
             profile_res = supabase.table('profiles').select('*, tiers(name)').eq('id', user.id).single().execute()
             profile_data = profile_res.data
 
-        # 2. Normalize tier data
+        # 2. Normalize tier data (Case-insensitive)
         if profile_data and profile_data.get('tiers'):
-            profile_data['tier'] = profile_data['tiers']['name']
+            profile_data['tier'] = profile_data['tiers']['name'].lower()
             del profile_data['tiers']
         else:
-            profile_data['tier'] = None
+            profile_data['tier'] = 'core'
 
         # 3. Get user roles 
         user_roles = get_user_roles_sync(user.id, supabase)
@@ -1026,34 +1041,38 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
         # 5. Calculate and add permitted features
         try:
             all_restrictions_res = supabase.table('feature_restrictions').select('feature_name, permitted_tiers').execute()
-            restrictions_map = {item['feature_name']: item.get('permitted_tiers', []) for item in all_restrictions_res.data}
+            # Normalize restrictions map for case-insensitive matching
+            restrictions_map = {
+                item['feature_name']: [t.lower() for t in item.get('permitted_tiers', [])] 
+                for item in all_restrictions_res.data
+            }
             
             user_tier = profile_data.get('tier')
-            is_founding = profile_data.get('entitlements', {}).get('is_founding', False)
+            is_founding = entitlements_data.get('is_founding', False)
             
             permitted_features = []
             for feature in ALL_FEATURES:
                 feature_key = feature["key"]
                 is_paywalled = feature.get("paywalled", True)
 
-                # Admins get all features
+                # 1. Admins get everything
                 if 'global_admin' in user_roles:
                     permitted_features.append(feature_key)
                     continue
 
                 permitted_tiers = restrictions_map.get(feature_key, [])
 
-                # Tier Check
-                if user_tier and user_tier in permitted_tiers:
+                # 2. Tier Check
+                if user_tier in permitted_tiers:
                     permitted_features.append(feature_key)
                     continue
 
-                # Founding User Paywall Override
+                # 3. Founding User Paywall Override
                 if is_paywalled and is_founding:
                     permitted_features.append(feature_key)
                     continue
             
-            profile_data['permitted_features'] = list(set(permitted_features)) # Ensure uniqueness
+            profile_data['permitted_features'] = list(set(permitted_features))
             
         except Exception as e:
             print(f"Error fetching permitted features for user {user.id}: {e}")
@@ -1067,7 +1086,6 @@ async def get_profile(user = Depends(get_user), supabase: Client = Depends(get_s
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
-
 
 @router.post("/profile", response_model=UserProfile, tags=["User Profile"])
 async def update_profile(profile_data: UserProfileUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

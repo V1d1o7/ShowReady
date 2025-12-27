@@ -12,21 +12,24 @@ const LabelTemplateListView = () => {
 
   useEffect(() => {
     const fetchTemplates = async () => {
-      setIsLoading(true);
+      if (!profile) return;
+      setIsLoading(true); // Ensure loading state is set
+
       try {
-        // Correctly call the new API function
-        const fetchedTemplates = await api.getLabelTemplates();
-        setTemplates(fetchedTemplates);
-      } catch (error) {
-        console.error("Failed to fetch label templates:", error);
-        toast.error(`Failed to fetch templates: ${error.message}`);
+        // api.js returns the array directly after handleResponse parses JSON
+        const response = await api.getLabelTemplates();
+        setTemplates(response);
+      } catch (err) {
+        console.error("Failed to fetch label templates:", err);
+        // FIX: Use toast.error since setError state is not defined in this component
+        toast.error(`Failed to fetch templates: ${err.message}`);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchTemplates();
-  }, []);
+  }, [profile]);
 
   if (isLoading) {
     return <div className="text-center p-8">Loading templates...</div>;

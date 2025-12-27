@@ -12,10 +12,10 @@ from app.LE_pdf_utils import render_template_to_buffer
 
 from supabase import Client
 
-router = APIRouter(dependencies=[Depends(feature_check("label_engine_access"))])
+router = APIRouter(dependencies=[Depends(feature_check("label_engine"))])
 
-# Dependency for label_engine_access feature check
-LABEL_ENGINE_FEATURE = Depends(feature_check("label_engine_access"))
+# Dependency for label_engine feature check
+LABEL_ENGINE_FEATURE = Depends(feature_check("label_engine"))
 
 @router.get("/library/label-stocks", response_model=List[LabelStock], dependencies=[LABEL_ENGINE_FEATURE])
 def get_label_stocks(
@@ -109,6 +109,14 @@ def delete_label_template(
 
     supabase.table("label_templates").delete().eq("id", str(template_id)).execute()
     return
+
+@router.get("/shows/{show_id}/label-engine", dependencies=[LABEL_ENGINE_FEATURE])
+def get_label_engine_status(show_id: int):
+    """
+    Endpoint for the frontend to verify access and 
+    initialize the Label Engine UI for a specific show.
+    """
+    return {"status": "success", "show_id": show_id}
 
 @router.post("/shows/{show_id}/label-engine/print", dependencies=[LABEL_ENGINE_FEATURE])
 def print_labels(

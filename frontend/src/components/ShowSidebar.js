@@ -1,7 +1,6 @@
 //
 import React, { useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
-import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
 import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, Printer } from 'lucide-react';
@@ -50,12 +49,11 @@ const ShowSidebar = () => {
     const allTabs = [
         { path: 'info', label: 'Show Info', icon: Info, feature: null },
         { path: 'crew', label: 'Crew', icon: Users, feature: 'crew' },
-        // CORRECTED: Path is 'team' and feature is 'show_collaboration' per App.js
         { path: 'team', label: 'Team Collab', icon: MessageSquare, feature: 'show_collaboration' },
         { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'hours_tracking' },
         { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
-        { path: 'label-engine', label: 'Label Engine', icon: Printer, feature: 'label_engine_access' },
+        { path: 'label-engine', label: 'Label Engine', icon: Printer, feature: 'label_engine' },
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
         { path: 'switchconfig', label: 'Switch Config', icon: HardDrive, feature: 'switch_config' },
         { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },

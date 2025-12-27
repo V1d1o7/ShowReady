@@ -172,7 +172,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="hourstracking" element={<ProtectedRoute feature="hours_tracking"><HoursTrackingView /></ProtectedRoute>} />
                                                 <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
-                                                <Route path="label-engine" element={<ProtectedRoute feature="label_engine_access"><LabelEngineView /></ProtectedRoute>} />
+                                                <Route path="label-engine" element={<ProtectedRoute feature="label_engine"><LabelEngineView /></ProtectedRoute>} />
                                                 <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
                                                 <Route path="switchconfig" element={<ProtectedRoute feature="switch_config"><SwitchConfigView /></ProtectedRoute>} />
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
@@ -185,7 +185,7 @@ const MainLayout = ({ session }) => {
                                     <Route path="/account" element={<AccountView />} />
                                     <Route path="/sso-setup" element={<AdvancedSSOView />} />
                                     <Route path="/settings/templates" element={<ProtectedRoute><TemplateManager /></ProtectedRoute>} />
-                                    <Route path="/settings/label-template-builder" element={<ProtectedRoute feature="label_engine_access"><LabelTemplateBuilder /></ProtectedRoute>} />
+                                    <Route path="/settings/label-template-builder" element={<ProtectedRoute feature="label_engine"><LabelTemplateBuilder /></ProtectedRoute>} />
                                     <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
                                         <Route index element={<Navigate to="equipment" replace />} />
                                         <Route path="equipment" element={<EquipmentLibraryView />} />

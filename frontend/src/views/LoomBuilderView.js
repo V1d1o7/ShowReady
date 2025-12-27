@@ -31,7 +31,7 @@ const LoomBuilderView = () => {
     // New state for selection and pro label modal
     const [selectedLoomIds, setSelectedLoomIds] = useState([]);
     const [isLoomPrintModalOpen, setIsLoomPrintModalOpen] = useState(false);
-    const hasProAccess = profile?.permitted_features?.includes('label_engine_access');
+    const hasProAccess = profile?.permitted_features?.includes('label_engine');
 
     const openNotesDrawer = (entityType, entityId) => {
         setNotesContext({ entityType, entityId });

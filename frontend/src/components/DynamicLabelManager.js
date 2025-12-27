@@ -66,7 +66,7 @@ const DynamicLabelManager = ({ category }) => {
   const [csvHeadersForMapping, setCsvHeadersForMapping] = useState([]);
 
 
-  const hasAccess = permitted_features?.includes('label_engine_access');
+  const hasAccess = permitted_features?.includes('label_engine');
 
   useEffect(() => {
     if (hasAccess) {
@@ -88,7 +88,9 @@ const DynamicLabelManager = ({ category }) => {
       const variables = new Set();
       const regex = /{{\s*([\w.-]+)\s*}}/g;
       let match;
-      const templateString = JSON.stringify(selectedTemplate.template_json);
+      
+      const templateString = JSON.stringify(selectedTemplate.elements || []);
+      
       while ((match = regex.exec(templateString)) !== null) {
         variables.add(match[1]);
       }
@@ -190,7 +192,7 @@ a.click();
   if (!hasAccess) {
     return (
         <div className="p-4 bg-gray-800 text-white rounded-lg">
-            <p>You do not have access to the Pro Label Engine. Please contact support to upgrade.</p>
+            <p>You do not have access to the Label Engine. Please contact support to upgrade.</p>
         </div>
     );
   }

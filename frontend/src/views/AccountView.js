@@ -182,7 +182,7 @@ const AccountView = () => {
     // RBAC Feature Checks
     const canAccessCommunications = profile?.permitted_features?.includes('communications');
     const canAccessSwitchConfig = profile?.permitted_features?.includes('switch_config');
-    const canAccessLabelEngine = profile?.permitted_features?.includes('label_engine_access');
+    const canAccessLabelEngine = profile?.permitted_features?.includes('label_engine');
 
     if (isLoading) {
         return <div className="flex items-center justify-center h-screen"><div className="text-xl text-gray-400">Loading Profile...</div></div>;

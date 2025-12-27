@@ -313,7 +313,7 @@ const LabelTemplateBuilder = () => {
       // --- Effects ---
   useEffect(() => {
     if (profile) {
-      const hasAccess = profile.permitted_features?.includes('label_engine_access');
+      const hasAccess = profile.permitted_features?.includes('label_engine');
       if (hasAccess) setIsAllowed(true);
       else {
         toast.error("You don't have access to the Label Template Builder.");
@@ -324,9 +324,14 @@ const LabelTemplateBuilder = () => {
 
   useEffect(() => {
     if (isAllowed) {
-      api.get('/library/label-stocks')
-        .then(response => setLabelStocks(response.data))
-        .catch(error => toast.error('Failed to load label stock definitions.'));
+      api.getLabelStocks()
+        .then(response => {
+          setLabelStocks(response);
+        })
+        .catch(error => {
+          console.error(error);
+          toast.error('Failed to load label stock definitions.');
+        });
     }
   }, [isAllowed]);
 
@@ -417,13 +422,14 @@ const LabelTemplateBuilder = () => {
     const payload = {
         name: templateName,
         stock_id: selectedStockId,
+        category: 'case', 
         elements: elements,
-        is_public: false, // Per brief, always private
+        is_public: false,
     };
 
     const toastId = toast.loading("Saving template...");
     try {
-        await api.post('/library/label-templates', payload);
+        await api.createLabelTemplate(payload);
         toast.success("Template saved successfully!", { id: toastId });
         navigate('/library/label-templates');
     } catch (error) {

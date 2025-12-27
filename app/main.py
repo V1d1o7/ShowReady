@@ -169,6 +169,13 @@ async def catch_all(request: Request, full_path: str):
         raise HTTPException(status_code=404, detail="index.html not found")
     return FileResponse(index_path)
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"DEBUG: Incoming request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    print(f"DEBUG: Response status: {response.status_code}")
+    return response
+
 # This block allows the script to be run directly for development
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -635,14 +635,44 @@ export const api = {
 
     // --- Label Engine ---
     getLabelTemplates: async (category) => {
-        const url = category ? `/api/library/label-templates?category=${category}` : '/api/library/label-templates';
+        const url = category ? `/api/v1/library/label-templates?category=${category}` : '/api/v1/library/label-templates';
         return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
     },
-    printLabels: async (showId, printData) => fetch(`/api/shows/${showId}/label-engine/print`, {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(printData),
-    }).then(handleResponse),
+
+    getLabelStocks: async () => {
+        return fetch('/api/v1/library/label-stocks', { headers: await getAuthHeader() }).then(handleResponse);
+    },
+    
+    createLabelTemplate: async (data) => {
+        return fetch('/api/v1/library/label-templates', {
+            method: 'POST',
+            headers: await getAuthHeader(),
+            body: JSON.stringify(data),
+        }).then(handleResponse);
+    },
+    
+    updateLabelTemplate: async (templateId, data) => {
+        return fetch(`/api/v1/library/label-templates/${templateId}`, {
+            method: 'PUT',
+            headers: await getAuthHeader(),
+            body: JSON.stringify(data),
+        }).then(handleResponse);
+    },
+    
+    deleteLabelTemplate: async (templateId) => {
+        return fetch(`/api/v1/library/label-templates/${templateId}`, {
+            method: 'DELETE',
+            headers: await getAuthHeader(),
+        }).then(handleResponse);
+    },
+
+    printLabels: async (showId, printData) => {
+        return fetch(`/api/v1/shows/${showId}/label-engine/print`, {
+            method: 'POST',
+            headers: await getAuthHeader(),
+            body: JSON.stringify(printData),
+        }).then(handleResponse);
+    },
         
     // --- Legacy / Deprecated ---
     getDailyHours: async (showId) => fetch(`/api/shows/${showId}/daily_hours`, { headers: await getAuthHeader() }).then(handleResponse),
