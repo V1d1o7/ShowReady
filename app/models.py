@@ -78,6 +78,11 @@ class UserEntitlementUpdate(BaseModel):
     is_founding: Optional[bool] = None
     is_beta: Optional[bool] = None
 
+class TierLimitUpdate(BaseModel):
+    max_collaborators: Optional[int] = None 
+    max_active_shows: Optional[int] = None 
+    max_archived_shows: Optional[int] = None 
+
 # --- SSO Configuration Model ---
 class SSOConfig(BaseModel):
     id: uuid.UUID
@@ -87,6 +92,7 @@ class SSOConfig(BaseModel):
 # --- Show Information Models ---
 class ShowInfo(BaseModel):
     show_name: Optional[str] = None
+    status: Optional[str] = 'active'
     logo_path: Optional[str] = None
     production_video: Optional[str] = None
     venue_details: Optional[str] = None 

@@ -24,7 +24,8 @@ from .models import (
     SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
     Loom, LoomCreate, LoomUpdate, LoomWithCables,
     Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload,
-    ImpersonateRequest, Token, UserRolesUpdate, User, UserTierUpdate, UserEntitlementUpdate
+    ImpersonateRequest, Token, UserRolesUpdate, User, UserTierUpdate, UserEntitlementUpdate,
+    TierLimitUpdate
 )
 from .pdf_utils import (
     generate_loom_label_pdf, 
@@ -34,7 +35,7 @@ from .pdf_utils import (
     generate_hours_pdf,
     generate_combined_rack_pdf
 )
-from .email_utils import create_email_html, send_email
+from .email_utils import create_email_html, send_email, create_downgrade_warning_email_html
 from typing import List, Dict, Optional
 from .models import HoursPDFPayload
 
@@ -114,6 +115,20 @@ async def get_admin_user(user = Depends(get_user), supabase: Client = Depends(ge
     if 'global_admin' not in user_roles:
         raise HTTPException(status_code=403, detail="Forbidden: Admin access required.")
     return user
+
+# --- Admin Authentication Dependency ---
+async def ensure_show_active(show_id: int, supabase: Client):
+    """Ensures a show is 'active' before allowing modifications."""
+    try:
+        # Check the 'status' column
+        res = supabase.table('shows').select('status').eq('id', show_id).single().execute()
+        # If status is 'archived', deny access
+        if res.data and res.data.get('status') == 'archived':
+            raise HTTPException(status_code=403, detail="This show is archived and read-only. Unarchive it to make changes.")
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        # Log warning or pass if column doesn't exist yet (during migration)
+        pass
 
 # --- Email Payload Models ---
 class AdminEmailPayload(BaseModel):
@@ -487,21 +502,75 @@ async def update_user_roles(user_id: uuid.UUID, payload: UserRolesUpdate, admin_
 
 @router.put("/admin/users/{user_id}/tier", tags=["Admin"], status_code=204)
 async def update_user_tier(user_id: uuid.UUID, payload: UserTierUpdate, admin_user=Depends(get_admin_user)):
-    """Admin: Modify a user's tier (core, build, run)."""
+    """Admin: Modify a user's tier and enforce storage limits (Auto-Archive & Grace Period)."""
     try:
         admin_client = get_service_client()
         
-        # 1. Validate the tier exists and is canonical
+        # 1. Validate Tier
         if payload.tier not in ['core', 'build', 'run']:
-             raise HTTPException(status_code=400, detail=f"Invalid tier '{payload.tier}'. Must be 'core', 'build', or 'run'.")
+             raise HTTPException(status_code=400, detail=f"Invalid tier '{payload.tier}'.")
 
-        tier_res = admin_client.table('tiers').select('id').eq('name', payload.tier).single().execute()
+        tier_res = admin_client.table('tiers').select('*').eq('name', payload.tier).single().execute()
         if not tier_res.data:
             raise HTTPException(status_code=400, detail=f"Tier '{payload.tier}' configuration not found.")
-        tier_id = tier_res.data['id']
         
-        # 2. Update the user's profile
+        new_tier = tier_res.data
+        tier_id = new_tier['id']
+        
+        # 2. Update the user's profile with new tier
         admin_client.table('profiles').update({'tier_id': tier_id}).eq('id', str(user_id)).execute()
+        
+        # 3. ENFORCE ACTIVE SHOW LIMITS (Auto-Archive)
+        max_active = new_tier.get('max_active_shows')
+        
+        if max_active is not None:
+            # Fetch all active shows for user, ordered by creation (oldest first)
+            active_shows_res = admin_client.table('shows').select('id, name, created_at').eq('user_id', str(user_id)).eq('status', 'active').order('created_at').execute()
+            active_shows = active_shows_res.data
+            
+            excess_active_count = len(active_shows) - max_active
+            
+            if excess_active_count > 0:
+                # Identify shows to archive (the oldest ones)
+                shows_to_archive = active_shows[:excess_active_count]
+                archive_ids = [s['id'] for s in shows_to_archive]
+                
+                # Bulk update status to 'archived'
+                admin_client.table('shows').update({'status': 'archived'}).in_('id', archive_ids).execute()
+                print(f"Auto-archived {len(archive_ids)} shows for user {user_id} due to downgrade.")
+
+        # 4. ENFORCE ARCHIVED SHOW LIMITS (Grace Period Trigger)
+        max_archived = new_tier.get('max_archived_shows')
+        
+        if max_archived is not None:
+            # Re-fetch archived count (including the ones we just auto-archived)
+            archived_count_res = admin_client.table('shows').select('id', count='exact').eq('user_id', str(user_id)).eq('status', 'archived').execute()
+            current_archived_count = archived_count_res.count
+            
+            if current_archived_count > max_archived:
+                # User is over the limit. Start Grace Period.
+                now_iso = datetime.now(timezone.utc).isoformat()
+                
+                # Update Profile: Set downgraded_at timestamp
+                admin_client.table('profiles').update({
+                    'downgraded_at': now_iso,
+                    'storage_reminder_15_sent': False,
+                    'storage_reminder_1_sent': False
+                }).eq('id', str(user_id)).execute()
+                
+                # Send Immediate Warning Email
+                # Need sender identity
+                sender_res = admin_client.table('sender_identities').select('*').eq('email', 'showready@kuiper-productions.com').single().execute()
+                if sender_res.data:
+                    admin_sender = SenderIdentity(**sender_res.data)
+                    
+                    user_profile_res = admin_client.table('profiles').select('*').eq('id', str(user_id)).single().execute()
+                    if user_profile_res.data:
+                        auth_user = admin_client.auth.admin.get_user_by_id(str(user_id))
+                        
+                        html_content = create_downgrade_warning_email_html(user_profile_res.data)
+                        send_email(auth_user.user.email, "Action Required: Storage Limit Exceeded", html_content, admin_sender)
+
         return
     except Exception as e:
         traceback.print_exc()
@@ -673,8 +742,6 @@ async def stop_impersonation(user=Depends(get_user), supabase: Client = Depends(
 
 
 # --- Admin Tier Management ---
-class TierLimitUpdate(BaseModel):
-    max_collaborators: Optional[int] = None # None means unlimited
 
 @router.get("/admin/tiers/detailed", tags=["Admin"])
 async def get_detailed_tiers(admin_user = Depends(get_admin_user)):
@@ -685,13 +752,26 @@ async def get_detailed_tiers(admin_user = Depends(get_admin_user)):
 
 @router.put("/admin/tiers/{tier_name}/limits", tags=["Admin"])
 async def update_tier_limits(tier_name: str, limits: TierLimitUpdate, admin_user = Depends(get_admin_user)):
-    """Updates limits (like max collaborators) for a specific tier."""
+    """Updates limits (max collaborators, active shows, archived shows) for a specific tier."""
     admin_client = get_service_client()
-    # Accept -1 from frontend to represent "Unlimited" (NULL in DB)
-    val = limits.max_collaborators
-    if val is not None and val < 0: val = None
     
-    res = admin_client.table('tiers').update({'max_collaborators': val}).eq('name', tier_name).execute()
+    update_data = {}
+    
+    # Handle unlimited values (e.g., -1 from frontend) by converting to None
+    if limits.max_collaborators is not None:
+        update_data['max_collaborators'] = None if limits.max_collaborators < 0 else limits.max_collaborators
+    
+    # [New Logic] Handle Show Limits
+    if limits.max_active_shows is not None:
+        update_data['max_active_shows'] = None if limits.max_active_shows < 0 else limits.max_active_shows
+        
+    if limits.max_archived_shows is not None:
+        update_data['max_archived_shows'] = None if limits.max_archived_shows < 0 else limits.max_archived_shows
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No limits provided to update.")
+
+    res = admin_client.table('tiers').update(update_data).eq('name', tier_name).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Tier not found.")
     return res.data[0]
@@ -1043,16 +1123,33 @@ async def update_sso_config(sso_data: SSOConfig, user = Depends(get_user), supab
 async def create_show(show_data: ShowFile, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new show for the authenticated user."""
     try:
+        # [New Logic] Check Active Show Limits
+        # 1. Get User's Tier Limits
+        profile = supabase.table('profiles').select('tier_id, tiers(max_active_shows)').eq('id', user.id).single().execute()
+        max_active = profile.data.get('tiers', {}).get('max_active_shows')
+
+        # 2. Count Current Active Shows
+        if max_active is not None:
+            # We explicitly check for 'active' status (or null which defaults to active)
+            # Note: We assume 'archived' is the only other status for now.
+            count_res = supabase.table('shows').select('id', count='exact').eq('user_id', user.id).neq('status', 'archived').execute()
+            current_active = count_res.count
+            
+            if current_active >= max_active:
+                raise HTTPException(status_code=403, detail=f"Active show limit ({max_active}) reached. Please archive a show to create a new one.")
+
         response = supabase.table('shows').insert({
             'name': show_data.info.show_name,
             'data': show_data.model_dump(mode='json'),
-            'user_id': str(user.id)
+            'user_id': str(user.id),
+            'status': 'active' # Explicitly set status
         }).execute()
         
         if response.data:
             return response.data[0]
         raise HTTPException(status_code=500, detail="Failed to create show.")
     except Exception as e:
+        if isinstance(e, HTTPException): raise e
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/shows/{show_id}", tags=["Shows"])
@@ -1112,10 +1209,10 @@ async def get_show_by_name(show_name: str, user = Depends(get_user), supabase: C
 
 @router.get("/shows", tags=["Shows"])
 async def list_shows(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Lists all shows for the authenticated user, including their logo paths."""
+    """Lists all shows for the authenticated user, including their logo paths and status."""
     try:
-        # FIX: Added user_id to the select query so the frontend can detect ownership
-        response = supabase.table('shows').select('id, name, data, user_id').execute()
+        # FIX: Added 'status' to the select query
+        response = supabase.table('shows').select('id, name, data, user_id, status').execute()
         if not response.data:
             return []
         
@@ -1126,7 +1223,8 @@ async def list_shows(user = Depends(get_user), supabase: Client = Depends(get_su
                 'id': item['id'], 
                 'name': item['name'], 
                 'logo_path': logo_path,
-                'user_id': item['user_id'] # Pass this to the frontend
+                'user_id': item['user_id'],
+                'status': item.get('status', 'active') # Default to active
             })
             
         return shows_with_logos

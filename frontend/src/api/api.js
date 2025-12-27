@@ -462,10 +462,10 @@ export const api = {
     
     // --- Admin Tier Limits ---
     getDetailedTiers: async () => fetch('/api/admin/tiers/detailed', { headers: await getAuthHeader() }).then(handleResponse),
-    updateTierLimits: async (tierName, maxCollaborators) => fetch(`/api/admin/tiers/${tierName}/limits`, {
+    updateTierLimits: async (tierName, limits) => fetch(`/api/admin/tiers/${tierName}/limits`, {
         method: 'PUT',
         headers: await getAuthHeader(),
-        body: JSON.stringify({ max_collaborators: maxCollaborators }),
+        body: JSON.stringify(limits),
     }).then(handleResponse),
 
     // --- Admin Email ---

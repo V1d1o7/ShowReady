@@ -5,7 +5,7 @@ import Card from '../../components/Card';
 import MultiSelect from '../../components/MultiSelect';
 import FeatureConfigModal from '../../components/FeatureConfigModal';
 import toast, { Toaster } from 'react-hot-toast';
-import { ShieldCheck, HelpCircle, Settings, Users } from 'lucide-react';
+import { ShieldCheck, HelpCircle, Settings, Users, HardDrive, Archive } from 'lucide-react';
 
 /**
  * CONFIGURATION: Maps Features to Database Limits.
@@ -18,6 +18,23 @@ const FEATURE_LIMITS_MAP = {
             label: 'Max Team Members', 
             icon: Users,
             description: 'Number of people an owner can invite to a show.',
+            placeholder: 'Unlimited (-1)'
+        }
+    ],
+    // Virtual Feature for Show Limits
+    'show_limits': [
+        {
+            key: 'max_active_shows',
+            label: 'Max Active Shows',
+            icon: HardDrive,
+            description: 'Number of active shows allowed at once.',
+            placeholder: 'Unlimited (-1)'
+        },
+        {
+            key: 'max_archived_shows',
+            label: 'Max Archived Shows',
+            icon: Archive,
+            description: 'Number of archived shows allowed.',
             placeholder: 'Unlimited (-1)'
         }
     ]
@@ -47,7 +64,14 @@ const RbacView = () => {
                 api.getDetailedTiers()
             ]);
             
-            // Sort restrictions alphabetically by display_name
+            // Inject the "Show Limits" virtual feature
+            restrictionsData.push({
+                feature_name: 'show_limits',
+                display_name: 'Show Storage & Limits',
+                permitted_tiers: [] // Not used for this row
+            });
+
+            // Sort ALL restrictions alphabetically by display_name
             restrictionsData.sort((a, b) => a.display_name.localeCompare(b.display_name));
             
             setRestrictions(restrictionsData);
@@ -86,9 +110,12 @@ const RbacView = () => {
         setIsSaving(true);
         const toastId = toast.loading("Saving permissions...");
         try {
-            const promises = restrictions.map(feature => 
-                api.updateFeatureRestriction(feature.feature_name, { permitted_tiers: feature.permitted_tiers })
-            );
+            // Filter out the virtual 'show_limits' feature before saving restrictions to DB
+            const promises = restrictions
+                .filter(f => f.feature_name !== 'show_limits')
+                .map(feature => 
+                    api.updateFeatureRestriction(feature.feature_name, { permitted_tiers: feature.permitted_tiers })
+                );
             await Promise.all(promises);
             
             setOriginalRestrictions(JSON.parse(JSON.stringify(restrictions)));
@@ -120,7 +147,6 @@ const RbacView = () => {
                     <ShieldCheck size={24} className="text-amber-400" />
                     Feature Access Control
                 </h2>
-                {/* Save button is always rendered but disabled if no changes */}
                 <button 
                     onClick={handleSavePermissions}
                     disabled={!isDirty || isSaving}
@@ -138,13 +164,16 @@ const RbacView = () => {
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
                     {restrictions.map(feature => {
                         const hasConfig = !!FEATURE_LIMITS_MAP[feature.feature_name];
+                        const isVirtual = feature.feature_name === 'show_limits';
                         
                         return (
                             <div key={feature.feature_name} className="flex items-center justify-between border-b border-gray-700 pb-4 last:border-0 last:pb-0 gap-4 hover:bg-gray-800/30 p-2 rounded transition-colors">
                                 {/* Feature Label */}
                                 <div className="flex-1">
                                     <div className="flex items-center gap-2">
-                                        <span className="font-bold text-gray-200">{feature.display_name}</span>
+                                        <span className="font-bold text-gray-200">
+                                            {feature.display_name}
+                                        </span>
                                         {feature.feature_name === 'pdf_logo' && (
                                             <span className="group relative">
                                                 <HelpCircle size={16} className="text-gray-500 cursor-help" />
@@ -169,14 +198,19 @@ const RbacView = () => {
                                     )}
                                 </div>
 
-                                {/* Tier Selector */}
+                                {/* Tier Selector (Hidden for Virtual Features) */}
                                 <div className="w-1/3 min-w-[200px]">
-                                    <MultiSelect
-                                        options={tiersDropdown}
-                                        selected={feature.permitted_tiers || []}
-                                        onChange={(selectedTiers) => handleFeatureTierChange(feature.feature_name, selectedTiers)}
-                                        placeholder="Admin Only"
-                                    />
+                                    {!isVirtual ? (
+                                        <MultiSelect
+                                            options={tiersDropdown}
+                                            selected={feature.permitted_tiers || []}
+                                            onChange={(selectedTiers) => handleFeatureTierChange(feature.feature_name, selectedTiers)}
+                                            placeholder="Admin Only"
+                                        />
+                                    ) : (
+                                        // Invisible spacer to maintain row alignment
+                                        <div className="h-10"></div> 
+                                    )}
                                 </div>
                             </div>
                         );

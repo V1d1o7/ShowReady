@@ -42,13 +42,23 @@ const FeatureConfigModal = ({ isOpen, onClose, feature, limitsConfig, tiers, onS
                 const tierUpdates = localLimits[tier.name];
                 if (!tierUpdates) return Promise.resolve();
 
-                // Currently API supports 'max_collaborators'. Logic can expand here.
-                let maxCollab = tierUpdates['max_collaborators'];
+                // Dynamic Payload Construction
+                const payload = {};
                 
-                if (maxCollab !== undefined) {
-                    maxCollab = parseInt(maxCollab);
-                    if (isNaN(maxCollab) || maxCollab < 0) maxCollab = -1; // -1 for unlimited
-                    return api.updateTierLimits(tier.name, maxCollab);
+                limitsConfig.forEach(conf => {
+                    let val = tierUpdates[conf.key];
+                    
+                    // Handle empty strings, nulls, and negative inputs
+                    if (val !== undefined && val !== "") {
+                        val = parseInt(val);
+                        // Convert negative values or NaNs to -1 (Backend treats -1 or None as Unlimited)
+                        if (isNaN(val) || val < 0) val = -1;
+                        payload[conf.key] = val;
+                    }
+                });
+
+                if (Object.keys(payload).length > 0) {
+                    return api.updateTierLimits(tier.name, payload);
                 }
                 return Promise.resolve();
             });

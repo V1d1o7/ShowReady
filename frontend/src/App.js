@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Routes, Route, useNavigate, useParams, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { supabase, api } from './api/api';
+import toast, { Toaster } from 'react-hot-toast';
 
 // Contexts
 import { ShowProvider } from './contexts/ShowContext';
@@ -92,6 +93,7 @@ const MainLayout = ({ session }) => {
             }
         } catch (error) {
             console.error("Failed to create show:", error);
+            toast.error(`Failed to create show: ${error.message}`);
         }
         setIsNewShowModalOpen(false);
     };
@@ -107,10 +109,25 @@ const MainLayout = ({ session }) => {
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 } catch (error) {
                     console.error("Failed to delete show:", error);
+                    toast.error(`Failed to delete show: ${error.message}`);
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 }
             }
         });
+    };
+
+    const handleToggleArchive = async (showId, currentStatus) => {
+        const newStatus = currentStatus === 'archived' ? 'active' : 'archived';
+        const action = newStatus === 'active' ? 'Unarchive' : 'Archive';
+        
+        const toastId = toast.loading(`${action}ing show...`);
+        try {
+            await api.updateShowSettings(showId, { status: newStatus });
+            toast.success(`Show ${action}d!`, { id: toastId });
+            loadShows();
+        } catch (error) {
+            toast.error(`Failed to ${action.toLowerCase()}: ${error.message}`, { id: toastId });
+        }
     };
 
     return (
@@ -120,6 +137,7 @@ const MainLayout = ({ session }) => {
                     <LayoutContext.Provider value={layoutContextValue}>
                         <div className={`flex flex-col h-full ${isImpersonating ? 'pt-10' : ''}`}>
                             <ImpersonationBanner />
+                            <Toaster position="bottom-center" />
                             <Navbar />
                             <main className={`flex-grow min-h-0 ${shouldScroll ? 'overflow-y-auto' : ''}`}>
                                 <Routes>
@@ -136,6 +154,7 @@ const MainLayout = ({ session }) => {
                                                 }}
                                                 onNewShow={() => setIsNewShowModalOpen(true)}
                                                 onDeleteShow={(showId, showName) => handleDeleteShow(showId, showName)}
+                                                onToggleArchive={handleToggleArchive}
                                                 isLoading={isLoadingShows}
                                                 user={session.user}
                                             />
