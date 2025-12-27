@@ -31,6 +31,7 @@ import UserRackBuilderView from './views/UserRackBuilderView';
 import ShowInfoView from './views/ShowInfoView';
 import LoomLabelView from './views/LoomLabelView';
 import CaseLabelView from './views/CaseLabelView';
+import LabelEngineView from './views/LabelEngineView';
 import RackBuilderView from './views/RackBuilderView';
 import WireDiagramView from './views/WireDiagramView';
 import LoomBuilderView from './views/LoomBuilderView';
@@ -171,6 +172,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="hourstracking" element={<ProtectedRoute feature="hours_tracking"><HoursTrackingView /></ProtectedRoute>} />
                                                 <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
+                                                <Route path="label-engine" element={<ProtectedRoute feature="label_engine_access"><LabelEngineView /></ProtectedRoute>} />
                                                 <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
                                                 <Route path="switchconfig" element={<ProtectedRoute feature="switch_config"><SwitchConfigView /></ProtectedRoute>} />
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />

@@ -8,6 +8,7 @@ import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
 import { useAuth } from '../contexts/AuthContext';
 import CableManagerModal from '../components/CableManagerModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
+import LoomLabelPrintModal from '../components/LoomLabelPrintModal'; // Import the new modal
 import { api } from '../api/api';
 import useHotkeys from '../hooks/useHotkeys';
 import toast from 'react-hot-toast';
@@ -26,6 +27,11 @@ const LoomBuilderView = () => {
     const [loomToCopy, setLoomToCopy] = useState(null);
     const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
     const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
+
+    // New state for selection and pro label modal
+    const [selectedLoomIds, setSelectedLoomIds] = useState([]);
+    const [isLoomPrintModalOpen, setIsLoomPrintModalOpen] = useState(false);
+    const hasProAccess = profile?.permitted_features?.includes('label_engine_access');
 
     const openNotesDrawer = (entityType, entityId) => {
         setNotesContext({ entityType, entityId });
@@ -63,6 +69,22 @@ const LoomBuilderView = () => {
         fetchLooms();
     }, [fetchLooms]);
 
+    const handleSelectLoom = (loomId) => {
+        setSelectedLoomIds(prev =>
+            prev.includes(loomId)
+                ? prev.filter(id => id !== loomId)
+                : [...prev, loomId]
+        );
+    };
+
+    const handleSelectAllLooms = (e) => {
+        if (e.target.checked) {
+            setSelectedLoomIds(looms.map(loom => loom.id));
+        } else {
+            setSelectedLoomIds([]);
+        }
+    };
+
     const handleCreateLoom = async (name) => {
         try {
             const newLoom = await api.createLoom({ name, show_id: showId });
@@ -98,6 +120,7 @@ const LoomBuilderView = () => {
                 try {
                     await api.deleteLoom(loomId);
                     fetchLooms();
+                    setSelectedLoomIds(prev => prev.filter(id => id !== loomId));
                 } catch (error) {
                     console.error("Failed to delete loom:", error);
                     toast.error(`Error: ${error.message}`);
@@ -146,6 +169,15 @@ const LoomBuilderView = () => {
                 <div className="flex justify-between items-center mb-4">
                     <h1 className="text-2xl font-bold text-white">Loom Builder</h1>
                     <div className="flex items-center gap-4">
+                        {hasProAccess && (
+                            <button
+                                onClick={() => setIsLoomPrintModalOpen(true)}
+                                disabled={selectedLoomIds.length === 0}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50"
+                            >
+                                <Printer size={16}/> Print Labels (Pro)
+                            </button>
+                        )}
                         <button onClick={() => handleGeneratePdf()} disabled={looms.length === 0} className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-600 transition-colors disabled:opacity-50">
                             <Download size={16}/> Export PDF
                         </button>
@@ -159,6 +191,14 @@ const LoomBuilderView = () => {
                     <table className="w-full text-sm text-left">
                         <thead className="border-b border-gray-700">
                             <tr>
+                                <th className="p-3 w-10">
+                                    <input
+                                        type="checkbox"
+                                        onChange={handleSelectAllLooms}
+                                        checked={looms.length > 0 && selectedLoomIds.length === looms.length}
+                                        className="form-checkbox h-4 w-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500"
+                                    />
+                                </th>
                                 <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Loom Name</th>
                                 <th className="p-3 font-bold text-gray-400 uppercase tracking-wider">Length</th>
                                 <th className="p-3 w-48 text-right font-bold text-gray-400 uppercase tracking-wider">Actions</th>
@@ -166,14 +206,23 @@ const LoomBuilderView = () => {
                         </thead>
                         <tbody>
                             {isLoading ? (
-                                <tr><td colSpan="3" className="text-center py-8 text-gray-500">Loading looms...</td></tr>
+                                <tr><td colSpan="4" className="text-center py-8 text-gray-500">Loading looms...</td></tr>
                             ) : looms.map((loom) => {
                                 const longestCable = (loom.cables || []).reduce((max, cable) => {
                                     return Math.max(max, cable.length_ft || 0);
                                 }, 0);
+                                const isSelected = selectedLoomIds.includes(loom.id);
 
                                 return (
-                                    <tr key={loom.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
+                                    <tr key={loom.id} className={`border-b border-gray-700/50 ${isSelected ? 'bg-blue-900/50' : 'hover:bg-gray-800/50'}`}>
+                                        <td className="p-3">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => handleSelectLoom(loom.id)}
+                                                className="form-checkbox h-4 w-4 text-blue-600 bg-gray-800 border-gray-600 rounded focus:ring-blue-500"
+                                            />
+                                        </td>
                                         <td className="p-3 truncate max-w-xs">{loom.name}</td>
                                         <td className="p-3 truncate">{longestCable}ft</td>
                                         <td className="p-3 flex justify-end gap-3">
@@ -206,6 +255,12 @@ const LoomBuilderView = () => {
                 </div>
             </Card>
             
+            <LoomLabelPrintModal
+                isOpen={isLoomPrintModalOpen}
+                onClose={() => setIsLoomPrintModalOpen(false)}
+                selectedLooms={looms.filter(loom => selectedLoomIds.includes(loom.id))}
+            />
+
             {isNameModalOpen && (
                 <NamePromptModal
                     isOpen={isNameModalOpen}

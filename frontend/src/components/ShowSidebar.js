@@ -4,7 +4,7 @@ import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShow } from '../contexts/ShowContext';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, Printer } from 'lucide-react';
 import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
@@ -55,6 +55,7 @@ const ShowSidebar = () => {
         { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'hours_tracking' },
         { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
+        { path: 'label-engine', label: 'Label Engine', icon: Printer, feature: 'label_engine_access' },
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
         { path: 'switchconfig', label: 'Switch Config', icon: HardDrive, feature: 'switch_config' },
         { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },
