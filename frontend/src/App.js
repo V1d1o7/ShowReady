@@ -258,7 +258,8 @@ const ShowWrapper = ({ onShowUpdate }) => {
         if (!showData || !showData.id) return;
         try {
             await api.saveShow(showData.id, updatedShowDataBlob);
-            
+            toast.success("Show saved successfully.");
+
             const oldUrlFriendlyName = showName.replace(/\s+/g, '-');
             const newUrlFriendlyName = updatedShowDataBlob.info.show_name.replace(/\s+/g, '-');
 
@@ -278,6 +279,7 @@ const ShowWrapper = ({ onShowUpdate }) => {
             }
         } catch (error) {
             console.error("Failed to save show data:", error);
+            toast.error(`Failed to save show: ${error.message}`);
         }
     };
     

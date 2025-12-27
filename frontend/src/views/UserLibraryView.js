@@ -9,6 +9,7 @@ import EditUserEquipmentModal from '../components/EditUserEquipmentModal';
 import NewRackModal from '../components/NewRackModal';
 import { LibraryProvider } from '../contexts/LibraryContext';
 import ConfirmationModal from '../components/ConfirmationModal';
+import toast from 'react-hot-toast';
 
 const UserLibraryView = () => {
     const [library, setLibrary] = useState({ folders: [], equipment: [] });
@@ -55,7 +56,7 @@ const UserLibraryView = () => {
             fetchData();
         } catch (error) {
             console.error("Failed to create folder", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsFolderModalOpen(false);
     };
@@ -66,7 +67,7 @@ const UserLibraryView = () => {
             fetchData();
         } catch (error) {
             console.error("Failed to create equipment", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsEquipmentModalOpen(false);
     };
@@ -78,7 +79,7 @@ const UserLibraryView = () => {
             setSelectedRackId(newRack.id);
         } catch (error) {
             console.error("Failed to create rack template:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsRackModalOpen(false);
     };
@@ -94,7 +95,7 @@ const UserLibraryView = () => {
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 } catch (error) {
                     console.error("Failed to delete folder", error);
-                    alert(`Error: ${error.message}`);
+                    toast.error(`Error: ${error.message}`);
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 }
             }
@@ -112,7 +113,7 @@ const UserLibraryView = () => {
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 } catch (error) {
                     console.error("Failed to delete equipment", error);
-                    alert(`Error: ${error.message}`);
+                    toast.error(`Error: ${error.message}`);
                     setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
                 }
             }
@@ -134,7 +135,7 @@ const UserLibraryView = () => {
             fetchData();
         } catch(error) {
             console.error("Failed to update item", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         } finally {
             setEditingItem(null);
         }

@@ -6,6 +6,7 @@ import AddCrewFromRosterModal from '../components/AddCrewFromRosterModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import useHotkeys from '../hooks/useHotkeys';
+import toast from 'react-hot-toast';
 
 const ShowCrewView = () => {
     const { showId } = useShow();
@@ -44,9 +45,11 @@ const ShowCrewView = () => {
             onConfirm: async () => {
                 try {
                     await api.removeCrewFromShow(showId, crewMember.id);
+                    toast.success("Crew member removed");
                     fetchCrew();
                 } catch (error) {
                     console.error("Failed to remove crew:", error);
+                    toast.error(`Failed to remove crew: ${error.message}`);
                 } finally {
                     setConfirmModal({ isOpen: false, message: '', onConfirm: null });
                 }

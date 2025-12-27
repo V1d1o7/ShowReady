@@ -10,6 +10,7 @@ import CableManagerModal from '../components/CableManagerModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import { api } from '../api/api';
 import useHotkeys from '../hooks/useHotkeys';
+import toast from 'react-hot-toast';
 
 const LoomBuilderView = () => {
     const { showId, showData, showOwnerId } = useShow();
@@ -52,6 +53,7 @@ const LoomBuilderView = () => {
             setLooms(fetchedLooms);
         } catch (error) {
             console.error("Failed to fetch looms:", error);
+            toast.error(`Error: ${error.message}`);
         } finally {
             setIsLoading(false);
         }
@@ -68,7 +70,7 @@ const LoomBuilderView = () => {
             setManagingLoom(newLoom);
         } catch (error) {
             console.error("Failed to create loom:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setIsNameModalOpen(false);
     };
@@ -84,7 +86,7 @@ const LoomBuilderView = () => {
             fetchLooms();
         } catch (error) {
             console.error("Failed to update loom name:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setEditingLoom(null);
     };
@@ -98,6 +100,7 @@ const LoomBuilderView = () => {
                     fetchLooms();
                 } catch (error) {
                     console.error("Failed to delete loom:", error);
+                    toast.error(`Error: ${error.message}`);
                 }
             }
         );
@@ -110,7 +113,7 @@ const LoomBuilderView = () => {
             fetchLooms();
         } catch (error) {
             console.error("Failed to copy loom:", error);
-            alert(`Error: ${error.message}`);
+            toast.error(`Error: ${error.message}`);
         }
         setLoomToCopy(null);
     };
@@ -118,7 +121,7 @@ const LoomBuilderView = () => {
     const handleGeneratePdf = async (selectedLooms = null) => {
         const loomsToExport = selectedLooms ? (Array.isArray(selectedLooms) ? selectedLooms : [selectedLooms]) : looms;
         if (loomsToExport.length === 0) {
-            alert("There are no looms to export.");
+            toast.error("There are no looms to export.");
             return;
         }
 
@@ -131,7 +134,10 @@ const LoomBuilderView = () => {
             const blob = await api.generatePdf('loom_builder', body);
             const url = URL.createObjectURL(blob);
             setPdfPreviewUrl(url);
-        } catch(e) { console.error("PDF generation failed", e); }
+        } catch(e) {
+            console.error("PDF generation failed", e);
+            toast.error(`PDF Generation Failed: ${e.message}`);
+        }
     };
 
     return (

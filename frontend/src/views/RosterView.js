@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { api } from '../api/api';
 import { Plus, Edit, Trash2, Mail, HelpCircle, Lock } from 'lucide-react'; // Added Lock
-import { Toaster } from 'react-hot-toast'; 
+import toast, { Toaster } from 'react-hot-toast'; 
 import { LayoutContext } from '../contexts/LayoutContext';
 import useHotkeys from '../hooks/useHotkeys';
 import RosterModal from '../components/RosterModal';
@@ -90,12 +90,15 @@ const RosterView = () => {
         try {
             if (editingMember) {
                 await api.updateRosterMember(editingMember.id, formData);
+                toast.success("Member updated successfully");
             } else {
                 await api.createRosterMember(formData);
+                toast.success("Member created successfully");
             }
             fetchData();
         } catch (error) {
             console.error("Failed to save roster member:", error);
+            toast.error(`Failed to save member: ${error.message}`);
         } finally {
             handleCloseModal();
         }
@@ -108,9 +111,11 @@ const RosterView = () => {
             onConfirm: async () => {
                 try {
                     await api.deleteRosterMember(member.id);
+                    toast.success("Member deleted successfully");
                     fetchData();
                 } catch (error) {
                     console.error("Failed to delete roster member:", error);
+                    toast.error(`Failed to delete member: ${error.message}`);
                 } finally {
                     setConfirmModal({ isOpen: false, message: '', onConfirm: null });
                 }

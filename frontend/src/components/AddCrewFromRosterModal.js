@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/api';
 import { UserPlus, Users } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
     // Mode: 'existing' or 'new'
@@ -92,11 +93,12 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
             // Add to Show
             await api.addCrewToShow(showId, targetRosterId, rateData);
             
+            toast.success("Crew member added successfully");
             if (onAdded) onAdded();
             onClose();
         } catch (error) {
             console.error("Failed to add crew member:", error);
-            alert("Failed to add crew member. Please try again.");
+            toast.error(`Failed to add crew member: ${error.message}`);
         } finally {
             setIsSubmitting(false);
         }
