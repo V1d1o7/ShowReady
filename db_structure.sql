@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ZiI9Bw33mym5FcANioa6dOalR7bXYLlyiyBe1PYdResgrTCvSedKZu4difRxSCi
+\restrict lO92V5jGgavCdxHmeWDxZk71StRdWof71hP23qUpTK6ZqAOS0i2nooiSSnJwGnK
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -1065,6 +1065,42 @@ $$;
 
 
 ALTER FUNCTION public.is_global_admin() OWNER TO postgres;
+
+--
+-- Name: is_show_member(bigint); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.is_show_member(_show_id bigint) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM show_collaborators
+    WHERE show_id = _show_id
+    AND user_id = auth.uid()
+  );
+$$;
+
+
+ALTER FUNCTION public.is_show_member(_show_id bigint) OWNER TO postgres;
+
+--
+-- Name: is_show_owner(bigint); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.is_show_owner(_show_id bigint) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM shows
+    WHERE id = _show_id
+    AND user_id = auth.uid()
+  );
+$$;
+
+
+ALTER FUNCTION public.is_show_owner(_show_id bigint) OWNER TO postgres;
 
 --
 -- Name: suspend_user_by_id(uuid); Type: FUNCTION; Schema: public; Owner: postgres
@@ -3702,7 +3738,10 @@ CREATE TABLE public.profiles (
     feedback_button_text text,
     last_active_at timestamp with time zone,
     inactivity_warning_sent boolean DEFAULT false,
-    tier_id uuid
+    tier_id uuid,
+    downgraded_at timestamp with time zone,
+    storage_reminder_15_sent boolean DEFAULT false,
+    storage_reminder_1_sent boolean DEFAULT false
 );
 
 
@@ -3860,7 +3899,8 @@ CREATE TABLE public.shows (
     show_td_email text,
     show_designer_name text,
     show_designer_email text,
-    pay_period_start_day integer DEFAULT 0
+    pay_period_start_day integer DEFAULT 0,
+    status text DEFAULT 'active'::text
 );
 
 
@@ -3996,7 +4036,10 @@ ALTER TABLE public.switch_push_jobs OWNER TO postgres;
 CREATE TABLE public.tiers (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     name text NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    max_collaborators integer DEFAULT 2,
+    max_active_shows integer,
+    max_archived_shows integer
 );
 
 
@@ -6588,6 +6631,20 @@ CREATE POLICY "Allow users to view folders" ON public.folders FOR SELECT USING (
 
 
 --
+-- Name: show_collaborators Manage collaborators; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Manage collaborators" ON public.show_collaborators USING (public.is_show_owner(show_id));
+
+
+--
+-- Name: show_collaborators Self leave; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Self leave" ON public.show_collaborators FOR DELETE USING ((user_id = auth.uid()));
+
+
+--
 -- Name: sso_configs Users can create their own SSO config; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6652,6 +6709,13 @@ CREATE POLICY "Users can view standard library equipment" ON public.equipment_te
 --
 
 CREATE POLICY "Users can view their own SSO config" ON public.sso_configs FOR SELECT USING ((auth.uid() = id));
+
+
+--
+-- Name: show_collaborators View collaborators; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "View collaborators" ON public.show_collaborators FOR SELECT USING ((public.is_show_owner(show_id) OR (user_id = auth.uid()) OR public.is_show_member(show_id)));
 
 
 --
@@ -7635,6 +7699,24 @@ GRANT ALL ON FUNCTION public.increment_permissions_version() TO service_role;
 GRANT ALL ON FUNCTION public.is_global_admin() TO anon;
 GRANT ALL ON FUNCTION public.is_global_admin() TO authenticated;
 GRANT ALL ON FUNCTION public.is_global_admin() TO service_role;
+
+
+--
+-- Name: FUNCTION is_show_member(_show_id bigint); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.is_show_member(_show_id bigint) TO anon;
+GRANT ALL ON FUNCTION public.is_show_member(_show_id bigint) TO authenticated;
+GRANT ALL ON FUNCTION public.is_show_member(_show_id bigint) TO service_role;
+
+
+--
+-- Name: FUNCTION is_show_owner(_show_id bigint); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.is_show_owner(_show_id bigint) TO anon;
+GRANT ALL ON FUNCTION public.is_show_owner(_show_id bigint) TO authenticated;
+GRANT ALL ON FUNCTION public.is_show_owner(_show_id bigint) TO service_role;
 
 
 --
@@ -8805,5 +8887,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ZiI9Bw33mym5FcANioa6dOalR7bXYLlyiyBe1PYdResgrTCvSedKZu4difRxSCi
+\unrestrict lO92V5jGgavCdxHmeWDxZk71StRdWof71hP23qUpTK6ZqAOS0i2nooiSSnJwGnK
 
