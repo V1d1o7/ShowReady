@@ -174,6 +174,8 @@ class BulkCableUpdate(BaseModel):
 class LoomBase(BaseModel):
     name: str
     show_id: int
+    source_loc: Optional[str] = None 
+    dest_loc: Optional[str] = None   
 
 class LoomCreate(LoomBase):
     pass
@@ -817,20 +819,22 @@ class LabelElement(BaseModel):
     width: float 
     height: float 
     # Text Props 
+    content_mode: str = 'static' # 'static' or 'variable'
     text_content: Optional[str] = None  
-    variable_field: Optional[str] = None # e.g. 'case_number', 'source', 'destination' 
+    variable_field: Optional[str] = None # Reserved: __SHOW_LOGO__, __COMPANY_LOGO__
     font_family: Optional[str] = 'SpaceMono' 
     font_size: Optional[int] = 10 
     font_weight: Optional[str] = 'normal' 
     text_align: Optional[str] = 'left'  
     text_color: Optional[str] = '#000000' 
-    # Shape/Visual Props 
-    fill_color: Optional[str] = None # Hex or 'transparent' 
+    # Shape Props 
+    shape: Optional[str] = 'rectangle' # 'rectangle', 'circle', 'line'
+    fill_color: Optional[str] = None 
     stroke_color: Optional[str] = '#000000' 
     stroke_width: Optional[float] = 1.0 
     z_index: int = 0 
     # QR Props 
-    qr_content: Optional[str] = None # Variable field to encode 
+    qr_content: Optional[str] = None 
  
 class LabelTemplate(BaseModel): 
     id: uuid.UUID 

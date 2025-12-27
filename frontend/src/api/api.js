@@ -632,6 +632,17 @@ export const api = {
     }).then(handleResponse),
     
     deleteNote: async (noteId) => fetch(`/api/v1/notes/${noteId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+
+    // --- Label Engine ---
+    getLabelTemplates: async (category) => {
+        const url = category ? `/api/library/label-templates?category=${category}` : '/api/library/label-templates';
+        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
+    },
+    printLabels: async (showId, printData) => fetch(`/api/shows/${showId}/label-engine/print`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(printData),
+    }).then(handleResponse),
         
     // --- Legacy / Deprecated ---
     getDailyHours: async (showId) => fetch(`/api/shows/${showId}/daily_hours`, { headers: await getAuthHeader() }).then(handleResponse),

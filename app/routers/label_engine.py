@@ -12,7 +12,7 @@ from app.LE_pdf_utils import render_template_to_buffer
 
 from supabase import Client
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(feature_check("label_engine_access"))])
 
 # Dependency for label_engine_access feature check
 LABEL_ENGINE_FEATURE = Depends(feature_check("label_engine_access"))
