@@ -14,21 +14,24 @@ async def ensure_owner_consistency(show_id: int, user_id: uuid.UUID, supabase: C
     Returns True if the user is the owner (validated via either table).
     """
     # 1. Check the 'shows' table (The Source of Truth)
-    show_data = supabase.table('shows').select('user_id').eq('id', show_id).maybe_single().execute()
+    # FIX: Use execute() instead of maybe_single() to avoid NoneType errors on 204 No Content
+    show_res = supabase.table('shows').select('user_id').eq('id', show_id).execute()
     
-    if not show_data.data:
-        raise HTTPException(status_code=404, detail="Show not found.")
+    # If no data returned, show doesn't exist or RLS is blocking access.
+    if not show_res.data:
+        return False
         
-    real_owner_id = show_data.data['user_id']
+    real_owner_id = show_res.data[0]['user_id']
     is_creator = str(real_owner_id) == str(user_id)
 
     if is_creator:
         # 2. Self-Healing: Check if they are missing from collaborators
-        collab_check = supabase.table('show_collaborators').select('role').eq('show_id', show_id).eq('user_id', user_id).maybe_single().execute()
+        # FIX: Cast user_id to string for safety
+        collab_res = supabase.table('show_collaborators').select('role').eq('show_id', show_id).eq('user_id', str(user_id)).execute()
         
-        if not collab_check.data:
+        if not collab_res.data:
             print(f"fixing data integrity: Inserting missing owner {user_id} into show_collaborators for show {show_id}")
-            # Use service client to bypass RLS during repair if needed, though standard client should work for owner
+            # Use service client to bypass RLS during repair if needed
             admin_client = get_service_client() 
             admin_client.table('show_collaborators').insert({
                 "show_id": show_id,
@@ -38,8 +41,8 @@ async def ensure_owner_consistency(show_id: int, user_id: uuid.UUID, supabase: C
         return True
 
     # 3. If not creator, check if they are a delegated owner in collaborators table
-    role_check = supabase.table('show_collaborators').select('role').eq('show_id', show_id).eq('user_id', user_id).maybe_single().execute()
-    if role_check.data and role_check.data['role'] == 'owner':
+    role_res = supabase.table('show_collaborators').select('role').eq('show_id', show_id).eq('user_id', str(user_id)).execute()
+    if role_res.data and role_res.data[0]['role'] == 'owner':
         return True
         
     return False
@@ -49,7 +52,7 @@ async def list_show_collaborators(show_id: int, user = Depends(get_user), supaba
     """Lists all collaborators for a show. Only accessible if you have access to the show."""
     
     # 1. Verify access implicitly via RLS
-    show_check = supabase.table('shows').select('id').eq('id', show_id).maybe_single().execute()
+    show_check = supabase.table('shows').select('id').eq('id', show_id).execute()
     if not show_check.data:
         raise HTTPException(status_code=403, detail="Show not found or access denied.")
 
@@ -91,25 +94,42 @@ async def invite_collaborator(show_id: int, invite: CollaboratorInvite, user = D
         raise HTTPException(status_code=403, detail="Only show owners can invite collaborators.")
 
     # 2. CHECK LIMITS
-    # Re-fetch owner ID from shows table to check THEIR tier
-    show_data = supabase.table('shows').select('user_id').eq('id', show_id).single().execute()
-    owner_id = show_data.data['user_id']
+    # Re-fetch owner ID from shows table to check THEIR tier (use execute(), no single())
+    show_res = supabase.table('shows').select('user_id').eq('id', show_id).execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found.")
+    owner_id = show_res.data[0]['user_id']
     
     # Check current count
-    current_count = supabase.table('show_collaborators').select('user_id', count='exact').eq('show_id', show_id).execute().count
+    count_res = supabase.table('show_collaborators').select('user_id', count='exact').eq('show_id', show_id).execute()
+    current_count = count_res.count
     
     admin_client = get_service_client()
     
     # Fetch Owner Entitlements & Tier Config
-    owner_data = admin_client.table('profiles').select('tier_id, tiers(name, max_collaborators)').eq('id', owner_id).single().execute()
-    owner_entitlements = admin_client.table('user_entitlements').select('is_founding').eq('user_id', owner_id).maybe_single().execute()
+    # FIX: Use execute() list retrieval instead of single()/maybe_single() to prevent crashes
+    owner_profile_res = admin_client.table('profiles').select('tier_id, tiers(name, max_collaborators)').eq('id', owner_id).execute()
     
-    is_founding = owner_entitlements.data.get('is_founding', False) if owner_entitlements.data else False
+    # If owner has no profile (rare), handle gracefully
+    owner_profile_data = owner_profile_res.data[0] if owner_profile_res.data else {}
+    
+    # Fetch Entitlements
+    owner_entitlements_res = admin_client.table('user_entitlements').select('is_founding').eq('user_id', owner_id).execute()
+    
+    # FIX: Safe access to list data
+    is_founding = False
+    if owner_entitlements_res.data:
+        is_founding = owner_entitlements_res.data[0].get('is_founding', False)
     
     if not is_founding:
-        tier_info = owner_data.data.get('tiers', {})
-        limit = tier_info.get('max_collaborators')
-        tier_name = tier_info.get('name', 'unknown')
+        tier_info = owner_profile_data.get('tiers', {})
+        if not tier_info:
+             # Fallback if tiers join failed
+             limit = 3 # Default to safe low limit
+             tier_name = 'unknown'
+        else:
+            limit = tier_info.get('max_collaborators')
+            tier_name = tier_info.get('name', 'unknown')
 
         if limit is not None and current_count >= limit:
              raise HTTPException(status_code=403, detail=f"Collaborator limit reached for the {tier_name.capitalize()} tier ({limit} users). Upgrade to add more.")
@@ -134,6 +154,9 @@ async def invite_collaborator(show_id: int, invite: CollaboratorInvite, user = D
         target_user_id = found_user.id
     except Exception as e:
         print(f"Error finding user: {e}")
+        # Only raise 404 if we explicitly didn't find them, otherwise generic 500
+        if "User with email" in str(e):
+            raise e
         raise HTTPException(status_code=500, detail="Failed to lookup user.")
 
     # 4. Insert
@@ -156,7 +179,6 @@ async def remove_collaborator(show_id: int, user_id: uuid.UUID, user = Depends(g
     try:
         is_owner = await ensure_owner_consistency(show_id, user.id, supabase)
     except:
-        # If show doesn't exist or other error, strictly fail unless self-removal
         pass
     
     if not (is_self_removal or is_owner):

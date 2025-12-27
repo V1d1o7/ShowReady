@@ -5,9 +5,13 @@ import Card from '../components/Card';
 import Modal from '../components/Modal';
 import InputField from '../components/InputField';
 import toast, { Toaster } from 'react-hot-toast';
-import { Users, UserPlus, Trash2, Mail, Shield, Search } from 'lucide-react';
+import { Users, UserPlus, Trash2, Shield, Search, Info } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const ShowTeamView = () => {
+    const { session } = useAuth();
+    const currentUserId = session?.user?.id;
+
     // Attempt to get show data from Outlet context (if ShowWrapper provides it)
     const context = useOutletContext();
     const showFromContext = context?.show;
@@ -19,13 +23,14 @@ const ShowTeamView = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
+    const [showRoleInfo, setShowRoleInfo] = useState(false);
     
     // Invite Form
     const [inviteEmail, setInviteEmail] = useState('');
     const [inviteRole, setInviteRole] = useState('viewer');
     const [isInviting, setIsInviting] = useState(false);
 
-    // Resolve Show ID if not provided by context
+    // Resolve Show ID
     useEffect(() => {
         if (!showId && showName) {
             api.getShowByName(showName)
@@ -53,6 +58,11 @@ const ShowTeamView = () => {
     useEffect(() => {
         fetchCollaborators();
     }, [fetchCollaborators]);
+
+    // Determine current user's role
+    const currentUserCollaborator = collaborators.find(c => c.user_id === currentUserId);
+    const currentUserRole = currentUserCollaborator?.role;
+    const isOwner = currentUserRole === 'owner';
 
     const handleInvite = async (e) => {
         e.preventDefault();
@@ -107,16 +117,49 @@ const ShowTeamView = () => {
                     <h1 className="text-2xl font-bold text-white flex items-center gap-2">
                         <Users className="text-amber-500" />
                         Team Management
+                        <button 
+                            onClick={() => setShowRoleInfo(!showRoleInfo)}
+                            className="text-gray-400 hover:text-amber-500 transition-colors ml-2"
+                            title="Role Permissions Info"
+                        >
+                            <Info size={20} />
+                        </button>
                     </h1>
                     <p className="text-gray-400 text-sm mt-1">Manage access to {showFromContext?.name || showName}</p>
                 </div>
-                <button 
-                    onClick={() => setIsInviteModalOpen(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg transition-colors"
-                >
-                    <UserPlus size={18} /> Invite Member
-                </button>
+                
+                {isOwner && (
+                    <button 
+                        onClick={() => setIsInviteModalOpen(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-lg transition-colors"
+                    >
+                        <UserPlus size={18} /> Invite Member
+                    </button>
+                )}
             </div>
+
+            {/* Role Info Box */}
+            {showRoleInfo && (
+                <div className="bg-gray-800 border-l-4 border-amber-500 p-4 mb-6 rounded shadow-lg animate-fadeIn">
+                    <h4 className="font-bold text-white mb-2 flex items-center gap-2">
+                        <Shield size={16} className="text-amber-500"/> Role Permissions
+                    </h4>
+                    <div className="grid md:grid-cols-3 gap-4 text-sm">
+                        <div className="bg-gray-700/50 p-3 rounded">
+                            <span className="text-amber-400 font-bold block mb-1">Owner</span>
+                            <span className="text-gray-300">Full admin control. Can manage the team, edit show data, and delete the show.</span>
+                        </div>
+                        <div className="bg-gray-700/50 p-3 rounded">
+                            <span className="text-amber-400 font-bold block mb-1">Editor</span>
+                            <span className="text-gray-300">Can edit show contents but cannot manage the team.</span>
+                        </div>
+                        <div className="bg-gray-700/50 p-3 rounded">
+                            <span className="text-amber-400 font-bold block mb-1">Viewer</span>
+                            <span className="text-gray-300">Read-only access. Can view details and exports but cannot make changes.</span>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <Card>
                 <div className="mb-4 relative">
@@ -149,7 +192,7 @@ const ShowTeamView = () => {
                                     <tr key={m.user_id} className="hover:bg-gray-800/50">
                                         <td className="py-3 px-4">
                                             <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center font-bold">
+                                                <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center font-bold text-white">
                                                     {m.first_name?.[0]}{m.last_name?.[0]}
                                                 </div>
                                                 <div>
@@ -162,8 +205,9 @@ const ShowTeamView = () => {
                                             <select 
                                                 value={m.role} 
                                                 onChange={(e) => handleRoleUpdate(m.user_id, e.target.value)}
-                                                disabled={m.role === 'owner'}
-                                                className="bg-gray-900 border border-gray-700 rounded px-2 py-1 focus:border-amber-500 disabled:opacity-50"
+                                                // Disable if: Current User is NOT Owner OR Target User IS Owner
+                                                disabled={!isOwner || m.role === 'owner'}
+                                                className={`bg-gray-900 border border-gray-700 rounded px-2 py-1 text-white focus:border-amber-500 disabled:opacity-50 disabled:cursor-not-allowed`}
                                             >
                                                 <option value="viewer">Viewer</option>
                                                 <option value="editor">Editor</option>
@@ -171,7 +215,8 @@ const ShowTeamView = () => {
                                             </select>
                                         </td>
                                         <td className="py-3 px-4 text-right">
-                                            {m.role !== 'owner' && (
+                                            {/* Only Owners can remove people (and not other owners) */}
+                                            {isOwner && m.role !== 'owner' && (
                                                 <button onClick={() => handleRemove(m.user_id)} className="text-gray-500 hover:text-red-500 p-2">
                                                     <Trash2 size={18} />
                                                 </button>
@@ -194,15 +239,15 @@ const ShowTeamView = () => {
                     <InputField label="Email" type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} required />
                     <div>
                         <label className="block text-sm font-bold text-gray-400 mb-1">Role</label>
-                        <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white">
+                        <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value)} className="w-full p-2 bg-gray-800 border border-gray-600 rounded text-white focus:border-amber-500 outline-none">
                             <option value="viewer">Viewer (Read Only)</option>
                             <option value="editor">Editor (Can edit)</option>
                             <option value="owner">Owner (Full Admin)</option>
                         </select>
                     </div>
                     <div className="flex justify-end gap-3 pt-4">
-                        <button type="button" onClick={() => setIsInviteModalOpen(false)} className="px-4 py-2 text-gray-400">Cancel</button>
-                        <button type="submit" disabled={isInviting} className="px-6 py-2 bg-amber-500 text-black font-bold rounded disabled:opacity-50">
+                        <button type="button" onClick={() => setIsInviteModalOpen(false)} className="px-4 py-2 text-gray-400 hover:text-white">Cancel</button>
+                        <button type="submit" disabled={isInviting} className="px-6 py-2 bg-amber-500 text-black font-bold rounded hover:bg-amber-400 disabled:opacity-50">
                             {isInviting ? 'Sending...' : 'Invite'}
                         </button>
                     </div>
