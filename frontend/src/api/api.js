@@ -23,13 +23,20 @@ const getAuthHeader = async (isFormData = false) => {
 const handleResponse = async (res) => {
     if (!res.ok) {
         const errorText = await res.text();
+        let errorMessage;
+        
         try {
+            // Try to parse the error as JSON to get the "detail" field
             const errorJson = JSON.parse(errorText);
-            throw new Error(errorJson.detail || 'An unknown error occurred');
-        } catch {
-            throw new Error(errorText || res.statusText);
+            errorMessage = errorJson.detail || 'An unknown error occurred';
+        } catch (e) {
+            // If parsing fails, fallback to the raw text or status
+            errorMessage = errorText || res.statusText;
         }
+        
+        throw new Error(errorMessage);
     }
+    
     // For DELETE requests with no content
     if (res.status === 204) {
         return;

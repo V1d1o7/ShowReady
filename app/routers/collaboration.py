@@ -94,29 +94,31 @@ async def invite_collaborator(show_id: int, invite: CollaboratorInvite, user = D
         raise HTTPException(status_code=403, detail="Only show owners can invite collaborators.")
 
     # 2. CHECK LIMITS
-    # Re-fetch owner ID from shows table to check THEIR tier (use execute(), no single())
+    # Re-fetch owner ID from shows table to check THEIR tier
     show_res = supabase.table('shows').select('user_id').eq('id', show_id).execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found.")
     owner_id = show_res.data[0]['user_id']
     
-    # Check current count
-    count_res = supabase.table('show_collaborators').select('user_id', count='exact').eq('show_id', show_id).execute()
+    # FIX: Check current count BUT EXCLUDE THE OWNER
+    count_res = supabase.table('show_collaborators') \
+        .select('user_id', count='exact') \
+        .eq('show_id', show_id) \
+        .neq('user_id', owner_id) \
+        .execute()
     current_count = count_res.count
     
     admin_client = get_service_client()
     
     # Fetch Owner Entitlements & Tier Config
-    # FIX: Use execute() list retrieval instead of single()/maybe_single() to prevent crashes
     owner_profile_res = admin_client.table('profiles').select('tier_id, tiers(name, max_collaborators)').eq('id', owner_id).execute()
     
-    # If owner has no profile (rare), handle gracefully
+    # Handle case where owner profile might be missing (rare but safe)
     owner_profile_data = owner_profile_res.data[0] if owner_profile_res.data else {}
     
     # Fetch Entitlements
     owner_entitlements_res = admin_client.table('user_entitlements').select('is_founding').eq('user_id', owner_id).execute()
     
-    # FIX: Safe access to list data
     is_founding = False
     if owner_entitlements_res.data:
         is_founding = owner_entitlements_res.data[0].get('is_founding', False)
