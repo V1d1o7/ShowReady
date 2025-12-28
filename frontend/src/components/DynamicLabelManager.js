@@ -48,7 +48,7 @@ const CsvImportModal = ({ isOpen, onClose, onParse }) => {
 
 
 const DynamicLabelManager = ({ category }) => {
-  const { permitted_features } = useAuth();
+  const { profile } = useAuth();
   const { showId } = useShow();
   
   const [templates, setTemplates] = useState([]);
@@ -66,7 +66,7 @@ const DynamicLabelManager = ({ category }) => {
   const [csvHeadersForMapping, setCsvHeadersForMapping] = useState([]);
 
 
-  const hasAccess = permitted_features?.includes('label_engine');
+  const hasAccess = profile?.permitted_features?.includes('label_engine');
 
   useEffect(() => {
     if (hasAccess) {

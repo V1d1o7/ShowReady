@@ -817,29 +817,23 @@ def feature_check(feature_name: str, paywalled: bool = True):
     Dependency factory with added DEBUGGING to trace evaluation failures.
     """
     async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-        print(f"\n--- [DEBUG] Feature Check: {feature_name} for User {user.id} ---")
 
         # 1. Fetch User Roles for Admin Check
         user_roles = get_user_roles_sync(user.id, supabase)
-        print(f"[DEBUG] User Roles: {user_roles}")
         if 'global_admin' in user_roles:
-            print("[DEBUG] Access Granted: User is global_admin")
             return 
 
         # 2. Fetch User Profile and Tier
         profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user.id).single().execute()
         if not profile_res.data:
-            print("[DEBUG] Access Denied: Profile not found")
             raise HTTPException(status_code=403, detail="User profile not found.")
         
         raw_tier = profile_res.data.get('tiers', {}).get('name')
         user_tier = raw_tier.lower() if raw_tier else None
-        print(f"[DEBUG] User Tier: {user_tier}")
         
         # 3. Fetch Entitlements
         entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
         is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
-        print(f"[DEBUG] Is Founding User: {is_founding}")
 
         # 4. Fetch Feature Restrictions from DB
         restriction_res = supabase.table('feature_restrictions').select('permitted_tiers').eq('feature_name', feature_name).maybe_single().execute()
@@ -848,21 +842,17 @@ def feature_check(feature_name: str, paywalled: bool = True):
         if restriction_res and restriction_res.data:
             permitted_tiers = [t.lower() for t in (restriction_res.data.get('permitted_tiers') or [])]
         
-        print(f"[DEBUG] DB Permitted Tiers for '{feature_name}': {permitted_tiers}")
 
         # 5. Layered Evaluation
         # Tier Check
         if user_tier and user_tier in permitted_tiers:
-            print(f"[DEBUG] Access Granted: Tier '{user_tier}' is in {permitted_tiers}")
             return 
 
         # Founding User Override
         if paywalled and is_founding:
-            print(f"[DEBUG] Access Granted: Founding User Override (Paywalled={paywalled})")
             return 
 
         # 6. Final Denial
-        print(f"[DEBUG] Access DENIED for {feature_name}")
         feature_display_name = feature_name.replace('_', ' ').title()
         raise HTTPException(
             status_code=403, 

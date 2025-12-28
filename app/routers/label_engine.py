@@ -17,7 +17,7 @@ router = APIRouter(dependencies=[Depends(feature_check("label_engine"))])
 # Dependency for label_engine feature check
 LABEL_ENGINE_FEATURE = Depends(feature_check("label_engine"))
 
-@router.get("/library/label-stocks", response_model=List[LabelStock], dependencies=[LABEL_ENGINE_FEATURE])
+@router.get("/library/label-stocks", response_model=List[LabelStock])
 def get_label_stocks(
     supabase: Client = Depends(get_supabase_client)
 ):
@@ -25,7 +25,7 @@ def get_label_stocks(
     response = supabase.table("label_stocks").select("*").execute()
     return response.data
 
-@router.get("/library/label-templates", response_model=List[LabelTemplate], dependencies=[LABEL_ENGINE_FEATURE])
+@router.get("/library/label-templates", response_model=List[LabelTemplate])
 def get_label_templates(
     category: Optional[str] = Query(None, enum=['case', 'loom', 'generic']),
     user: User = Depends(get_user),
@@ -43,7 +43,7 @@ def get_label_templates(
     response = query.execute()
     return response.data
 
-@router.post("/library/label-templates", response_model=LabelTemplate, status_code=201, dependencies=[LABEL_ENGINE_FEATURE])
+@router.post("/library/label-templates", response_model=LabelTemplate, status_code=201)
 def create_label_template(
     template_data: LabelTemplateCreate,
     user: User = Depends(get_user),
@@ -68,7 +68,7 @@ def create_label_template(
         
     return response.data[0]
 
-@router.put("/library/label-templates/{template_id}", response_model=LabelTemplate, dependencies=[LABEL_ENGINE_FEATURE])
+@router.put("/library/label-templates/{template_id}", response_model=LabelTemplate)
 def update_label_template(
     template_id: uuid.UUID,
     template_data: LabelTemplateCreate,
@@ -96,7 +96,7 @@ def update_label_template(
 
     return response.data[0]
 
-@router.delete("/library/label-templates/{template_id}", status_code=204, dependencies=[LABEL_ENGINE_FEATURE])
+@router.delete("/library/label-templates/{template_id}", status_code=204)
 def delete_label_template(
     template_id: uuid.UUID,
     user: User = Depends(get_user),
@@ -110,7 +110,7 @@ def delete_label_template(
     supabase.table("label_templates").delete().eq("id", str(template_id)).execute()
     return
 
-@router.get("/shows/{show_id}/label-engine", dependencies=[LABEL_ENGINE_FEATURE])
+@router.get("/shows/{show_id}/label-engine")
 def get_label_engine_status(show_id: int):
     """
     Endpoint for the frontend to verify access and 
@@ -118,7 +118,7 @@ def get_label_engine_status(show_id: int):
     """
     return {"status": "success", "show_id": show_id}
 
-@router.post("/shows/{show_id}/label-engine/print", dependencies=[LABEL_ENGINE_FEATURE])
+@router.post("/shows/{show_id}/label-engine/print")
 def print_labels(
     show_id: int,
     payload: DynamicLabelPdfPayload,
