@@ -64,6 +64,51 @@ def get_reportlab_font_name(font_family: str, font_weight: str, font_style: str)
 
     return 'Helvetica'
 
+def resolve_color(static_color: str, variable_field: str, row_data: Dict[str, Any]):
+    """
+    Helper to resolve a color from row_data if a variable is set.
+    Fallback to static_color. Handles Hex and standard Color names.
+    """
+    color_val = None
+    
+    # 1. Try to get value from Variable
+    if variable_field and row_data:
+        # Check specific key
+        val = row_data.get(variable_field)
+        if not val:
+            # Case-insensitive check
+            for k, v in row_data.items():
+                if k.lower() == variable_field.lower():
+                    val = v
+                    break
+        if val:
+            color_val = val
+
+    # 2. Fallback to Static
+    if not color_val:
+        color_val = static_color or '#000000'
+
+    # 3. Convert to ReportLab Color
+    try:
+        # Try Hex
+        return colors.HexColor(color_val)
+    except:
+        try:
+            # Try Named Color (e.g., 'Red', 'blue')
+            if isinstance(color_val, str):
+                # ReportLab colors are usually uppercase in the module (e.g. colors.RED) 
+                # but allow some flexibility or use GetAllNamedColors() logic if needed.
+                # Simplest fallback is to verify if it exists in colors module
+                c = getattr(colors, color_val.upper(), None)
+                if c: return c
+                
+                # If it's a CSS name not in RL (like 'amber'), fallback to black to prevent crash
+                return colors.black 
+        except:
+            return colors.black
+            
+    return colors.black
+
 def draw_element(c: canvas.Canvas, element: LabelElement, row_data: Dict[str, Any], stock: LabelStock):
     x = element.x * inch
     y = (stock.page_height - element.y - element.height) * inch 
@@ -94,13 +139,16 @@ def draw_element(c: canvas.Canvas, element: LabelElement, row_data: Dict[str, An
         align_map = {'left': TA_LEFT, 'center': TA_CENTER, 'right': TA_RIGHT}
         alignment = align_map.get(element.text_align, TA_LEFT)
 
+        # Resolve Text Color
+        text_color = resolve_color(element.text_color, element.text_color_variable, row_data)
+
         # Define Style
         style = ParagraphStyle(
             name='LabelTextStyle',
             fontName=font_name,
             fontSize=font_size,
             leading=font_size * 1.2, # Line spacing
-            textColor=colors.HexColor(element.text_color or '#000000'),
+            textColor=text_color,
             alignment=alignment,
             wordWrap='CJK' # Allow splitting long words if necessary
         )
@@ -126,7 +174,8 @@ def draw_element(c: canvas.Canvas, element: LabelElement, row_data: Dict[str, An
 
     elif element.type == 'line':
         c.saveState()
-        c.setStrokeColor(colors.HexColor(element.stroke_color or '#000000'))
+        stroke_c = resolve_color(element.stroke_color, element.stroke_color_variable, row_data)
+        c.setStrokeColor(stroke_c)
         c.setLineWidth(element.stroke_width or 2.0)
         
         # Snap to center if dimension is small
@@ -147,15 +196,21 @@ def draw_element(c: canvas.Canvas, element: LabelElement, row_data: Dict[str, An
 
     elif element.type == 'shape':
         c.saveState()
-        fill = element.fill_color and element.fill_color.lower() != 'transparent'
-        if fill: c.setFillColor(colors.HexColor(element.fill_color))
-        c.setStrokeColor(colors.HexColor(element.stroke_color or '#000000'))
+        
+        fill_c = None
+        if element.fill_color and element.fill_color.lower() != 'transparent':
+             fill_c = resolve_color(element.fill_color, element.fill_color_variable, row_data)
+        
+        if fill_c: c.setFillColor(fill_c)
+        
+        stroke_c = resolve_color(element.stroke_color, element.stroke_color_variable, row_data)
+        c.setStrokeColor(stroke_c)
         c.setLineWidth(element.stroke_width or 1.0)
         
         if element.shape == 'circle':
-            c.ellipse(x, y, x + width, y + height, fill=1 if fill else 0, stroke=1)
+            c.ellipse(x, y, x + width, y + height, fill=1 if fill_c else 0, stroke=1)
         else:
-            c.rect(x, y, width, height, fill=1 if fill else 0, stroke=1)
+            c.rect(x, y, width, height, fill=1 if fill_c else 0, stroke=1)
         c.restoreState()
 
     elif element.type == 'barcode':

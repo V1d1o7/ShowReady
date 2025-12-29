@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import Modal from './Modal'; // Assuming a generic Modal component exists
+import React, { useState, useEffect } from 'react';
+import Modal from './Modal'; 
 
 const SeriesGeneratorModal = ({ isOpen, onClose, columns, onGenerate }) => {
   const [prefix, setPrefix] = useState('');
@@ -7,15 +7,20 @@ const SeriesGeneratorModal = ({ isOpen, onClose, columns, onGenerate }) => {
   const [count, setCount] = useState(10);
   const [selectedColumn, setSelectedColumn] = useState('');
 
-  useState(() => {
-    if (columns.length > 0) {
-      setSelectedColumn(columns[0]);
+  // Filter out color fields from the series generator
+  const filteredColumns = columns.filter(col => {
+      const c = col.toLowerCase();
+      return !['color', 'origin color', 'destination color', 'origin_color', 'dest_color', 'destination_color'].includes(c);
+  });
+
+  useEffect(() => {
+    if (filteredColumns.length > 0 && !selectedColumn) {
+      setSelectedColumn(filteredColumns[0]);
     }
-  }, [columns]);
+  }, [filteredColumns, selectedColumn]);
 
   const handleGenerate = () => {
     if (!selectedColumn || count <= 0) {
-      // Basic validation
       return;
     }
 
@@ -32,7 +37,7 @@ const SeriesGeneratorModal = ({ isOpen, onClose, columns, onGenerate }) => {
     }
 
     onGenerate(newSeries);
-    onClose(); // Close modal after generating
+    onClose(); 
   };
 
   return (
@@ -46,7 +51,7 @@ const SeriesGeneratorModal = ({ isOpen, onClose, columns, onGenerate }) => {
             onChange={(e) => setSelectedColumn(e.target.value)}
             className="mt-1 block w-full bg-gray-700 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
           >
-            {columns.map(col => (
+            {filteredColumns.map(col => (
               <option key={col} value={col}>{col}</option>
             ))}
           </select>

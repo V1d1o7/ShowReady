@@ -175,13 +175,19 @@ class LoomBase(BaseModel):
     name: str
     show_id: int
     source_loc: Optional[str] = None 
-    dest_loc: Optional[str] = None   
+    dest_loc: Optional[str] = None
+    origin_color: Optional[str] = None
+    destination_color: Optional[str] = None
 
 class LoomCreate(LoomBase):
     pass
 
 class LoomUpdate(BaseModel):
     name: Optional[str] = None
+    source_loc: Optional[str] = None
+    dest_loc: Optional[str] = None
+    origin_color: Optional[str] = None
+    destination_color: Optional[str] = None
 
 class Loom(LoomBase):
     id: uuid.UUID
@@ -830,6 +836,10 @@ class LabelElement(BaseModel):
     vertical_align: Optional[str] = 'top'  
     text_color: Optional[str] = '#000000' 
     text_decoration: Optional[str] = 'none' 
+    # Dynamic Colors
+    text_color_variable: Optional[str] = None
+    stroke_color_variable: Optional[str] = None
+    fill_color_variable: Optional[str] = None
     # Shape Props 
     shape: Optional[str] = 'rectangle' 
     fill_color: Optional[str] = None 

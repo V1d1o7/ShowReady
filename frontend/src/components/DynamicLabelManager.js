@@ -107,12 +107,22 @@ const DynamicLabelManager = ({ category }) => {
           if (el.variable_field && el.content_mode === 'variable' && !['__SHOW_LOGO__', '__COMPANY_LOGO__'].includes(el.variable_field)) {
               variables.add(el.variable_field);
           }
+          // Dynamic Colors
+          if (el.text_color_variable) variables.add(el.text_color_variable);
+          if (el.stroke_color_variable) variables.add(el.stroke_color_variable);
+          if (el.fill_color_variable) variables.add(el.fill_color_variable);
       });
 
       const cols = Array.from(variables);
       setColumns(cols);
       
-      if (cols.length > 0 && tableData.length === 0) {
+      // Clear data initially when template changes
+      setTableData([]);
+
+      // Auto-load logic for Looms
+      if (category === 'loom') {
+          handleLoadShowData(cols); 
+      } else if (cols.length > 0) {
           const initialRow = {};
           cols.forEach(c => initialRow[c] = '');
           setTableData([initialRow]);
@@ -124,11 +134,8 @@ const DynamicLabelManager = ({ category }) => {
   }, [selectedTemplate]);
 
   // --- Load Data Logic ---
-  const handleLoadShowData = async () => {
-      if (!showData) {
-          toast.error("No show data available.");
-          return;
-      }
+  const handleLoadShowData = async (currentColumns = columns) => {
+      if (!showData) return;
 
       let sourceRows = [];
 
@@ -141,28 +148,72 @@ const DynamicLabelManager = ({ category }) => {
       
       // B. Extract Loom Labels
       else if (category === 'loom') {
+          // 1. Legacy Data
           if (showData.loom_sheets) {
               Object.values(showData.loom_sheets).forEach(sheetRows => {
                   if (Array.isArray(sheetRows)) sourceRows.push(...sheetRows);
               });
           }
+          // 2. Pro Loom Builder Data
           try {
               const looms = await api.getLoomsForShow(showId);
-              const loomRows = looms.map(l => ({
-                  loom_name: l.name,
-                  source: l.source_loc,
-                  destination: l.dest_loc,
-              }));
+              const loomRows = looms.map(l => {
+                  // Direct Mapping from Loom Object (No cable fallback)
+                  const originColor = l.origin_color || '';
+                  const destColor = l.destination_color || '';
+                  const sourceLoc = l.source_loc || '';
+                  const destLoc = l.dest_loc || '';
+
+                  // Create a rich object with multiple key variations to ensure auto-mapping works
+                  return {
+                      // Standard keys
+                      loom_name: l.name,
+                      source_loc: sourceLoc,
+                      dest_loc: destLoc,
+                      origin_color: originColor,
+                      destination_color: destColor,
+                      
+                      // Variations for Auto-Mapping
+                      'loom name': l.name,
+                      'loomname': l.name,
+                      'name': l.name,
+                      
+                      'source': sourceLoc,
+                      'src': sourceLoc,
+                      'source location': sourceLoc,
+                      'sourcelocation': sourceLoc,
+                      
+                      'destination': destLoc,
+                      'dest': destLoc,
+                      'destination location': destLoc,
+                      'destinationlocation': destLoc,
+                      
+                      'origin color': originColor,
+                      'origincolor': originColor,
+                      
+                      'destination color': destColor,
+                      'destinationcolor': destColor,
+                      
+                      'color': originColor || destColor, // Fallback 'Color' field
+                      
+                      'cable count': (l.cables?.length || 0).toString(),
+                      'cablecount': (l.cables?.length || 0).toString(),
+                  };
+              });
               sourceRows.push(...loomRows);
           } catch (e) { console.warn("No new looms found", e); }
       }
 
       if (sourceRows.length === 0) {
-          toast('No data found to import.', { icon: 'ℹ️' });
-          // Even if no specific labels, we might want to print 1 label with global info
-          if (columns.some(c => ["Show Name", "Location", "User Name"].includes(c))) {
+          if (currentColumns.some(c => ["Show Name", "Location", "User Name"].includes(c))) {
               sourceRows.push({}); // Dummy row to trigger global fill
           } else {
+             // Add empty row if nothing found so table isn't invisible
+             if(tableData.length === 0) {
+                 const initialRow = {};
+                 currentColumns.forEach(c => initialRow[c] = '');
+                 setTableData([initialRow]);
+             }
              return;
           }
       }
@@ -178,14 +229,15 @@ const DynamicLabelManager = ({ category }) => {
       // C. Auto-Map Fields
       const mappedData = sourceRows.map(sourceRow => {
           const newRow = {};
-          columns.forEach(colName => {
+          currentColumns.forEach(colName => {
               const targetKey = normalizeKey(colName); 
               let value = "";
 
               // 1. Try Source Row
+              // We look for exact match or normalized match
               const sourceKey = Object.keys(sourceRow).find(k => normalizeKey(k) === targetKey);
-              if (sourceKey) {
-                  value = sourceRow[sourceKey];
+              if (sourceKey && sourceRow[sourceKey] !== null && sourceRow[sourceKey] !== undefined) {
+                  value = String(sourceRow[sourceKey]);
               }
 
               // 2. Try Global Values
@@ -200,7 +252,10 @@ const DynamicLabelManager = ({ category }) => {
 
       const validRows = mappedData.filter(row => Object.values(row).some(v => v));
       setTableData(validRows);
-      toast.success(`Imported ${validRows.length} labels.`);
+      
+      if (validRows.length > 0 && tableData.length === 0) {
+          toast.success(`Imported ${validRows.length} labels.`);
+      }
   };
 
   const handleCsvParse = (results) => {
@@ -231,7 +286,22 @@ const DynamicLabelManager = ({ category }) => {
 
   const handlePrint = async () => {
     if (!selectedTemplate) return;
-    const dataToSend = tableData.length > 0 ? tableData : [{}]; 
+    
+    // Sanitize data: ensure all values are strings to satisfy backend Dict[str, str]
+    const rawData = tableData.length > 0 ? tableData : [{}]; 
+    const dataToSend = rawData.map(row => {
+        const sanitizedRow = {};
+        Object.keys(row).forEach(key => {
+            const val = row[key];
+            if (val === null || val === undefined) {
+                sanitizedRow[key] = "";
+            } else {
+                sanitizedRow[key] = String(val);
+            }
+        });
+        return sanitizedRow;
+    });
+
     const toastId = toast.loading("Generating PDF...");
 
     try {
@@ -247,6 +317,7 @@ const DynamicLabelManager = ({ category }) => {
       toast.success("PDF Generated", { id: toastId });
     } catch (error) {
       toast.error("Print failed", { id: toastId });
+      console.error(error);
     }
   };
 
@@ -290,8 +361,8 @@ const DynamicLabelManager = ({ category }) => {
         {/* Action Buttons */}
         {selectedTemplate && columns.length > 0 && (
             <div className="flex items-center gap-2">
-                <button onClick={handleLoadShowData} className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-amber-400 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 shadow-sm">
-                    <Database size={14} /> Load Show Data
+                <button onClick={() => handleLoadShowData()} className="flex items-center gap-2 bg-gray-700 hover:bg-gray-600 text-amber-400 px-3 py-1.5 rounded text-sm transition-colors border border-gray-600 shadow-sm">
+                    <Database size={14} /> Reload Data
                 </button>
                 <div className="h-6 w-px bg-gray-700 mx-2"></div>
                 <button onClick={() => setIsSeriesModalOpen(true)} className="flex items-center gap-2 bg-blue-900/50 hover:bg-blue-800 text-blue-200 px-3 py-1.5 rounded text-sm border border-blue-800 transition-colors">
@@ -345,7 +416,7 @@ const DynamicLabelManager = ({ category }) => {
                 {tableData.length === 0 && (
                     <tr>
                         <td colSpan={columns.length + 2} className="p-8 text-center text-gray-500 italic">
-                            No data loaded. Use "Load Show Data" or enter manually.
+                            No data loaded. Use "Reload Data" or enter manually.
                         </td>
                     </tr>
                 )}

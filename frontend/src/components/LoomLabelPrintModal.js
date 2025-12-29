@@ -18,6 +18,8 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
     'source_loc': 'Source Location',
     'dest_loc': 'Destination Location',
     'cable_count': 'Cable Count',
+    'origin_color': 'Origin Color',
+    'dest_color': 'Destination Color',
     'show_name': 'Show Name',
   };
 
@@ -51,12 +53,32 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
       while ((match = regex.exec(templateString)) !== null) {
         variables.add(match[1]);
       }
+      
+      // Also discover dynamic color variables from elements
+      (selectedTemplate.elements || []).forEach(el => {
+          if (el.text_color_variable) variables.add(el.text_color_variable);
+          if (el.stroke_color_variable) variables.add(el.stroke_color_variable);
+          if (el.fill_color_variable) variables.add(el.fill_color_variable);
+      });
+
       const discoveredColumns = Array.from(variables);
       setColumns(discoveredColumns);
       
-      // Reset mapping when template changes
+      // Reset mapping when template changes, with Auto-Mapping logic
       const initialMapping = {};
-      discoveredColumns.forEach(col => initialMapping[col] = '');
+      discoveredColumns.forEach(col => {
+          // Normalize column name for comparison (remove spaces, lowercase)
+          const normCol = col.toLowerCase().replace(/\s+/g, '');
+          
+          // Try to find a match in loomDataFields keys or values
+          const match = Object.entries(loomDataFields).find(([key, label]) => {
+              const normKey = key.toLowerCase().replace(/\s+/g, '');
+              const normLabel = label.toLowerCase().replace(/\s+/g, '');
+              return normCol === normKey || normCol === normLabel;
+          });
+
+          initialMapping[col] = match ? match[0] : '';
+      });
       setMapping(initialMapping);
 
     } else {
@@ -82,21 +104,36 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
 
     const payloadData = selectedLooms.map(loom => {
         const row = {};
+        
+        // Helper to grab first cable color if available
+        const getFirstCableColor = (key) => {
+            if (loom.cables && loom.cables.length > 0) {
+                return loom.cables[0][key] || '';
+            }
+            return '';
+        };
+
         columns.forEach(col => {
             const mappedField = mapping[col];
             let value = '';
             switch(mappedField) {
                 case 'name':
-                    value = loom.name;
+                    value = loom.name || '';
                     break;
                 case 'source_loc':
-                    value = loom.source_loc;
+                    value = loom.source_loc || '';
                     break;
                 case 'dest_loc':
-                    value = loom.dest_loc;
+                    value = loom.dest_loc || '';
                     break;
                 case 'cable_count':
-                    value = loom.cables?.length || 0;
+                    value = (loom.cables?.length || 0).toString();
+                    break;
+                case 'origin_color':
+                    value = getFirstCableColor('origin_color');
+                    break;
+                case 'dest_color':
+                    value = getFirstCableColor('destination_color');
                     break;
                 case 'show_name':
                     value = showData?.name || '';
@@ -113,7 +150,7 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
     try {
         const response = await api.printLabels(showId, {
             template_id: selectedTemplate.id,
-            data: payloadData,
+            data_rows: payloadData,
         });
 
         const blob = new Blob([response], { type: 'application/pdf' });

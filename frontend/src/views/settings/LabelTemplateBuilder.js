@@ -14,11 +14,9 @@ import {
     ArrowUp, ArrowDown, Eye, EyeOff, MoreVertical, FileJson,
     Bold, Italic, Underline, Minus, GripHorizontal, Maximize,
     Layout, MousePointer2, MoveHorizontal, MoveVertical, Upload,
-    Barcode, AlignVerticalJustifyCenter
+    Barcode, AlignVerticalJustifyCenter, Settings, ChevronDown,
+    GripVertical
 } from 'lucide-react';
-
-// ... (Constants, Helper Functions, Hooks same as before) ...
-// Ensure generateId, TOOLBOX_ITEMS, VARIABLE_FIELDS are preserved
 
 // --- Constants ---
 const DPI = 96; 
@@ -42,9 +40,11 @@ const TOOLBOX_ITEMS = [
 
 const VARIABLE_FIELDS = {
     "Case": ["Send To", "Contents", "Case Number", "Weight", "Truck Layer", "Department"],
-    "Loom": ["Loom Name", "Source", "Destination", "Color", "Cable Count", "Length"],
+    "Loom": ["Loom Name", "Source", "Destination", "Color", "Origin Color", "Destination Color", "Cable Count", "Length"],
     "Global": ["Current Date", "User Name", "Show Name", "Location"],
 };
+
+const COLOR_VARIABLES = ["Color", "Origin Color", "Destination Color"];
 
 // ... (inchesToPixels, pixelsToInches, getStockDimensions, processTextContent, useHistory, BarcodeRenderer, Ruler, ToolboxItem, LayerItem, ContextMenu) ...
 const inchesToPixels = (inches) => Math.round(inches * DPI);
@@ -152,7 +152,7 @@ const ToolboxItem = ({ item, isActive, onClick }) => (
     </button>
 );
 
-const LayerItem = ({ element, isSelected, onClick, onToggleHidden, onDelete }) => {
+const LayerItem = ({ element, isSelected, onClick, onToggleHidden, onDelete, onDragStart, onDragOver, onDrop }) => {
     let icon = <Square size={14} />;
     let label = element.type;
     if (element.type === 'text') { icon = <Type size={14} />; label = element.text_content ? element.text_content.substring(0, 10) + '...' : 'Text'; }
@@ -162,6 +162,10 @@ const LayerItem = ({ element, isSelected, onClick, onToggleHidden, onDelete }) =
 
     return (
         <div 
+            draggable
+            onDragStart={(e) => onDragStart(e, element.id)}
+            onDragOver={onDragOver}
+            onDrop={(e) => onDrop(e, element.id)}
             onClick={onClick}
             className={`
                 flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer mb-1 border-l-2 transition-colors select-none group
@@ -169,6 +173,9 @@ const LayerItem = ({ element, isSelected, onClick, onToggleHidden, onDelete }) =
                 ${element.hidden ? 'opacity-50' : 'opacity-100'}
             `}
         >
+            <span className="text-gray-600 hover:text-gray-300 cursor-grab active:cursor-grabbing">
+                <GripVertical size={12}/>
+            </span>
             <span className="opacity-70">{icon}</span>
             <span className="truncate flex-1">{label}</span>
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -193,6 +200,68 @@ const ContextMenu = ({ x, y, options, onClose }) => (
         ))}
     </div>
 );
+
+// --- Color Property Input ---
+const ColorInput = ({ label, colorValue, variableValue, onColorChange, onVariableChange }) => {
+    const isVariable = !!variableValue;
+
+    return (
+        <div className="mb-2">
+            <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-gray-400">{label}</span>
+                <button 
+                    onClick={() => onVariableChange(isVariable ? null : "Origin Color")} 
+                    className={`text-[10px] uppercase font-bold px-1 rounded ${isVariable ? 'bg-amber-600 text-white' : 'bg-gray-700 text-gray-500'}`}
+                >
+                    {isVariable ? 'Var' : 'Static'}
+                </button>
+            </div>
+            
+            {isVariable ? (
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2 bg-gray-900 border border-gray-600 rounded p-1">
+                        <span className="text-gray-500 text-xs px-1">{`{`}</span>
+                        <input 
+                            type="text" 
+                            value={variableValue} 
+                            onChange={(e) => onVariableChange(e.target.value)} 
+                            className="bg-transparent border-0 text-xs text-amber-500 w-full focus:outline-none"
+                            placeholder="Variable Name"
+                        />
+                        <span className="text-gray-500 text-xs px-1">{`}`}</span>
+                    </div>
+                    {/* Dropdown for Color Variables */}
+                    <div className="relative group">
+                        <button className="w-full text-xs bg-gray-700 py-1 px-2 rounded hover:bg-gray-600 text-left flex justify-between text-gray-300">
+                            + Select Variable <MoreVertical size={12}/>
+                        </button>
+                        <div className="hidden group-hover:block absolute top-full left-0 w-full bg-gray-800 border border-gray-600 z-50 max-h-40 overflow-y-auto shadow-xl">
+                            {COLOR_VARIABLES.map(v => (
+                                <div 
+                                    key={v} 
+                                    onClick={() => onVariableChange(v)} 
+                                    className="px-2 py-1 text-xs hover:bg-amber-600 cursor-pointer text-gray-200"
+                                >
+                                    {v}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div className="flex items-center gap-2 bg-gray-900 border border-gray-600 rounded p-1">
+                    <input 
+                        type="color" 
+                        value={colorValue || '#000000'} 
+                        onChange={(e) => onColorChange(e.target.value)} 
+                        className="h-6 w-8 cursor-pointer bg-transparent border-0 p-0" 
+                    />
+                    <span className="text-xs text-gray-400 font-mono uppercase">{colorValue || '#000000'}</span>
+                </div>
+            )}
+        </div>
+    );
+};
 
 const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
     const containerClass = "bg-gray-800 h-full border-l border-gray-600 flex flex-col overflow-hidden text-gray-100 w-[320px] min-w-[320px] flex-shrink-0";
@@ -282,7 +351,15 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
 
                 {element.type === 'text' && (
                     <div className={sectionClass}>
-                        <div className="flex gap-2 mb-4">
+                         <ColorInput 
+                            label="Text Color"
+                            colorValue={element.text_color}
+                            variableValue={element.text_color_variable}
+                            onColorChange={(val) => handleUpdate('text_color', val)}
+                            onVariableChange={(val) => handleUpdate('text_color_variable', val)}
+                        />
+                        
+                        <div className="flex gap-2 mb-4 mt-4">
                             <div className="flex-1"><span className={labelClass}>Font</span><select value={element.font_family} onChange={e => handleUpdate('font_family', e.target.value)} className={inputClass}><option value="Arial">Arial</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier Mono</option><option value="SpaceMono">Space Mono</option></select></div>
                             <div className="w-20"><span className={labelClass}>Size</span><input type="number" value={element.font_size} onChange={e => handleUpdate('font_size', parseInt(e.target.value))} className={inputClass} /></div>
                         </div>
@@ -338,16 +415,13 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
 
                         <div className="flex gap-3">
                             <div className="flex-1">
-                                <span className={labelClass}>Stroke Color</span>
-                                <div className="flex items-center gap-2 bg-gray-900 border border-gray-600 rounded p-1">
-                                    <input 
-                                        type="color" 
-                                        value={element.stroke_color || '#000000'} 
-                                        onChange={e => handleUpdate('stroke_color', e.target.value)} 
-                                        className="h-6 w-8 cursor-pointer bg-transparent border-0 p-0" 
-                                    />
-                                    <span className="text-xs text-gray-400 font-mono uppercase">{element.stroke_color || '#000000'}</span>
-                                </div>
+                                <ColorInput 
+                                    label="Stroke Color"
+                                    colorValue={element.stroke_color}
+                                    variableValue={element.stroke_color_variable}
+                                    onColorChange={(val) => handleUpdate('stroke_color', val)}
+                                    onVariableChange={(val) => handleUpdate('stroke_color_variable', val)}
+                                />
                             </div>
                             <div className="w-24">
                                 <span className={labelClass}>Thickness</span>
@@ -360,6 +434,18 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
                                 />
                             </div>
                         </div>
+                        
+                        {element.type === 'shape' && (
+                             <div className="mt-2">
+                                <ColorInput 
+                                    label="Fill Color"
+                                    colorValue={element.fill_color}
+                                    variableValue={element.fill_color_variable}
+                                    onColorChange={(val) => handleUpdate('fill_color', val)}
+                                    onVariableChange={(val) => handleUpdate('fill_color_variable', val)}
+                                />
+                             </div>
+                        )}
                     </div>
                 )}
 
@@ -628,6 +714,46 @@ const LabelTemplateBuilder = () => {
             console.error(error);
             toast.error("Failed to save.", { id: toastId });
         }
+    };
+
+    // --- DRAG AND DROP HANDLERS FOR LAYERS ---
+    const handleDragStart = (e, id) => {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault(); 
+        e.dataTransfer.dropEffect = "move";
+    };
+
+    const handleDrop = (e, targetId) => {
+        e.preventDefault();
+        e.stopPropagation(); // Add this
+        const draggedId = e.dataTransfer.getData("text/plain");
+        if (draggedId === targetId) return;
+
+        const visualList = [...elements].reverse();
+        const fromIndex = visualList.findIndex(el => el.id === draggedId);
+        const toIndex = visualList.findIndex(el => el.id === targetId);
+
+        if (fromIndex === -1 || toIndex === -1) return;
+
+        const newVisualList = [...visualList];
+        const [movedItem] = newVisualList.splice(fromIndex, 1);
+        newVisualList.splice(toIndex, 0, movedItem);
+
+        // Reverse back to get rendering order (Bottom -> Top)
+        const newElements = newVisualList.reverse();
+        
+        // Update z_index property to match new array order (for backend persistence)
+        // And deselect to show true layering
+        const updatedElements = newElements.map((el, index) => ({
+            ...el,
+            z_index: index
+        }));
+
+        setElements(updatedElements);
     };
 
     // ... (Drawing Handlers - preserved) ...
@@ -961,6 +1087,9 @@ const LabelTemplateBuilder = () => {
                                     onClick={(e) => handleElementClick(e, el.id)} 
                                     onToggleHidden={() => updateElements([el.id], { hidden: !el.hidden })}
                                     onDelete={() => deleteSelection(el.id)}
+                                    onDragStart={handleDragStart}
+                                    onDragOver={handleDragOver}
+                                    onDrop={handleDrop}
                                 />
                             ))}
                         </div>
@@ -1044,7 +1173,7 @@ const LabelTemplateBuilder = () => {
                                     </>
                                 )}
 
-                                {elements.map(el => {
+                                {elements.map((el, index) => {
                                     if (el.hidden) return null;
                                     const isSelected = selectedElementIds.includes(el.id);
                                     const isEditing = editingId === el.id;
@@ -1085,8 +1214,8 @@ const LabelTemplateBuilder = () => {
                                             bounds="parent"
                                             dragGrid={snapToGrid ? [gridPx, gridPx] : [1, 1]}
                                             resizeGrid={snapToGrid ? [gridPx, gridPx] : [1, 1]}
-                                            className={`absolute group ${isSelected ? 'z-50' : 'z-10'}`}
-                                            style={{ pointerEvents }} 
+                                            className={`absolute group`} // Removed forced z-50/z-10 toggle to allow proper layering visualization
+                                            style={{ pointerEvents, zIndex: index }} // Use array index to enforce stacking order
                                         >
                                             <div 
                                                 className={`
