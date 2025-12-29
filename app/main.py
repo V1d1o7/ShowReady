@@ -171,9 +171,7 @@ async def catch_all(request: Request, full_path: str):
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    print(f"DEBUG: Incoming request: {request.method} {request.url.path}")
     response = await call_next(request)
-    print(f"DEBUG: Response status: {response.status_code}")
     return response
 
 # This block allows the script to be run directly for development

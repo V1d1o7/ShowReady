@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, date
 from decimal import Decimal
 
-# --- User Model (Fixed: Added this missing model) ---
+# --- User Model ---
 class User(BaseModel):
     id: uuid.UUID
     email: str
@@ -825,14 +825,20 @@ class LabelElement(BaseModel):
     font_family: Optional[str] = 'SpaceMono' 
     font_size: Optional[int] = 10 
     font_weight: Optional[str] = 'normal' 
-    text_align: Optional[str] = 'left'  
+    font_style: Optional[str] = 'normal' 
+    text_align: Optional[str] = 'left'
+    vertical_align: Optional[str] = 'top'  
     text_color: Optional[str] = '#000000' 
+    text_decoration: Optional[str] = 'none' 
     # Shape Props 
-    shape: Optional[str] = 'rectangle' # 'rectangle', 'circle', 'line'
+    shape: Optional[str] = 'rectangle' 
     fill_color: Optional[str] = None 
     stroke_color: Optional[str] = '#000000' 
     stroke_width: Optional[float] = 1.0 
     z_index: int = 0 
+    lineDirection: Optional[str] = 'down' 
+    # Barcode Props
+    barcode_type: Optional[str] = 'CODE128' 
     # QR Props 
     qr_content: Optional[str] = None 
  
@@ -856,3 +862,4 @@ class DynamicLabelPdfPayload(BaseModel):
     # Dynamic data: Keys must match 'variable_field' in elements 
     data_rows: List[Dict[str, str]]  
     show_logo_bytes: Optional[str] = None
+    company_logo_bytes: Optional[str] = None

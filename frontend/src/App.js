@@ -31,7 +31,7 @@ import UserRackBuilderView from './views/UserRackBuilderView';
 import ShowInfoView from './views/ShowInfoView';
 import LoomLabelView from './views/LoomLabelView';
 import CaseLabelView from './views/CaseLabelView';
-import LabelEngineView from './views/LabelEngineView';
+// REMOVED: LabelEngineView import
 import RackBuilderView from './views/RackBuilderView';
 import WireDiagramView from './views/WireDiagramView';
 import LoomBuilderView from './views/LoomBuilderView';
@@ -83,7 +83,7 @@ const MainLayout = ({ session }) => {
 
     const handleCreateShow = async (newShowName) => {
         if (!newShowName || shows.some(s => s.name === newShowName)) {
-            alert("Show name cannot be empty or a duplicate.");
+            toast.error("Show name cannot be empty or a duplicate.");
             return;
         }
         try {
@@ -172,7 +172,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="hourstracking" element={<ProtectedRoute feature="hours_tracking"><HoursTrackingView /></ProtectedRoute>} />
                                                 <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
-                                                <Route path="label-engine" element={<ProtectedRoute feature="label_engine"><LabelEngineView /></ProtectedRoute>} />
+                                                {/* REMOVED: route path="label-engine" */}
                                                 <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
                                                 <Route path="switchconfig" element={<ProtectedRoute feature="switch_config"><SwitchConfigView /></ProtectedRoute>} />
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
@@ -186,6 +186,7 @@ const MainLayout = ({ session }) => {
                                     <Route path="/sso-setup" element={<AdvancedSSOView />} />
                                     <Route path="/settings/templates" element={<ProtectedRoute><TemplateManager /></ProtectedRoute>} />
                                     <Route path="/settings/label-template-builder" element={<ProtectedRoute feature="label_engine"><LabelTemplateBuilder /></ProtectedRoute>} />
+                                    <Route path="/settings/label-template-builder/:templateId" element={<ProtectedRoute feature="label_engine"><LabelTemplateBuilder /></ProtectedRoute>} />
                                     <Route path="/library" element={<ProtectedRoute><UserLibraryView /></ProtectedRoute>}>
                                         <Route index element={<Navigate to="equipment" replace />} />
                                         <Route path="equipment" element={<EquipmentLibraryView />} />

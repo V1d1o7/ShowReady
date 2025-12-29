@@ -14,8 +14,11 @@ import {
     ArrowUp, ArrowDown, Eye, EyeOff, MoreVertical, FileJson,
     Bold, Italic, Underline, Minus, GripHorizontal, Maximize,
     Layout, MousePointer2, MoveHorizontal, MoveVertical, Upload,
-    Barcode // Native Icon
+    Barcode, AlignVerticalJustifyCenter
 } from 'lucide-react';
+
+// ... (Constants, Helper Functions, Hooks same as before) ...
+// Ensure generateId, TOOLBOX_ITEMS, VARIABLE_FIELDS are preserved
 
 // --- Constants ---
 const DPI = 96; 
@@ -32,18 +35,18 @@ const TOOLBOX_ITEMS = [
   { id: 'text', type: 'text', name: 'Text Box', icon: <Type size={16}/> },
   { id: 'barcode', type: 'barcode', name: 'Barcode (1D)', icon: <Barcode size={16}/> },
   { id: 'qrcode', type: 'qrcode', name: 'QR Code (2D)', icon: <QrIcon size={16}/> },
-  { id: 'image', type: 'image', name: 'Image Placeholder', content: '__SHOW_LOGO__', icon: <ImageIcon size={16}/> },
+  { id: 'image', type: 'image', name: 'Image Placeholder', variable_field: '__SHOW_LOGO__', content: 'Show Logo', icon: <ImageIcon size={16}/> },
   { id: 'rect', type: 'shape', shape: 'rectangle', name: 'Rectangle', icon: <Square size={16}/> },
   { id: 'line', type: 'line', name: 'Line', icon: <Minus size={16}/> },
 ];
 
 const VARIABLE_FIELDS = {
-    "Case": ["Case Number", "Contents", "Department", "Weight", "Truck Layer", "Show Name"],
-    "Loom": ["Loom Name", "Source", "Destination", "Cable Count", "Length", "Color Code"],
-    "Global": ["Current Date", "User Name"],
+    "Case": ["Send To", "Contents", "Case Number", "Weight", "Truck Layer", "Department"],
+    "Loom": ["Loom Name", "Source", "Destination", "Color", "Cable Count", "Length"],
+    "Global": ["Current Date", "User Name", "Show Name", "Location"],
 };
 
-// --- Helper Functions ---
+// ... (inchesToPixels, pixelsToInches, getStockDimensions, processTextContent, useHistory, BarcodeRenderer, Ruler, ToolboxItem, LayerItem, ContextMenu) ...
 const inchesToPixels = (inches) => Math.round(inches * DPI);
 const pixelsToInches = (pixels) => Number((pixels / DPI).toFixed(3));
 
@@ -155,6 +158,7 @@ const LayerItem = ({ element, isSelected, onClick, onToggleHidden, onDelete }) =
     if (element.type === 'text') { icon = <Type size={14} />; label = element.text_content ? element.text_content.substring(0, 10) + '...' : 'Text'; }
     if (element.type === 'barcode') { icon = <Barcode size={14} />; label = 'Barcode'; } 
     if (element.type === 'line') { icon = <Minus size={14} />; label = 'Line'; }
+    if (element.type === 'image') { icon = <ImageIcon size={14} />; label = element.variable_field === '__COMPANY_LOGO__' ? 'Company Logo' : 'Show Logo'; }
 
     return (
         <div 
@@ -237,6 +241,21 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
             </div>
 
             <div className="flex-grow overflow-y-auto custom-scrollbar">
+                
+                {element.type === 'image' && (
+                    <div className={sectionClass}>
+                        <span className={labelClass}>Image Source</span>
+                        <select 
+                            value={element.variable_field || '__SHOW_LOGO__'} 
+                            onChange={e => handleUpdate('variable_field', e.target.value)} 
+                            className={inputClass}
+                        >
+                            <option value="__SHOW_LOGO__">Show Logo</option>
+                            <option value="__COMPANY_LOGO__">Company Logo</option>
+                        </select>
+                    </div>
+                )}
+
                 {(element.type === 'text' || element.type === 'qrcode' || element.type === 'barcode') && (
                     <div className={sectionClass}>
                         <div className="mb-2">
@@ -261,6 +280,41 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
                     </div>
                 )}
 
+                {element.type === 'text' && (
+                    <div className={sectionClass}>
+                        <div className="flex gap-2 mb-4">
+                            <div className="flex-1"><span className={labelClass}>Font</span><select value={element.font_family} onChange={e => handleUpdate('font_family', e.target.value)} className={inputClass}><option value="Arial">Arial</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier Mono</option><option value="SpaceMono">Space Mono</option></select></div>
+                            <div className="w-20"><span className={labelClass}>Size</span><input type="number" value={element.font_size} onChange={e => handleUpdate('font_size', parseInt(e.target.value))} className={inputClass} /></div>
+                        </div>
+                        <div className="flex bg-gray-900 border border-gray-600 rounded p-1 justify-between mb-4">
+                             <button onClick={() => handleUpdate('font_weight', element.font_weight === 'bold' ? 'normal' : 'bold')} className={`p-1 rounded ${element.font_weight === 'bold' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><Bold size={16}/></button>
+                             <button onClick={() => handleUpdate('font_style', element.font_style === 'italic' ? 'normal' : 'italic')} className={`p-1 rounded ${element.font_style === 'italic' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><Italic size={16}/></button>
+                             <button onClick={() => handleUpdate('text_decoration', element.text_decoration === 'underline' ? 'none' : 'underline')} className={`p-1 rounded ${element.text_decoration === 'underline' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><Underline size={16}/></button>
+                             <div className="w-px bg-gray-600 mx-1"></div>
+                             {/* Horizontal Align */}
+                             <button onClick={() => handleUpdate('text_align', 'left')} className={`p-1 rounded ${element.text_align === 'left' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><AlignLeft size={16}/></button>
+                             <button onClick={() => handleUpdate('text_align', 'center')} className={`p-1 rounded ${element.text_align === 'center' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><AlignCenter size={16}/></button>
+                             <button onClick={() => handleUpdate('text_align', 'right')} className={`p-1 rounded ${element.text_align === 'right' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><AlignRight size={16}/></button>
+                        </div>
+                        
+                        {/* Vertical Align */}
+                        <div className="flex bg-gray-900 border border-gray-600 rounded p-1 justify-between mb-4">
+                             <span className="text-[10px] text-gray-500 uppercase font-bold self-center px-2">V-Align</span>
+                             <div className="flex gap-1">
+                                <button onClick={() => handleUpdate('vertical_align', 'top')} className={`p-1 rounded ${element.vertical_align === 'top' || !element.vertical_align ? 'bg-gray-700 text-white' : 'text-gray-400'}`} title="Top"><ArrowUp size={16}/></button>
+                                <button onClick={() => handleUpdate('vertical_align', 'middle')} className={`p-1 rounded ${element.vertical_align === 'middle' ? 'bg-gray-700 text-white' : 'text-gray-400'}`} title="Middle"><MoreVertical size={16} className="rotate-90"/></button>
+                                <button onClick={() => handleUpdate('vertical_align', 'bottom')} className={`p-1 rounded ${element.vertical_align === 'bottom' ? 'bg-gray-700 text-white' : 'text-gray-400'}`} title="Bottom"><ArrowDown size={16}/></button>
+                             </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <span className={labelClass}>Show Border</span>
+                            <input type="checkbox" checked={element.show_border || false} onChange={e => handleUpdate('show_border', e.target.checked)} className="accent-amber-500 h-4 w-4"/>
+                        </div>
+                    </div>
+                )}
+
+                {/* ... (Rest of PropertiesPanel) ... */}
                 {(element.type === 'line' || element.type === 'shape') && (
                     <div className={sectionClass}>
                         {element.type === 'line' && (
@@ -320,28 +374,6 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
                     </div>
                 )}
 
-                {element.type === 'text' && (
-                    <div className={sectionClass}>
-                        <div className="flex gap-2 mb-4">
-                            <div className="flex-1"><span className={labelClass}>Font</span><select value={element.font_family} onChange={e => handleUpdate('font_family', e.target.value)} className={inputClass}><option value="Arial">Arial</option><option value="Times New Roman">Times New Roman</option><option value="Courier New">Courier Mono</option><option value="SpaceMono">Space Mono</option></select></div>
-                            <div className="w-20"><span className={labelClass}>Size</span><input type="number" value={element.font_size} onChange={e => handleUpdate('font_size', parseInt(e.target.value))} className={inputClass} /></div>
-                        </div>
-                        <div className="flex bg-gray-900 border border-gray-600 rounded p-1 justify-between mb-4">
-                             <button onClick={() => handleUpdate('font_weight', element.font_weight === 'bold' ? 'normal' : 'bold')} className={`p-1 rounded ${element.font_weight === 'bold' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><Bold size={16}/></button>
-                             <button onClick={() => handleUpdate('font_style', element.font_style === 'italic' ? 'normal' : 'italic')} className={`p-1 rounded ${element.font_style === 'italic' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><Italic size={16}/></button>
-                             <button onClick={() => handleUpdate('text_decoration', element.text_decoration === 'underline' ? 'none' : 'underline')} className={`p-1 rounded ${element.text_decoration === 'underline' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><Underline size={16}/></button>
-                             <div className="w-px bg-gray-600 mx-1"></div>
-                             <button onClick={() => handleUpdate('text_align', 'left')} className={`p-1 rounded ${element.text_align === 'left' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><AlignLeft size={16}/></button>
-                             <button onClick={() => handleUpdate('text_align', 'center')} className={`p-1 rounded ${element.text_align === 'center' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><AlignCenter size={16}/></button>
-                             <button onClick={() => handleUpdate('text_align', 'right')} className={`p-1 rounded ${element.text_align === 'right' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}><AlignRight size={16}/></button>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <span className={labelClass}>Show Border</span>
-                            <input type="checkbox" checked={element.show_border || false} onChange={e => handleUpdate('show_border', e.target.checked)} className="accent-amber-500 h-4 w-4"/>
-                        </div>
-                    </div>
-                )}
-
                 <div className={sectionClass}>
                     <div className="grid grid-cols-2 gap-3 mb-2">
                         <div><span className={labelClass}>X (in)</span><input type="number" step="0.01" value={element.x} onChange={e => handleUpdate('x', parseFloat(e.target.value))} className={inputClass} /></div>
@@ -356,6 +388,7 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
 };
 
 const LabelTemplateBuilder = () => {
+    // ... (Hooks and State - Preserving previous logic) ...
     const { profile } = useAuth();
     const navigate = useNavigate();
     const canvasRef = useRef(null);
@@ -363,9 +396,10 @@ const LabelTemplateBuilder = () => {
     const fileInputRef = useRef(null);
   
     // --- STATE ---
-    const [templateId, setTemplateId] = useState(null); // Track ID for Updates
+    const { templateId: paramId } = useParams();
+    const [templateId, setTemplateId] = useState(paramId || null);
     const [templateName, setTemplateName] = useState('New Label Template');
-    const [category, setCategory] = useState('generic'); // Default Category
+    const [category, setCategory] = useState('generic');
     const [labelStocks, setLabelStocks] = useState([]);
     const [selectedStockId, setSelectedStockId] = useState('');
     
@@ -397,6 +431,7 @@ const LabelTemplateBuilder = () => {
     const selectedStock = useMemo(() => labelStocks.find(s => s.id == selectedStockId), [labelStocks, selectedStockId]);
     const labelDim = useMemo(() => getStockDimensions(selectedStock), [selectedStock]);
     
+    // ... (Effects) ...
     useEffect(() => {
         api.getLabelStocks().then(setLabelStocks).catch(() => toast.error('Failed to load stocks.'));
         const closeMenu = () => setContextMenu(null);
@@ -412,6 +447,29 @@ const LabelTemplateBuilder = () => {
             setToolbarPos({ x: centerX, y: bottomY });
         }
     }, []);
+
+    // Load Template Effect
+    useEffect(() => {
+        if (paramId) {
+            const loadTemplate = async () => {
+                const toastId = toast.loading("Loading template...");
+                try {
+                    const data = await api.getLabelTemplate(paramId);
+                    setTemplateName(data.name);
+                    setCategory(data.category);
+                    setSelectedStockId(data.stock_id);
+                    const loadedElements = (data.elements || []).map(el => ({ ...el, id: el.id || generateId() }));
+                    setElements(loadedElements);
+                    toast.success("Template loaded", { id: toastId });
+                } catch (error) {
+                    console.error(error);
+                    toast.error("Failed to load template", { id: toastId });
+                    navigate('/library/label-templates');
+                }
+            };
+            loadTemplate();
+        }
+    }, [paramId, navigate]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -440,7 +498,7 @@ const LabelTemplateBuilder = () => {
                     const newElements = clipboard.map(item => ({
                         ...item,
                         id: generateId(),
-                        x: item.x + 0.25, // Offset for visibility
+                        x: item.x + 0.25, 
                         y: item.y + 0.25
                     }));
                     setElements(prev => [...prev, ...newElements]);
@@ -493,6 +551,7 @@ const LabelTemplateBuilder = () => {
         };
     }, [undo, redo, selectedElementIds, elements, clipboard]); 
 
+    // ... (updateElements, deleteSelection, handleImportJSON, exportJSON, handleSave) ...
     const updateElements = (ids, updates) => {
         setElements(prev => prev.map(el => ids.includes(el.id) ? { ...el, ...updates } : el));
     };
@@ -518,10 +577,10 @@ const LabelTemplateBuilder = () => {
                 const data = JSON.parse(event.target.result);
                 if (data.elements) {
                     if (data.name) setTemplateName(data.name);
-                    if (data.category) setCategory(data.category); // Import category
+                    if (data.category) setCategory(data.category);
                     const importedElements = data.elements.map(el => ({ ...el, id: generateId() }));
                     setElements(importedElements);
-                    setTemplateId(null); // Reset ID on import as it's a new copy
+                    setTemplateId(null);
                     toast.success("Template imported successfully!");
                 } else {
                     toast.error("Invalid template file format");
@@ -558,13 +617,11 @@ const LabelTemplateBuilder = () => {
 
         try {
             if (templateId) {
-                // UPDATE existing
                 await api.updateLabelTemplate(templateId, payload);
                 toast.success("Template updated successfully!", { id: toastId });
             } else {
-                // CREATE new
                 const created = await api.createLabelTemplate(payload);
-                setTemplateId(created.id); // Store ID for future updates
+                setTemplateId(created.id);
                 toast.success("Template created successfully!", { id: toastId });
             }
         } catch (error) {
@@ -573,8 +630,7 @@ const LabelTemplateBuilder = () => {
         }
     };
 
-    // --- DRAWING HANDLERS ---
-
+    // ... (Drawing Handlers - preserved) ...
     const handleMouseDown = (e) => {
         if (canvasContainerRef.current && e.target === canvasContainerRef.current) {
             const rect = canvasContainerRef.current.getBoundingClientRect();
@@ -595,7 +651,6 @@ const LabelTemplateBuilder = () => {
         if (!canvasRef.current) return;
         const rect = canvasRef.current.getBoundingClientRect();
         
-        // FIX ZOOM OFFSET: Use (e.clientX - rect.left) / zoom
         const xPixels = (e.clientX - rect.left) / zoom;
         const yPixels = (e.clientY - rect.top) / zoom;
         
@@ -674,7 +729,7 @@ const LabelTemplateBuilder = () => {
         setDrawing(prev => ({ ...prev, isDrawing: false, startX: 0, startY: 0, currX: 0, currY: 0 }));
     };
 
-    const createObject = (x, y, w, h, lineDirection) => {
+    const createObject = (posX, posY, w, h, lineDirection) => {
         const itemTemplate = TOOLBOX_ITEMS.find(t => t.id === activeTool);
         if (!itemTemplate) return;
 
@@ -683,8 +738,8 @@ const LabelTemplateBuilder = () => {
         const newEl = {
             id: generateId(),
             type: itemTemplate.type,
-            x: Math.max(0, x),
-            y: Math.max(0, y),
+            x: Math.max(0, posX),
+            y: Math.max(0, posY),
             width: w,
             height: h,
             text_content: itemTemplate.type === 'text' ? 'New Text' : '',
@@ -692,6 +747,7 @@ const LabelTemplateBuilder = () => {
             font_size: 12, font_family: 'Arial', text_color: '#000',
             stroke_width: (itemTemplate.type === 'line' || itemTemplate.type === 'shape') ? 2 : 1, 
             stroke_color: '#000000',
+            vertical_align: 'top', // Default for new objects
             show_border: false,
             locked: false,
             hidden: false,
@@ -1070,7 +1126,9 @@ const LabelTemplateBuilder = () => {
                                                             fontWeight: el.font_weight, fontStyle: el.font_style, textDecoration: el.text_decoration,
                                                             color: el.text_color, textAlign: el.text_align,
                                                             border: (el.type === 'text' && el.show_border) ? '1px solid black' : 'none',
-                                                            display: 'flex', alignItems: el.type === 'text' ? 'flex-start' : 'center',
+                                                            display: 'flex', 
+                                                            // Vertical Alignment Implementation using Flexbox
+                                                            alignItems: el.type === 'text' ? (el.vertical_align === 'middle' ? 'center' : (el.vertical_align === 'bottom' ? 'flex-end' : 'flex-start')) : 'center',
                                                             justifyContent: el.type === 'text' ? (el.text_align === 'center' ? 'center' : el.text_align === 'right' ? 'flex-end' : 'flex-start') : 'center',
                                                             lineHeight: '1.2',
                                                             whiteSpace: 'pre-wrap'
@@ -1083,7 +1141,6 @@ const LabelTemplateBuilder = () => {
                                                         {/* SVG LINE RENDERER */}
                                                         {el.type === 'line' && (
                                                             <svg width="100%" height="100%" style={{ overflow: 'visible' }}>
-                                                                {/* 1. Transparent Hit Area (Thicker) */}
                                                                 <line 
                                                                     x1={isVertical ? '50%' : '0'} 
                                                                     y1={isHorizontal ? '50%' : (el.lineDirection === 'down' ? '0' : '100%')} 
@@ -1093,7 +1150,6 @@ const LabelTemplateBuilder = () => {
                                                                     strokeWidth="20"
                                                                     style={{ cursor: 'pointer' }}
                                                                 />
-                                                                {/* Highlight Glow Effect for Selected Line */}
                                                                 {isSelected && (
                                                                     <line 
                                                                         x1={isVertical ? '50%' : '0'} 
@@ -1105,7 +1161,6 @@ const LabelTemplateBuilder = () => {
                                                                         opacity="0.5"
                                                                     />
                                                                 )}
-                                                                {/* 3. The actual visible line */}
                                                                 <line 
                                                                     x1={isVertical ? '50%' : '0'} 
                                                                     y1={isHorizontal ? '50%' : (el.lineDirection === 'down' ? '0' : '100%')} 

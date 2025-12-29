@@ -209,19 +209,6 @@ const AccountView = () => {
                     </Card>
                 )}
 
-                {/* Pro Tools Section */}
-                {canAccessLabelEngine && (
-                    <Card>
-                        <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2"><Settings size={20} /> Pro Tools</h2>
-                        <p className="text-gray-400 mb-4">
-                            Access advanced tools for creating and managing reusable templates.
-                        </p>
-                        <Link to="/library/label-templates" className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white">
-                            <FileText size={16} /> Label Template Builder
-                        </Link>
-                    </Card>
-                )}
-
                 {/* Conditional Rendering: Switch Configuration (Local Agent) */}
                  {canAccessSwitchConfig && (
                     <Card>

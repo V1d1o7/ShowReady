@@ -639,6 +639,10 @@ export const api = {
         return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
     },
 
+    getLabelTemplate: async (templateId) => {
+        return fetch(`/api/v1/library/label-templates/${templateId}`, { headers: await getAuthHeader() }).then(handleResponse);
+    },
+
     getLabelStocks: async () => {
         return fetch('/api/v1/library/label-stocks', { headers: await getAuthHeader() }).then(handleResponse);
     },
