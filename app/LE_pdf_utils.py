@@ -90,19 +90,32 @@ def resolve_color(static_color: str, variable_field: str, row_data: Dict[str, An
 
     # 3. Convert to ReportLab Color
     try:
+        # Clean the string if it's a string
+        if isinstance(color_val, str):
+            color_val = color_val.strip()
+            
         # Try Hex
         return colors.HexColor(color_val)
     except:
         try:
             # Try Named Color (e.g., 'Red', 'blue')
             if isinstance(color_val, str):
-                # ReportLab colors are usually uppercase in the module (e.g. colors.RED) 
-                # but allow some flexibility or use GetAllNamedColors() logic if needed.
-                # Simplest fallback is to verify if it exists in colors module
-                c = getattr(colors, color_val.upper(), None)
-                if c: return c
+                # Try exact match, lowercase, uppercase, and title case
+                # ReportLab colors are inconsistent (some lowercase, some uppercase aliases)
+                for name in [color_val, color_val.lower(), color_val.upper(), color_val.title()]:
+                    c = getattr(colors, name, None)
+                    if c: return c
                 
+                # Extended check using getAllNamedColors if available
+                try:
+                    all_colors = colors.getAllNamedColors()
+                    if color_val.lower() in all_colors:
+                        return all_colors[color_val.lower()]
+                except:
+                    pass
+
                 # If it's a CSS name not in RL (like 'amber'), fallback to black to prevent crash
+                print(f"Warning: Color '{color_val}' not found in ReportLab colors. Defaulting to Black.")
                 return colors.black 
         except:
             return colors.black

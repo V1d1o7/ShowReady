@@ -73,7 +73,14 @@ const DynamicLabelManager = ({ category }) => {
         try {
           const fetchedTemplates = await api.getLabelTemplates(category);
           setTemplates(fetchedTemplates);
-          setSelectedTemplate(null);
+          
+          // Auto-select the first template if available
+          if (fetchedTemplates.length > 0) {
+            setSelectedTemplate(fetchedTemplates[0]);
+          } else {
+            setSelectedTemplate(null);
+          }
+          
           setTableData([]);
           setColumns([]);
         } catch (error) {
@@ -158,7 +165,7 @@ const DynamicLabelManager = ({ category }) => {
           try {
               const looms = await api.getLoomsForShow(showId);
               const loomRows = looms.map(l => {
-                  // Direct Mapping from Loom Object (No cable fallback)
+                  // Direct Mapping from Loom Object (DB fields: origin_color, destination_color)
                   const originColor = l.origin_color || '';
                   const destColor = l.destination_color || '';
                   const sourceLoc = l.source_loc || '';

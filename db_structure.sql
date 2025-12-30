@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict lO92V5jGgavCdxHmeWDxZk71StRdWof71hP23qUpTK6ZqAOS0i2nooiSSnJwGnK
+\restrict Er0JtqymbcelXempYhdt1EqZhnQzgODnff0nYQtVb2fhTc54noB7iQRejGDNFzr
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -3658,6 +3658,49 @@ CREATE TABLE public.folders (
 ALTER TABLE public.folders OWNER TO postgres;
 
 --
+-- Name: label_stocks; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.label_stocks (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    name text NOT NULL,
+    description text,
+    page_width double precision NOT NULL,
+    page_height double precision NOT NULL,
+    top_margin double precision NOT NULL,
+    left_margin double precision NOT NULL,
+    row_spacing double precision DEFAULT 0,
+    col_spacing double precision DEFAULT 0,
+    rows_per_page integer NOT NULL,
+    cols_per_page integer NOT NULL,
+    corner_radius double precision DEFAULT 0,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.label_stocks OWNER TO postgres;
+
+--
+-- Name: label_templates; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.label_templates (
+    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+    user_id uuid,
+    stock_id uuid,
+    name text NOT NULL,
+    category text NOT NULL,
+    elements jsonb DEFAULT '[]'::jsonb NOT NULL,
+    is_public boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT label_templates_category_check CHECK ((category = ANY (ARRAY['case'::text, 'loom'::text, 'generic'::text])))
+);
+
+
+ALTER TABLE public.label_templates OWNER TO postgres;
+
+--
 -- Name: looms; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3666,7 +3709,11 @@ CREATE TABLE public.looms (
     user_id uuid NOT NULL,
     name text NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
-    show_id bigint NOT NULL
+    show_id bigint NOT NULL,
+    source_loc text,
+    dest_loc text,
+    origin_color text DEFAULT 'Blue'::text,
+    destination_color text DEFAULT 'Blue'::text
 );
 
 
@@ -4734,6 +4781,30 @@ ALTER TABLE ONLY public.feature_restrictions
 
 ALTER TABLE ONLY public.folders
     ADD CONSTRAINT folders_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: label_stocks label_stocks_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.label_stocks
+    ADD CONSTRAINT label_stocks_name_key UNIQUE (name);
+
+
+--
+-- Name: label_stocks label_stocks_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.label_stocks
+    ADD CONSTRAINT label_stocks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: label_templates label_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.label_templates
+    ADD CONSTRAINT label_templates_pkey PRIMARY KEY (id);
 
 
 --
@@ -5891,6 +5962,22 @@ ALTER TABLE ONLY public.folders
 
 
 --
+-- Name: label_templates label_templates_stock_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.label_templates
+    ADD CONSTRAINT label_templates_stock_id_fkey FOREIGN KEY (stock_id) REFERENCES public.label_stocks(id);
+
+
+--
+-- Name: label_templates label_templates_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.label_templates
+    ADD CONSTRAINT label_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: looms looms_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6526,6 +6613,13 @@ CREATE POLICY "Allow read access for all authenticated users" ON public.switch_m
 
 
 --
+-- Name: label_stocks Allow read access to all; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow read access to all" ON public.label_stocks FOR SELECT USING (true);
+
+
+--
 -- Name: equipment_templates Allow users to delete their own equipment templates; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6712,6 +6806,20 @@ CREATE POLICY "Users can view their own SSO config" ON public.sso_configs FOR SE
 
 
 --
+-- Name: label_templates Users manage own templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Users manage own templates" ON public.label_templates USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+
+
+--
+-- Name: label_templates Users view own or public templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Users view own or public templates" ON public.label_templates FOR SELECT USING (((auth.uid() = user_id) OR (is_public = true)));
+
+
+--
 -- Name: show_collaborators View collaborators; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6771,6 +6879,18 @@ ALTER TABLE public.feature_restrictions ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.folders ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: label_stocks; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.label_stocks ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: label_templates; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.label_templates ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: looms; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -8195,6 +8315,24 @@ GRANT ALL ON TABLE public.folders TO supabase_admin;
 
 
 --
+-- Name: TABLE label_stocks; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.label_stocks TO anon;
+GRANT ALL ON TABLE public.label_stocks TO authenticated;
+GRANT ALL ON TABLE public.label_stocks TO service_role;
+
+
+--
+-- Name: TABLE label_templates; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.label_templates TO anon;
+GRANT ALL ON TABLE public.label_templates TO authenticated;
+GRANT ALL ON TABLE public.label_templates TO service_role;
+
+
+--
 -- Name: TABLE looms; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8887,5 +9025,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict lO92V5jGgavCdxHmeWDxZk71StRdWof71hP23qUpTK6ZqAOS0i2nooiSSnJwGnK
+\unrestrict Er0JtqymbcelXempYhdt1EqZhnQzgODnff0nYQtVb2fhTc54noB7iQRejGDNFzr
 
