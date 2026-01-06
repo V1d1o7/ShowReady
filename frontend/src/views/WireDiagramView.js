@@ -425,7 +425,7 @@ const WireDiagramView = () => {
         if (equipmentData.isTemplate) {
             try {
                 const newInstanceData = {
-                    show_id: showData.info.id,
+                    show_id: showId,
                     equipment_template_id: equipmentData.id,
                     instance_name: equipmentData.model_number,
                     x_pos: Math.round(position.x),
