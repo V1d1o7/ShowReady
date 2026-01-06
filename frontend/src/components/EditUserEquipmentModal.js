@@ -90,17 +90,17 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
                                     <div key={port.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm bg-gray-700 rounded-lg">
                                         <span>{port.label} ({port.connector_type}) - {port.type}</span>
                                         <div className="flex items-center gap-2">
-                                            <button onClick={(e) => { e.preventDefault(); handleEditPort(port); }} className="p-1 text-gray-400 hover:text-amber-400">
+                                            <button type="button" onClick={(e) => { e.preventDefault(); handleEditPort(port); }} className="p-1 text-gray-400 hover:text-amber-400">
                                                 <Edit size={14} />
                                             </button>
-                                            <button onClick={(e) => { e.preventDefault(); handleDeletePort(port.id); }} className="p-1 text-gray-400 hover:text-red-400">
+                                            <button type="button" onClick={(e) => { e.preventDefault(); handleDeletePort(port.id); }} className="p-1 text-gray-400 hover:text-red-400">
                                                 <Trash2 size={14} />
                                             </button>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                            <button onClick={(e) => { e.preventDefault(); setEditingPort(null); setIsPortModalOpen(true); }} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
+                            <button type="button" onClick={(e) => { e.preventDefault(); setEditingPort(null); setIsPortModalOpen(true); }} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
                                 <Plus size={16} /> Add New Port
                             </button>
                         </div>

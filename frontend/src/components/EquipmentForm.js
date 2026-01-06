@@ -130,7 +130,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                                 onChange={(e) => handleSlotChange(index, 'accepted_module_type', e.target.value)}
                                 className="w-1/2"
                             />
-                            <button onClick={() => removeSlot(index)} className="p-2 text-gray-400 hover:text-red-500 flex-shrink-0">
+                            <button type="button" onClick={() => removeSlot(index)} className="p-2 text-gray-400 hover:text-red-500 flex-shrink-0">
                                 <Trash2 size={18} />
                             </button>
                         </div>

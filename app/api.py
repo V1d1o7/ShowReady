@@ -334,6 +334,7 @@ async def create_default_equipment(
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
         "depth": equipment_data.depth,
+        "power_consumption_watts": equipment_data.power_consumption_watts, 
         "ports": ports_data,
         "is_default": True,
         "has_ip_address": equipment_data.has_ip_address,
@@ -2317,6 +2318,8 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
         "depth": equipment_data.depth,
+        # ADDED THIS LINE:
+        "power_consumption_watts": equipment_data.power_consumption_watts,
         "ports": ports_data,
         "is_default": False,
         "user_id": str(user.id),
@@ -2333,7 +2336,7 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create equipment template.")
     return response.data[0]
-
+    
 @router.put("/library/equipment/{equipment_id}", tags=["User Library"], response_model=EquipmentTemplate)
 async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEquipmentTemplateUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates an equipment template in the user's personal library."""
