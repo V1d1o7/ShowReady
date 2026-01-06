@@ -3,6 +3,7 @@ from typing import Optional, Dict, List
 
 class PortDef(BaseModel):
     name: Optional[str] = None
+    adapter_model: Optional[str] = None  # New field for adapter handling
 
 class Node(BaseModel):
     id: str

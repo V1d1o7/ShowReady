@@ -101,6 +101,18 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                         onChange={handleChange}
                     />
                 </div>
+                {/* Adapter Toggle */}
+                <div className="flex items-center justify-between">
+                    <label htmlFor="is_adapter" className="block text-sm font-medium text-gray-300">
+                        Is this an Adapter?
+                    </label>
+                    <ToggleSwitch
+                        id="is_adapter"
+                        name="is_adapter"
+                        checked={formData.is_adapter}
+                        onChange={handleChange}
+                    />
+                </div>
             </div>
 
             {folderTree && (

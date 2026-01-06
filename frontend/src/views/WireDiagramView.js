@@ -9,6 +9,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { Download, Plus } from 'lucide-react';
 import dagre from 'dagre';
+import toast, { Toaster } from 'react-hot-toast';
 
 import { api } from '../api/api';
 import DeviceNode from '../components/DeviceNode';
@@ -316,7 +317,7 @@ const WireDiagramView = () => {
         const targetPort = targetNode?.data.equipment_templates.ports.find(p => p.id === targetPortId);
 
         if (sourcePort?.connector_type !== targetPort?.connector_type) {
-            alert(`Cannot connect ${sourcePort?.connector_type} to ${targetPort?.connector_type}.`);
+            toast.error(`Cannot connect ${sourcePort?.connector_type} to ${targetPort?.connector_type}.`);
             return;
         }
 
@@ -348,7 +349,7 @@ const WireDiagramView = () => {
             setEdges((eds) => eds.concat(newEdge));
         } catch (err) {
             console.error("Failed to create connection:", err);
-            alert(`Error creating connection: ${err.message}`);
+            toast.error(`Error creating connection: ${err.message}`);
         }
     }, [getNodes, setEdges]);
 
@@ -399,7 +400,7 @@ const WireDiagramView = () => {
             handleCloseEditModal();
         } catch (err) {
             console.error('Failed to update equipment instance:', err);
-            alert(`Error: ${err.message}`);
+            toast.error(`Error: ${err.message}`);
         }
     };
 
@@ -446,7 +447,7 @@ const WireDiagramView = () => {
                 setJustDroppedNode(newNode);
             } catch (err) {
                 console.error("Failed to create new equipment instance:", err);
-                alert("Failed to create and place new equipment.");
+                toast.error("Failed to create and place new equipment.");
             }
         } else {
             const newNode = {
@@ -469,7 +470,7 @@ const WireDiagramView = () => {
                 console.error("Failed to save placed equipment:", err);
                 setNodes((nds) => nds.filter(n => n.id !== newNode.id));
                 setUnassignedEquipment(current => [...current, equipmentData]);
-                alert("Failed to save equipment position. It has been returned to the library.");
+                toast.error("Failed to save equipment position. It has been returned to the library.");
             });
         }
     }, [activeTab, screenToFlowPosition, showData?.info?.id, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
@@ -481,7 +482,6 @@ const WireDiagramView = () => {
                 if (edgeToRemove && edgeToRemove.data.db_id) {
                     api.deleteConnection(edgeToRemove.data.db_id).catch(err => {
                         console.error("Failed to delete connection:", err);
-                        // Optionally, add the edge back to the UI to indicate the deletion failed
                     });
                 }
             }
@@ -556,9 +556,10 @@ const WireDiagramView = () => {
             a.click();
             window.URL.revokeObjectURL(url);
             a.remove();
+            toast.success("PDF exported successfully!");
         } catch (err) {
             console.error("Failed to generate simplified PDF:", err);
-            alert("Failed to generate simplified PDF. See console for details.");
+            toast.error("Failed to generate simplified PDF. See console for details.");
         } finally {
             setIsPdfModalOpen(false);
         }
@@ -569,6 +570,7 @@ const WireDiagramView = () => {
 
     return (
         <div className="h-full w-full flex flex-row rounded-xl bg-gray-800/50" data-testid="wire-diagram-view">
+            <Toaster position="bottom-center" />
             <CustomDragLayer draggingItem={draggingItem} />
             <LibrarySidebar
                 unassignedEquipment={unassignedEquipment}

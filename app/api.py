@@ -1654,7 +1654,6 @@ def collect_recursive_ports(assignments, parent_template, module_template_map, p
     Recursively collects ports from a tree of module assignments.
     """
     print(f"\n--- DEBUG: START collect_recursive_ports ---", flush=True)
-    print(f"DEBUG: Prefix: '{prefix}'", flush=True)
     
     ports = []
     if not assignments:
@@ -1663,7 +1662,6 @@ def collect_recursive_ports(assignments, parent_template, module_template_map, p
     
     # Safe slot getter
     parent_slots = parent_template.get('slots') or []
-    print(f"DEBUG: Parent Slots Definition: {[s.get('name') for s in parent_slots]}", flush=True)
     
     # Map slot keys to names for lookup
     slot_map = {}
@@ -1695,7 +1693,6 @@ def collect_recursive_ports(assignments, parent_template, module_template_map, p
             print(f"DEBUG: Found orphan assignment (not in slot def): {k}", flush=True)
             sorted_items.append((k, v))
 
-    print(f"DEBUG: Processing Order: {[k for k, v in sorted_items]}", flush=True)
 
     # Iterate through Sorted list
     for slot_key, val in sorted_items:
@@ -1727,7 +1724,6 @@ def collect_recursive_ports(assignments, parent_template, module_template_map, p
         
         # [FIX 2] Generate Unique, Valid UUIDs for Ports
         mod_ports = module_template.get('ports') or []
-        print(f"DEBUG: Processing Module '{module_template.get('model_number')}' in '{slot_name}' ({len(mod_ports)} ports)", flush=True)
 
         for p in mod_ports:
             new_port = p.copy()

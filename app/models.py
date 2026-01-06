@@ -347,7 +347,7 @@ class PortTemplate(BaseModel):
     connector_type: str
 
 class SlotDefinition(BaseModel):
-    id: Optional[uuid.UUID] = None 
+    id: uuid.UUID = Field(default_factory=uuid.uuid4) 
     name: str
     accepted_module_type: Optional[str] = None
 
@@ -366,6 +366,7 @@ class EquipmentTemplate(BaseModel):
     is_default: bool = False
     has_ip_address: bool = False
     is_module: bool = False
+    is_adapter: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
 
@@ -380,14 +381,13 @@ class EquipmentTemplateCreate(BaseModel):
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: bool = False
     is_module: bool = False
+    is_adapter: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
 
-# --- RECURSIVE MODULE MODEL ---
 class ModuleAssignment(BaseModel):
     id: uuid.UUID
-    # FIX: Keys MUST be strings to accept slot names when UUIDs aren't available
-    assignments: Optional[Dict[str, 'ModuleAssignment']] = {}
+    assignments: Optional[Dict[str, Union[uuid.UUID, 'ModuleAssignment']]] = {}
 
 # Enable recursion in Pydantic
 ModuleAssignment.update_forward_refs()
@@ -403,7 +403,7 @@ class RackEquipmentInstance(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
-    # FIX: Keys MUST be strings to accept slot names or UUID strings
+    # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class RackEquipmentInstanceCreate(BaseModel):
@@ -411,7 +411,7 @@ class RackEquipmentInstanceCreate(BaseModel):
     ru_position: int
     instance_name: Optional[str] = None
     rack_side: Optional[str] = None
-    # FIX: Keys MUST be strings
+    # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class EquipmentInstanceCreate(BaseModel):
@@ -534,6 +534,7 @@ class EquipmentTemplateUpdate(BaseModel):
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: Optional[bool] = None
     is_module: Optional[bool] = None
+    is_adapter: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
     
