@@ -318,15 +318,17 @@ async def create_default_equipment(
     admin_user=Depends(get_admin_user)
 ):
     """Admin: Creates a new default equipment template."""
-    # Use Service Client to bypass RLS for creating 'is_default=True' items
     admin_client = get_service_client()
 
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
-    slots_data = [s.model_dump(mode='json') for s in equipment_data.slots]
-
-    # REMOVED: Depth restriction check
-    # if equipment_data.depth is None or equipment_data.depth <= 0:
-    #     raise HTTPException(status_code=400, detail="Depth is required for admin-created equipment and must be greater than 0.")
+    
+    # [FIX] Explicitly generate IDs for slots if they are missing
+    slots_data = []
+    for s in equipment_data.slots:
+        slot_dict = s.model_dump(mode='json')
+        if not slot_dict.get('id'):
+            slot_dict['id'] = str(uuid.uuid4())
+        slots_data.append(slot_dict)
 
     insert_data = {
         "model_number": equipment_data.model_number,
@@ -345,7 +347,6 @@ async def create_default_equipment(
     if equipment_data.folder_id:
         insert_data["folder_id"] = str(equipment_data.folder_id)
 
-    # Enforce that modules have an RU height of 0
     if equipment_data.is_module and equipment_data.ru_height != 0:
         raise HTTPException(status_code=400, detail="Modules must have an RU height of 0.")
         
@@ -1651,33 +1652,56 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
 def collect_recursive_ports(assignments, parent_template, module_template_map, prefix=""):
     """
     Recursively collects ports from a tree of module assignments.
-    
-    Args:
-        assignments: The 'module_assignments' dictionary from an equipment instance.
-        parent_template: The EquipmentTemplate dict of the parent (Chassis or Module).
-        module_template_map: A dictionary mapping module IDs to their EquipmentTemplate dicts.
-        prefix: The current string prefix for port labels (e.g. "Slot 1 > ").
-        
-    Returns:
-        A list of port dictionaries with flattened labels.
     """
+    print(f"\n--- DEBUG: START collect_recursive_ports ---", flush=True)
+    print(f"DEBUG: Prefix: '{prefix}'", flush=True)
+    
     ports = []
     if not assignments:
+        print("DEBUG: No assignments found. Returning empty ports.", flush=True)
         return ports
     
+    # Safe slot getter
+    parent_slots = parent_template.get('slots') or []
+    print(f"DEBUG: Parent Slots Definition: {[s.get('name') for s in parent_slots]}", flush=True)
+    
     # Map slot keys to names for lookup
-    # Because slot keys can be UUIDs, Names, or Indices, we try to match them to the parent's slot definition
-    parent_slots = parent_template.get('slots', [])
     slot_map = {}
     for s in parent_slots:
         s_id = str(s.get('id'))
         if s_id: slot_map[s_id] = s.get('name')
         if s.get('name'): slot_map[s.get('name')] = s.get('name')
 
-    for slot_key, val in assignments.items():
+    # [FIX 1] FORCE ORDER: Iterate through the Template's Slot Definition
+    sorted_items = []
+    
+    # 1. Add assignments that match defined slots (in order)
+    if parent_slots:
+        for slot_def in parent_slots:
+            s_id = str(slot_def.get('id'))
+            s_name = slot_def.get('name')
+            
+            # Check if this slot ID exists in our assignments
+            if s_id and s_id in assignments:
+                sorted_items.append((s_id, assignments[s_id]))
+            # Fallback: Check if the slot Name exists in assignments (legacy)
+            elif s_name and s_name in assignments:
+                 sorted_items.append((s_name, assignments[s_name]))
+
+    # 2. Catch-all: Add remaining assignments (orphans)
+    processed_keys = set(k for k, v in sorted_items)
+    for k, v in assignments.items():
+        if k not in processed_keys:
+            print(f"DEBUG: Found orphan assignment (not in slot def): {k}", flush=True)
+            sorted_items.append((k, v))
+
+    print(f"DEBUG: Processing Order: {[k for k, v in sorted_items]}", flush=True)
+
+    # Iterate through Sorted list
+    for slot_key, val in sorted_items:
         if not val: continue
         
-        # Normalize the assignment value (handle Legacy UUID vs New Recursive Object)
+        # Normalize the assignment value
         if isinstance(val, dict):
             module_id = val.get('id')
             sub_assignments = val.get('assignments', {})
@@ -1688,26 +1712,44 @@ def collect_recursive_ports(assignments, parent_template, module_template_map, p
         if not module_id: continue
         
         # Retrieve the module's template
+        # Ensure we look up by string key, as template map keys are likely strings
         module_template = module_template_map.get(str(module_id))
-        if not module_template: continue
+        
+        if not module_template: 
+            print(f"DEBUG: CRITICAL - Module Template not found for ID: {module_id}", flush=True)
+            continue
         
         # Determine the Slot Name for the label
-        # 1. Try key as UUID
-        # 2. Try key as Name
-        # 3. Fallback to key itself
         slot_name = slot_map.get(str(slot_key), str(slot_key))
         
-        # Build prefix: "Slot 1: " or "Slot 1 > SubSlot A: "
+        # Build prefix
         current_label_prefix = f"{prefix}{slot_name}: " if prefix == "" else f"{prefix}{slot_name} > "
         
-        # 1. Collect ports from this immediate module
-        for p in module_template.get('ports', []):
+        # [FIX 2] Generate Unique, Valid UUIDs for Ports
+        mod_ports = module_template.get('ports') or []
+        print(f"DEBUG: Processing Module '{module_template.get('model_number')}' in '{slot_name}' ({len(mod_ports)} ports)", flush=True)
+
+        for p in mod_ports:
             new_port = p.copy()
+            
+            # Create a composite string unique to this Slot + Port
+            composite_key = f"{slot_key}_{p['id']}"
+            
+            # Generate a DETERMINISTIC UUID (UUIDv5).
+            # This satisfies Pydantic's UUID requirement AND ensures uniqueness.
+            try:
+                new_id = uuid.uuid5(uuid.NAMESPACE_OID, composite_key)
+                new_port['id'] = new_id
+            except Exception as e:
+                print(f"DEBUG: ERROR generating UUID for port: {e}", flush=True)
+            
             new_port['label'] = f"{current_label_prefix}{p['label']}"
             ports.append(new_port)
             
         # 2. Recurse into sub-assignments if this module has slots
-        if sub_assignments and module_template.get('slots'):
+        mod_slots = module_template.get('slots') or []
+        if sub_assignments and mod_slots:
+            print(f"DEBUG: Recursing into sub-modules for {slot_name}...", flush=True)
             ports.extend(
                 collect_recursive_ports(sub_assignments, module_template, module_template_map, current_label_prefix)
             )
@@ -2118,27 +2160,42 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
             raise HTTPException(status_code=404, detail="Equipment instance not found.")
         
         instance = instance_res.data
-        # FIX: Removed explicit ownership check, trusting RLS on racks/instances
-        # if str(instance['racks']['user_id']) != str(user.id):
-        #     raise HTTPException(status_code=403, detail="Not authorized.")
 
         # 2. Prepare Payload
         update_dict = update_data.model_dump(mode='json', exclude_unset=True)
 
-        # 3. Validate Assignments (Now relying on clean DB data)
+        # 3. Validate Assignments (FIXED: Allow Slot Names, IDs, AND Existing Keys)
         if 'module_assignments' in update_dict and update_dict['module_assignments'] is not None:
             new_assignments = update_dict['module_assignments']
             chassis_template = instance.get('equipment_templates', {})
-            raw_slots = chassis_template.get('slots', [])
+            raw_slots = chassis_template.get('slots') or []
             
-            # Map valid Slot IDs from DB
-            slot_map = {str(s['id']): s for s in raw_slots if s.get('id')}
+            # Create sets of valid IDs and Names from Template
+            valid_ids = {str(s['id']) for s in raw_slots if s.get('id')}
+            valid_names = {s['name'] for s in raw_slots if s.get('name')}
             
-            # Validate every assignment matches a real Slot ID
+            # [CRITICAL FIX] Also whitelist keys that ALREADY exist on this instance.
+            # This handles "grandfathered" assignments where the template changed but the instance still uses old IDs.
+            existing_assignments = instance.get('module_assignments') or {}
+            existing_keys = set(existing_assignments.keys())
+            
+            # --- DEBUG LOGS ---
+            print(f"\n--- DEBUG: Update Equipment {instance.get('instance_name')} ---", flush=True)
+            print(f"Template: {chassis_template.get('model_number')} (ID: {chassis_template.get('id')})", flush=True)
+            print(f"Valid Slot IDs in DB: {valid_ids}", flush=True)
+            print(f"Valid Slot Names in DB: {valid_names}", flush=True)
+            print(f"Existing Keys on Instance: {existing_keys}", flush=True)
+            print(f"Incoming Keys from Frontend: {list(new_assignments.keys())}", flush=True)
+            # ------------------
+
+            # Validate every assignment matches a real Slot ID OR Name OR Existing Key
             validated_assignments = {}
-            for slot_id, module_id in new_assignments.items():
-                if slot_id in slot_map: 
-                    validated_assignments[slot_id] = module_id
+            for slot_key, module_id in new_assignments.items():
+                # Allow if the key matches a UUID, a Slot Name, or was ALREADY there
+                if slot_key in valid_ids or slot_key in valid_names or slot_key in existing_keys: 
+                    validated_assignments[slot_key] = module_id
+                else:
+                    print(f"DEBUG: Warning - Dropping invalid assignment key '{slot_key}' for instance {instance_id}", flush=True)
             
             update_dict['module_assignments'] = validated_assignments
 
@@ -2146,7 +2203,7 @@ async def update_equipment_instance(instance_id: uuid.UUID, update_data: RackEqu
         response = supabase.table('rack_equipment_instances').update(update_dict).eq('id', str(instance_id)).execute()
         
         if response.data:
-            # Re-fetch the updated instance to get the full object with nested data, matching the response model.
+            # Re-fetch the updated instance to get the full object with nested data
             final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
             if final_instance_res.data:
                 return final_instance_res.data
@@ -2310,7 +2367,14 @@ async def delete_user_folder(folder_id: uuid.UUID, user = Depends(get_user), sup
 async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Creates a new equipment template in the user's personal library."""
     ports_data = [p.model_dump(mode='json') for p in equipment_data.ports]
-    slots_data = [s.model_dump(mode='json') for s in equipment_data.slots]
+    
+    # [FIX] Explicitly generate IDs for slots if they are missing
+    slots_data = []
+    for s in equipment_data.slots:
+        slot_dict = s.model_dump(mode='json')
+        if not slot_dict.get('id'):
+            slot_dict['id'] = str(uuid.uuid4())
+        slots_data.append(slot_dict)
 
     insert_data = {
         "model_number": equipment_data.model_number,
@@ -2318,13 +2382,11 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
         "ru_height": equipment_data.ru_height,
         "width": equipment_data.width,
         "depth": equipment_data.depth,
-        # ADDED THIS LINE:
         "power_consumption_watts": equipment_data.power_consumption_watts,
         "ports": ports_data,
         "is_default": False,
         "user_id": str(user.id),
         "has_ip_address": equipment_data.has_ip_address,
-        # FIX: Include Module fields so they save correctly
         "is_module": equipment_data.is_module,
         "module_type": equipment_data.module_type,
         "slots": slots_data
@@ -2336,7 +2398,7 @@ async def create_user_equipment(equipment_data: EquipmentTemplateCreate, user = 
     if not response.data:
         raise HTTPException(status_code=500, detail="Failed to create equipment template.")
     return response.data[0]
-    
+
 @router.put("/library/equipment/{equipment_id}", tags=["User Library"], response_model=EquipmentTemplate)
 async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEquipmentTemplateUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Updates an equipment template in the user's personal library."""
@@ -2351,10 +2413,12 @@ async def update_user_equipment(equipment_id: uuid.UUID, equipment_data: UserEqu
 
     if 'slots' in update_dict and update_dict['slots'] is not None:
         for slot in update_dict['slots']:
+            # [FIX] Ensure ID is string, and generate if missing (for newly added slots)
             if 'id' in slot and isinstance(slot['id'], uuid.UUID):
                 slot['id'] = str(slot['id'])
+            elif 'id' not in slot or not slot['id']:
+                slot['id'] = str(uuid.uuid4())
     
-    # Enforce that modules have an RU height of 0
     if update_dict.get('is_module') and update_dict.get('ru_height', 1) != 0:
          raise HTTPException(status_code=400, detail="Modules must have an RU height of 0.")
 

@@ -344,10 +344,10 @@ class PortTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     label: str
     type: str  
-    connector_type: str 
+    connector_type: str
 
 class SlotDefinition(BaseModel):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    id: Optional[uuid.UUID] = None 
     name: str
     accepted_module_type: Optional[str] = None
 
