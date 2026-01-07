@@ -1,10 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from ..email_utils import send_email, create_feedback_email_html
 from ..models import SenderIdentity
-from ..api import get_user
+from ..api import get_user, get_supabase_client
 from supabase import Client
 import os
 from html import escape
@@ -15,12 +13,6 @@ class FeedbackPayload(BaseModel):
     feedback_type: str
     feedback: str
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-
-def get_supabase_client():
-    return Client(SUPABASE_URL, SUPABASE_KEY)
-
 @router.post("/feedback", tags=["Feedback"])
 async def submit_feedback(payload: FeedbackPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """
@@ -28,6 +20,7 @@ async def submit_feedback(payload: FeedbackPayload, user = Depends(get_user), su
     """
     try:
         # Fetch user profile for personalization
+        # Uses .single() because the user must exist and RLS (via get_supabase_client) ensures visibility
         profile_res = supabase.table('profiles').select('first_name, last_name').eq('id', str(user.id)).single().execute()
         
         user_profile_data = {
