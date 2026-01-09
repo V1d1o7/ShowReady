@@ -466,6 +466,15 @@ const PropertiesPanel = ({ selectedElements, onUpdate, onDelete, onAlign }) => {
                         <div><span className={labelClass}>Y (in)</span><input type="number" step="0.01" value={element.y} onChange={e => handleUpdate('y', parseFloat(e.target.value))} className={inputClass} /></div>
                         <div><span className={labelClass}>W (in)</span><input type="number" step="0.01" value={element.width} onChange={e => handleUpdate('width', parseFloat(e.target.value))} className={inputClass} /></div>
                         <div><span className={labelClass}>H (in)</span><input type="number" step="0.01" value={element.height} onChange={e => handleUpdate('height', parseFloat(e.target.value))} className={inputClass} /></div>
+                        <div className="col-span-2 border-t border-gray-700 pt-2 mt-1">
+                            <span className={labelClass}>Rotation (deg)</span>
+                            <input 
+                                type="number" 
+                                value={element.rotation || 0} 
+                                onChange={e => handleUpdate('rotation', parseFloat(e.target.value))} 
+                                className={inputClass} 
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -868,6 +877,7 @@ const LabelTemplateBuilder = () => {
             y: Math.max(0, posY),
             width: w,
             height: h,
+            rotation: 0, // Default rotation
             text_content: itemTemplate.type === 'text' ? 'New Text' : '',
             barcode_type: 'CODE128',
             font_size: 12, font_family: 'Arial', text_color: '#000',
@@ -1013,6 +1023,17 @@ const LabelTemplateBuilder = () => {
             ghostLineDirection = 'up';
         }
     }
+
+    const resizeHandlePointerEvents = {
+        bottom: { pointerEvents: 'auto' },
+        bottomLeft: { pointerEvents: 'auto' },
+        bottomRight: { pointerEvents: 'auto' },
+        left: { pointerEvents: 'auto' },
+        right: { pointerEvents: 'auto' },
+        top: { pointerEvents: 'auto' },
+        topLeft: { pointerEvents: 'auto' },
+        topRight: { pointerEvents: 'auto' }
+    };
 
     return (
         <div className="flex h-full flex-col bg-gray-900 font-sans text-gray-100 overflow-hidden" onContextMenu={e => e.preventDefault()}>
@@ -1215,7 +1236,11 @@ const LabelTemplateBuilder = () => {
                                             dragGrid={snapToGrid ? [gridPx, gridPx] : [1, 1]}
                                             resizeGrid={snapToGrid ? [gridPx, gridPx] : [1, 1]}
                                             className={`absolute group`} // Removed forced z-50/z-10 toggle to allow proper layering visualization
-                                            style={{ pointerEvents, zIndex: index }} // Use array index to enforce stacking order
+                                            style={{ 
+                                                pointerEvents: 'none', // Set wrapper to ignore clicks
+                                                zIndex: index 
+                                            }} 
+                                            resizeHandleStyles={resizeHandlePointerEvents} // Ensure handles are clickable
                                         >
                                             <div 
                                                 className={`
@@ -1224,6 +1249,10 @@ const LabelTemplateBuilder = () => {
                                                     ${showOutline ? 'outline outline-2 outline-blue-500' : ''}
                                                     ${!isSelected && !el.locked ? 'hover:outline hover:outline-1 hover:outline-blue-300' : ''}
                                                 `}
+                                                style={{ 
+                                                    transform: `rotate(${el.rotation || 0}deg)`,
+                                                    pointerEvents: 'auto' // Set content to accept clicks
+                                                }}
                                             >
                                                 {el.locked && <div className="absolute top-0 right-0 p-1 text-red-500 z-10"><Lock size={10}/></div>}
                                                 
@@ -1302,7 +1331,15 @@ const LabelTemplateBuilder = () => {
                                                         )}
                                                         
                                                         {el.type === 'image' && <div className="text-[8px] text-gray-400 border border-dashed border-gray-400 w-full h-full flex items-center justify-center">LOGO</div>}
-                                                        {el.type === 'shape' && <div className="w-full h-full" style={{ border: `${el.stroke_width}px solid ${el.stroke_color || 'black'}` }}/>}
+                                                        {el.type === 'shape' && (
+                                                            <div 
+                                                                className="w-full h-full" 
+                                                                style={{ 
+                                                                    border: `${el.stroke_width}px solid ${el.stroke_color || 'black'}`,
+                                                                    backgroundColor: el.fill_color || 'transparent'
+                                                                }}
+                                                            />
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
