@@ -8,7 +8,7 @@ import ContextualNotesDrawer from '../components/ContextualNotesDrawer';
 import NewUserEquipmentModal from '../components/NewUserEquipmentModal';
 import RackLibraryModal from '../components/RackLibraryModal';
 import NamePromptModal from '../components/NamePromptModal';
-import RackComponent from '../components/RackComponent';
+import RackComponent from '../components/RackComponent.js';
 import RackSideView from '../components/RackSideView';
 import RackExportModal from '../components/RackExportModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
@@ -489,7 +489,7 @@ const RackBuilderView = () => {
             
             const payload = { template_id: draggedItem.item.id, ru_position: ru, rack_side: finalSide };
             api.addEquipmentToRack(activeRack.id, payload)
-               .then(newlyAddedItem => {
+                .then(newlyAddedItem => {
                     const finalNewItem = { ...newlyAddedItem };
                     if (finalNewItem.equipment_templates) {
                         if (!finalNewItem.equipment_templates.width && itemTemplate.width) {
