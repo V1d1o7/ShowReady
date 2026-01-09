@@ -350,6 +350,10 @@ class SlotDefinition(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4) 
     name: str
     accepted_module_type: Optional[str] = None
+    x_pos: Optional[float] = None # Relative % position X
+    y_pos: Optional[float] = None # Relative % position Y
+    width: Optional[float] = None
+    height: Optional[float] = None
 
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -365,9 +369,15 @@ class EquipmentTemplate(BaseModel):
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
     has_ip_address: bool = False
+    
+    # Module & Connector Logic
     is_module: bool = False
     is_adapter: bool = False
+    is_connector: bool = False # NEW: Differentiates a panel mount connector
     module_type: Optional[str] = None
+    slot_type: Optional[str] = None # NEW: e.g. "D-Series", "UCP-Bay"
+    width_bays: Optional[float] = None # NEW: For modules that take multiple slots
+    
     slots: List[SlotDefinition] = Field(default_factory=list)
 
 class EquipmentTemplateCreate(BaseModel):
@@ -380,9 +390,14 @@ class EquipmentTemplateCreate(BaseModel):
     ports: List[PortTemplate] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: bool = False
+    
     is_module: bool = False
     is_adapter: bool = False
+    is_connector: bool = False
     module_type: Optional[str] = None
+    slot_type: Optional[str] = None
+    width_bays: Optional[float] = None
+    
     slots: List[SlotDefinition] = Field(default_factory=list)
 
 class ModuleAssignment(BaseModel):
@@ -403,7 +418,11 @@ class RackEquipmentInstance(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
-    # Ensure this matches the recursive definition
+    
+    # Panel Builder Fields
+    parent_item_id: Optional[uuid.UUID] = None # Link to the Frame/Panel this sits in
+    parent_slot_id: Optional[str] = None # The specific Hole/Bay ID
+    
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class RackEquipmentInstanceCreate(BaseModel):
@@ -411,7 +430,10 @@ class RackEquipmentInstanceCreate(BaseModel):
     ru_position: int
     instance_name: Optional[str] = None
     rack_side: Optional[str] = None
-    # Ensure this matches the recursive definition
+    
+    parent_item_id: Optional[uuid.UUID] = None
+    parent_slot_id: Optional[str] = None
+    
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class EquipmentInstanceCreate(BaseModel):
@@ -430,7 +452,10 @@ class RackEquipmentInstanceUpdate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
-    # FIX: Keys MUST be strings
+    
+    parent_item_id: Optional[uuid.UUID] = None
+    parent_slot_id: Optional[str] = None
+    
     module_assignments: Optional[Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]]] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
@@ -444,10 +469,16 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = 1
-    # FIX: Keys MUST be strings
+    
+    parent_item_id: Optional[uuid.UUID] = None
+    parent_slot_id: Optional[str] = None
+    
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
     equipment_templates: Optional[EquipmentTemplate] = None
     has_notes: Optional[bool] = False
+    
+    # Children for the panel view (populated at runtime if needed, usually fetched separately)
+    children: List['RackEquipmentInstanceWithTemplate'] = Field(default_factory=list) 
 
 class Rack(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -535,7 +566,10 @@ class EquipmentTemplateUpdate(BaseModel):
     has_ip_address: Optional[bool] = None
     is_module: Optional[bool] = None
     is_adapter: Optional[bool] = None
+    is_connector: Optional[bool] = None
     module_type: Optional[str] = None
+    slot_type: Optional[str] = None
+    width_bays: Optional[float] = None
     slots: Optional[List[SlotDefinition]] = None
     
 class UserEquipmentTemplateUpdate(BaseModel):
@@ -548,6 +582,7 @@ class UserEquipmentTemplateUpdate(BaseModel):
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: Optional[bool] = None
     is_module: Optional[bool] = None
+    is_connector: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
 

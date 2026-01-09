@@ -1,689 +1,926 @@
 import { createClient } from '@supabase/supabase-js';
 
+// Access environment variables
 const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
 const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-    console.error("Supabase URL or Anon Key is missing. Please check your .env file.");
-}
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const getAuthHeader = async (isFormData = false) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const headers = {};
-    if (session) {
-        headers['Authorization'] = `Bearer ${session.access_token}`;
-    }
-    if (!isFormData) {
-        headers['Content-Type'] = 'application/json';
-    }
-    return headers;
-};
-
-const handleResponse = async (res) => {
-    if (!res.ok) {
-        const errorText = await res.text();
-        let errorMessage;
-        
-        try {
-            // Try to parse the error as JSON to get the "detail" field
-            const errorJson = JSON.parse(errorText);
-            errorMessage = errorJson.detail || 'An unknown error occurred';
-        } catch (e) {
-            // If parsing fails, fallback to the raw text or status
-            errorMessage = errorText || res.statusText;
-        }
-        
-        throw new Error(errorMessage);
-    }
-    
-    // For DELETE requests with no content
-    if (res.status === 204) {
-        return;
-    }
-    if (res.headers.get('Content-Type')?.includes('application/json')) {
-        return res.json();
-    }
-    if (res.headers.get('Content-Type')?.includes('application/pdf') || res.headers.get('Content-Type')?.includes('text/plain')) {
-        return res.blob();
-    }
-    return res;
-};
-
 export const api = {
+    // --- Authentication ---
+    signUp: async (data) => {
+        const { email, password, options } = data;
+        const { data: result, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options
+        });
+        if (error) throw error;
+        return result;
+    },
+
+    signIn: async (data) => {
+        const { email, password } = data;
+        const { data: result, error } = await supabase.auth.signInWithPassword({
+            email,
+            password
+        });
+        if (error) throw error;
+        return result;
+    },
+
+    signOut: async () => {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+    },
+
+    getUser: async () => {
+        const { data: { user }, error } = await supabase.auth.getUser();
+        if (error) throw error;
+        return user;
+    },
+
+    getProfile: async (userId) => {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateProfile: async (userId, updates) => {
+        const { data, error } = await supabase
+            .from('profiles')
+            .update(updates)
+            .eq('id', userId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    // --- User Settings ---
+    getUserSettings: async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Not authenticated");
+
+        // Fetch multiple settings in parallel if needed, for now just SMTP
+        const { data: smtp, error: smtpError } = await supabase
+            .from('user_smtp_settings')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+        
+        // It's okay if SMTP settings don't exist yet
+        if (smtpError && smtpError.code !== 'PGRST116') { 
+            throw smtpError;
+        }
+
+        return {
+            smtp: smtp || null
+        };
+    },
+
+    saveSmtpSettings: async (settings) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // Check if exists
+        const { data: existing } = await supabase
+            .from('user_smtp_settings')
+            .select('id')
+            .eq('user_id', user.id)
+            .single();
+
+        let result;
+        if (existing) {
+            const { data, error } = await supabase
+                .from('user_smtp_settings')
+                .update(settings)
+                .eq('user_id', user.id)
+                .select()
+                .single();
+            if (error) throw error;
+            result = data;
+        } else {
+            const { data, error } = await supabase
+                .from('user_smtp_settings')
+                .insert([{ ...settings, user_id: user.id }])
+                .select()
+                .single();
+            if (error) throw error;
+            result = data;
+        }
+        return result;
+    },
+
+    deleteSmtpSettings: async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { error } = await supabase
+            .from('user_smtp_settings')
+            .delete()
+            .eq('user_id', user.id);
+        if (error) throw error;
+    },
+
+    // --- Library ---
+    getLibrary: async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Not authenticated");
+
+        const { data: folders, error: foldersError } = await supabase
+            .from('folders')
+            .select('*')
+            .or(`is_default.eq.true,user_id.eq.${user.id}`);
+        
+        if (foldersError) throw foldersError;
+
+        const { data: equipment, error: equipmentError } = await supabase
+            .from('equipment_templates')
+            .select('*')
+            .or(`is_default.eq.true,user_id.eq.${user.id}`);
+
+        if (equipmentError) throw equipmentError;
+
+        return { folders, equipment };
+    },
+
+    createFolder: async (folderData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('folders')
+            .insert([{ ...folderData, user_id: user.id }])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateFolder: async (folderId, updates) => {
+        const { data, error } = await supabase
+            .from('folders')
+            .update(updates)
+            .eq('id', folderId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteFolder: async (folderId) => {
+        const { error } = await supabase
+            .from('folders')
+            .delete()
+            .eq('id', folderId);
+        if (error) throw error;
+    },
+
+    createUserEquipment: async (equipmentData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('equipment_templates')
+            .insert([{ ...equipmentData, user_id: user.id }])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateUserEquipment: async (equipmentId, updates) => {
+        const { data, error } = await supabase
+            .from('equipment_templates')
+            .update(updates)
+            .eq('id', equipmentId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteUserEquipment: async (equipmentId) => {
+        const { error } = await supabase
+            .from('equipment_templates')
+            .delete()
+            .eq('id', equipmentId);
+        if (error) throw error;
+    },
+
+    copyEquipmentToLibrary: async ({ template_id, folder_id }) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        // 1. Fetch original
+        const { data: original, error: fetchError } = await supabase
+            .from('equipment_templates')
+            .select('*')
+            .eq('id', template_id)
+            .single();
+        
+        if (fetchError) throw fetchError;
+
+        // 2. Prepare copy (remove ID, system fields)
+        const { id, created_at, is_default, user_id, ...rest } = original;
+        const newTemplate = {
+            ...rest,
+            user_id: user.id,
+            folder_id: folder_id || null,
+            model_number: `${original.model_number} (Copy)`,
+            is_default: false
+        };
+
+        // 3. Insert
+        const { data, error } = await supabase
+            .from('equipment_templates')
+            .insert([newTemplate])
+            .select()
+            .single();
+            
+        if (error) throw error;
+        return data;
+    },
+
     // --- Shows ---
-    getShows: async () => fetch('/api/shows', { headers: await getAuthHeader() }).then(handleResponse),
-    getShow: async (showId) => fetch(`/api/shows/${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    getShowByName: async (showName) => fetch(`/api/shows/by-name/${showName}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    saveShow: async (showId, data) => fetch(`/api/shows/${showId}`, {
-        method: 'PUT',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(data),
-    }).then(handleResponse),
-    
-    createShow: async (data) => fetch('/api/shows', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(data),
-    }).then(handleResponse),
-    
-    deleteShow: async (showId) => fetch(`/api/shows/${showId}`, { 
-        method: 'DELETE', 
-        headers: await getAuthHeader() 
-    }).then(res => { if (!res.ok) throw new Error("Delete failed") }),
-    
-    // --- Collaboration ---
-    getCollaborators: async (showId) => fetch(`/api/shows/${showId}/collaborators`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    inviteCollaborator: async (showId, email, role) => fetch(`/api/shows/${showId}/collaborators`, {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify({ email, role }),
-    }).then(handleResponse),
-    
-    updateCollaboratorRole: async (showId, userId, role) => fetch(`/api/shows/${showId}/collaborators/${userId}`, {
-        method: 'PUT',
-        headers: await getAuthHeader(),
-        body: JSON.stringify({ role }),
-    }).then(handleResponse),
-    
-    removeCollaborator: async (showId, userId) => fetch(`/api/shows/${showId}/collaborators/${userId}`, {
-        method: 'DELETE',
-        headers: await getAuthHeader(),
-    }).then(handleResponse),
+    getShows: async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        // Fetch shows where user is owner OR a collaborator
+        // We use the show_collaborators table for this logic
+        // This query gets shows where I am a collaborator
+        
+        // Step 1: Get IDs of shows I collaborate on
+        const { data: collaborations, error: collabError } = await supabase
+            .from('show_collaborators')
+            .select('show_id, role')
+            .eq('user_id', user.id);
+            
+        if (collabError) throw collabError;
+        
+        const showIds = collaborations.map(c => c.show_id);
+        
+        if (showIds.length === 0) return [];
 
-    // --- Assets & Feedback ---
-    uploadLogo: async (formData) => fetch('/api/upload/logo', {
-        method: 'POST',
-        headers: await getAuthHeader(true),
-        body: formData,
-    }).then(handleResponse),
-    
-    generatePdf: async (type, body) => fetch(`/api/pdf/${type}-labels`, {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(body),
-    }).then(handleResponse),
-    
-    generateHoursPdf: async (body) => fetch('/api/pdf/hours-labels', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(body),
-    }).then(handleResponse),
-    
-    submitFeedback: async (data) => fetch('/api/feedback', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(data),
-    }).then(handleResponse),
-    
-    // --- User & Profile ---
-    getProfile: async () => fetch('/api/profile', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    updateProfile: async (profileData) => fetch('/api/profile', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(profileData),
-    }).then(handleResponse),
-    
-    getSsoConfig: async () => fetch('/api/sso_config', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    updateSsoConfig: async (ssoData) => fetch('/api/sso_config', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(ssoData),
-    }).then(handleResponse),
-    
-    deleteAccount: async () => fetch('/api/profile', { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    checkStatus: async (email) => fetch('/api/check-status', {
-        method: 'POST',
-        headers: await getAuthHeader(),
-        body: JSON.stringify({ email }),
-    }).then(handleResponse),
-    
-    // --- Racks & Equipment ---
-    createRack: async (rackData) => fetch('/api/racks', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(rackData) 
-    }).then(handleResponse),
-    
-    getRacksForShow: async (showId) => fetch(`/api/shows/${showId}/racks`, { headers: await getAuthHeader() }).then(handleResponse),
-    getDetailedRacksForShow: async (showId) => fetch(`/api/shows/${showId}/detailed_racks`, { headers: await getAuthHeader() }).then(handleResponse),
-    getRackDetails: async (rackId) => fetch(`/api/racks/${rackId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    updateRack: async (rackId, rackData) => fetch(`/api/racks/${rackId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(rackData) 
-    }).then(handleResponse),
-    
-    deleteRack: async (rackId) => fetch(`/api/racks/${rackId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    addEquipmentToRack: async (rackId, equipmentData) => fetch(`/api/racks/${rackId}/equipment`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
-    getLibrary: async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    moveEquipmentInRack: async (instanceId, newPositionData) => fetch(`/api/racks/equipment/${instanceId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(newPositionData) 
-    }).then(handleResponse),
-    
-    deleteEquipmentFromRack: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    getEquipmentInstance: async (instanceId) => fetch(`/api/racks/equipment/${instanceId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createEquipmentInstance: async (instanceData) => fetch('/api/equipment_instances', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(instanceData) 
-    }).then(handleResponse),
-    
-    updateEquipmentInstance: async (instanceId, updateData) => fetch(`/api/racks/equipment/${instanceId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(updateData) 
-    }).then(handleResponse),
-    
-    getLibraryRacks: async () => fetch(`/api/racks?from_library=true`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    copyRackFromLibrary: async (rackId, showId, newRackName) => fetch('/api/racks/load_from_library', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ template_rack_id: rackId, show_id: showId, new_rack_name: newRackName }) 
-    }).then(handleResponse),
-    
-    getUnassignedEquipment: async (showId) => fetch(`/api/shows/${showId}/unassigned_equipment`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    generateRacksPdf: async (payload) => fetch('/api/pdf/racks', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(payload) 
-    }).then(handleResponse),
-    
-    exportRacksListPdf: async (showId) => fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
+        // Step 2: Fetch the shows
+        const { data: shows, error: showsError } = await supabase
+            .from('shows')
+            .select('*')
+            .in('id', showIds)
+            .order('created_at', { ascending: false });
 
-    // --- Admin Library ---
-    getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createAdminFolder: async (folderData) => fetch('/api/admin/folders', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    updateAdminFolder: async (folderId, folderData) => fetch(`/api/admin/folders/${folderId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    deleteAdminFolder: async (folderId) => fetch(`/api/admin/folders/${folderId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    createAdminEquipment: async (equipmentData) => fetch('/api/admin/equipment', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    updateAdminEquipment: async (equipmentId, equipmentData) => fetch(`/api/admin/equipment/${equipmentId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, { method: 'DELETE', headers: await getAuthHeader() }),
+        if (showsError) throw showsError;
+        return shows;
+    },
 
-    // --- User Library ---
-    createUserFolder: async (folderData) => fetch('/api/library/folders', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    updateUserFolder: async (folderId, folderData) => fetch(`/api/library/folders/${folderId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    deleteUserFolder: async (folderId) => fetch(`/api/library/folders/${folderId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    createUserEquipment: async (equipmentData) => fetch('/api/library/equipment', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    updateUserEquipment: async (equipmentId, equipmentData) => fetch(`/api/library/equipment/${equipmentId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    deleteUserEquipment: async (equipmentId) => fetch(`/api/library/equipment/${equipmentId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    copyEquipmentToLibrary: async (copyData) => fetch('/api/library/copy_equipment', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(copyData) 
-    }).then(handleResponse),
+    createShow: async (showData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('shows')
+            .insert([{ ...showData, user_id: user.id }])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
 
-    // --- Admin Switch Config ---
-    getSwitchModels: async () => fetch('/api/v1/admin/switch_models', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createSwitchModel: async (modelData) => fetch('/api/v1/admin/switch_models', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(modelData) 
-    }).then(handleResponse),
-    
-    updateSwitchModel: async (modelId, modelData) => fetch(`/api/v1/admin/switch_models/${modelId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(modelData) 
-    }).then(handleResponse),
-    
-    deleteSwitchModel: async (modelId) => fetch(`/api/v1/admin/switch_models/${modelId}`, { 
-        method: 'DELETE', 
-        headers: await getAuthHeader(), 
-    }),
-    
-    linkEquipmentToModel: async (equipmentId, modelId) => fetch(`/api/v1/admin/equipment/${equipmentId}/link_model`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ switch_model_id: modelId }), 
-    }).then(handleResponse),
+    updateShow: async (showId, updates) => {
+        const { data, error } = await supabase
+            .from('shows')
+            .update(updates)
+            .eq('id', showId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
 
-    // --- User Switch Config ---
-    getConfigurableSwitches: async (showId) => fetch(`/api/v1/switches?show_id=${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createSwitchConfig: async (rackItemId) => fetch('/api/v1/switches', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ rack_item_id: rackItemId }), 
-    }).then(handleResponse),
-    
-    getSwitchDetails: async (switchId) => fetch(`/api/v1/switches/${switchId}/details`, { headers: await getAuthHeader() }).then(handleResponse),
-    getSwitchConfig: async (switchId) => fetch(`/api/v1/switches/${switchId}/config`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    saveSwitchPortConfig: async (switchId, portConfigData) => fetch(`/api/v1/switches/${switchId}/config`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(portConfigData), 
-    }).then(handleResponse),
-    
-    pushSwitchConfig: async (switchId, pushData) => fetch(`/api/v1/switches/${switchId}/push_config`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(pushData), 
-    }).then(handleResponse),
-    
-    getPushJobStatus: async (jobId) => fetch(`/api/v1/switches/push_jobs/${jobId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    // --- Agent API Keys ---
-    generateAgentApiKey: async (name) => fetch('/api/v1/agent/api-keys', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ name }), 
-    }).then(handleResponse),
-    
-    // --- Wire Diagram & Connections ---
-    getConnectionsForShow: async (showId) => fetch(`/api/shows/${showId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
-    getConnectionsForDevice: async (instanceId) => fetch(`/api/equipment/${instanceId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createConnection: async (connectionData) => fetch('/api/connections', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(connectionData), 
-    }).then(handleResponse),
-    
-    updateConnection: async (connectionId, updateData) => fetch(`/api/connections/${connectionId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(updateData), 
-    }).then(handleResponse),
-    
-    deleteConnection: async (connectionId) => fetch(`/api/connections/${connectionId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    exportWirePdf: async (graphData, showId, titleBlockData) => fetch(`/api/export/wire.pdf?show_id=${encodeURIComponent(showId)}`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({graph: graphData, title_block: titleBlockData}), 
-    }).then(handleResponse),
+    deleteShow: async (showId) => {
+        const { error } = await supabase
+            .from('shows')
+            .delete()
+            .eq('id', showId);
+        if (error) throw error;
+    },
 
-    // --- Loom Builder ---
-    getLoomsForShow: async (showId) => fetch(`/api/shows/${showId}/looms`, { headers: await getAuthHeader() }).then(handleResponse),
+    getShowDetails: async (showId) => {
+        const { data, error } = await supabase
+            .from('shows')
+            .select('*')
+            .eq('id', showId)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    // --- Racks ---
+    getRacksForShow: async (showId) => {
+        const { data, error } = await supabase
+            .from('racks')
+            .select('*')
+            .eq('show_id', showId)
+            .order('created_at', { ascending: true });
+            
+        if (error) throw error;
+        return data;
+    },
+
+    getRackDetails: async (rackId) => {
+        const { data: rack, error: rackError } = await supabase
+            .from('racks')
+            .select('*')
+            .eq('id', rackId)
+            .single();
+        
+        if (rackError) throw rackError;
+
+        const { data: equipment, error: equipError } = await supabase
+            .from('rack_equipment_instances')
+            .select(`
+                *,
+                equipment_templates (*)
+            `)
+            .eq('rack_id', rackId);
+
+        if (equipError) throw equipError;
+
+        return { ...rack, equipment };
+    },
+
+    getDetailedRacksForShow: async (showId) => {
+        // This fetches all racks and their equipment in one go
+        // Supabase join syntax: equipment:rack_equipment_instances(...)
+        const { data: racks, error: racksError } = await supabase
+            .from('racks')
+            .select(`
+                *,
+                equipment:rack_equipment_instances (
+                    *,
+                    equipment_templates (*)
+                )
+            `)
+            .eq('show_id', showId)
+            .order('created_at', { ascending: true });
+
+        if (racksError) throw racksError;
+        return racks;
+    },
+
+    createRack: async (rackData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('racks')
+            .insert([{ ...rackData, user_id: user.id }])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateRack: async (rackId, updates) => {
+        const { data, error } = await supabase
+            .from('racks')
+            .update(updates)
+            .eq('id', rackId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteRack: async (rackId) => {
+        const { error } = await supabase
+            .from('racks')
+            .delete()
+            .eq('id', rackId);
+        if (error) throw error;
+    },
+
+    copyRackFromLibrary: async (templateRackId, showId, newName) => {
+        const { data: { user } } = await supabase.auth.getUser();
+
+        // 1. Fetch the source rack
+        const { data: sourceRack, error: fetchError } = await supabase
+            .from('racks')
+            .select('*')
+            .eq('id', templateRackId)
+            .single();
+        
+        if (fetchError) throw fetchError;
+
+        // 2. Create new rack
+        const { data: newRack, error: createError } = await supabase
+            .from('racks')
+            .insert([{
+                rack_name: newName || `${sourceRack.rack_name} (Copy)`,
+                ru_height: sourceRack.ru_height,
+                show_id: showId,
+                user_id: user.id,
+                saved_to_library: false
+            }])
+            .select()
+            .single();
+
+        if (createError) throw createError;
+
+        // 3. Fetch source equipment
+        const { data: sourceEquip } = await supabase
+            .from('rack_equipment_instances')
+            .select('*')
+            .eq('rack_id', templateRackId);
+
+        if (sourceEquip && sourceEquip.length > 0) {
+            // 4. Duplicate equipment
+            const newEquip = sourceEquip.map(item => ({
+                rack_id: newRack.id,
+                template_id: item.template_id,
+                ru_position: item.ru_position,
+                rack_side: item.rack_side,
+                instance_name: item.instance_name,
+                ip_address: item.ip_address,
+                module_assignments: item.module_assignments
+            }));
+
+            const { error: copyEquipError } = await supabase
+                .from('rack_equipment_instances')
+                .insert(newEquip);
+            
+            if (copyEquipError) throw copyEquipError;
+        }
+
+        // Return full details
+        return await api.getRackDetails(newRack.id);
+    },
+
+    // --- Equipment Instances ---
+    addEquipmentToRack: async (rackId, payload) => {
+        // Supports parent_item_id and parent_slot_id for Panel Builder
+        const { template_id, ru_position, rack_side, instance_name, parent_item_id, parent_slot_id } = payload;
+        
+        let finalInstanceName = instance_name;
+        if (!finalInstanceName) {
+             const { data: template } = await supabase
+                .from('equipment_templates')
+                .select('model_number')
+                .eq('id', template_id)
+                .single();
+             finalInstanceName = template ? template.model_number : 'Equipment';
+        }
+
+        const { data, error } = await supabase
+            .from('rack_equipment_instances')
+            .insert([{
+                rack_id: rackId,
+                template_id,
+                ru_position: ru_position || 0, // Default to 0 for children (panel components)
+                rack_side: rack_side || 'front',
+                instance_name: finalInstanceName,
+                parent_item_id: parent_item_id || null, 
+                parent_slot_id: parent_slot_id || null
+            }])
+            .select(`
+                *,
+                equipment_templates (*)
+            `)
+            .single();
+            
+        if (error) throw error;
+        return data;
+    },
+
+    updateEquipmentInstance: async (instanceId, updates) => {
+        const { data, error } = await supabase
+            .from('rack_equipment_instances')
+            .update(updates)
+            .eq('id', instanceId)
+            .select(`
+                *,
+                equipment_templates (*)
+            `)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteEquipmentFromRack: async (instanceId) => {
+        const { error } = await supabase
+            .from('rack_equipment_instances')
+            .delete()
+            .eq('id', instanceId);
+        if (error) throw error;
+    },
+
+    // --- Panel Builder Specific ---
     
-    createLoom: async (loomData) => fetch('/api/looms', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(loomData), 
-    }).then(handleResponse),
-    
-    updateLoom: async (loomId, loomData) => fetch(`/api/looms/${loomId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(loomData), 
-    }).then(handleResponse),
-    
-    deleteLoom: async (loomId) => fetch(`/api/looms/${loomId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
-    
-    copyLoom: async (loomId, newName) => fetch(`/api/looms/${loomId}/copy`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ new_name: newName }), 
-    }).then(handleResponse),
-    
-    getCablesForLoom: async (loomId) => fetch(`/api/looms/${loomId}/cables`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createCable: async (cableData) => fetch('/api/cables', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(cableData), 
-    }).then(handleResponse),
-    
-    updateCable: async (cableId, cableData) => fetch(`/api/cables/${cableId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(cableData), 
-    }).then(handleResponse),
-    
-    deleteCable: async (cableId) => fetch(`/api/cables/${cableId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
-    
-    bulkUpdateCables: async (updateData) => fetch('/api/cables/bulk-update', { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(updateData), 
-    }).then(handleResponse),
+    getEquipmentChildren: async (parentItemId) => {
+        // Fetches all items that are plugged into a specific panel/frame
+        const { data, error } = await supabase
+            .from('rack_equipment_instances')
+            .select(`
+                *,
+                equipment_templates (*)
+            `)
+            .eq('parent_item_id', parentItemId);
+            
+        if (error) throw error;
+        return data;
+    },
+
+    // --- Roster ---
+    getRoster: async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('roster')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('first_name', { ascending: true });
+        if (error) throw error;
+        return data;
+    },
+
+    createRosterMember: async (memberData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('roster')
+            .insert([{ ...memberData, user_id: user.id }])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateRosterMember: async (memberId, updates) => {
+        const { data, error } = await supabase
+            .from('roster')
+            .update(updates)
+            .eq('id', memberId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteRosterMember: async (memberId) => {
+        const { error } = await supabase
+            .from('roster')
+            .delete()
+            .eq('id', memberId);
+        if (error) throw error;
+    },
+
+    // --- Show Crew ---
+    getShowCrew: async (showId) => {
+        const { data, error } = await supabase
+            .from('show_crew')
+            .select(`
+                *,
+                roster:roster_id (*)
+            `)
+            .eq('show_id', showId);
+        if (error) throw error;
+        return data;
+    },
+
+    addCrewToShow: async (crewData) => {
+        const { data, error } = await supabase
+            .from('show_crew')
+            .insert([crewData])
+            .select(`
+                *,
+                roster:roster_id (*)
+            `)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateShowCrewMember: async (crewId, updates) => {
+        const { data, error } = await supabase
+            .from('show_crew')
+            .update(updates)
+            .eq('id', crewId)
+            .select(`
+                *,
+                roster:roster_id (*)
+            `)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    removeCrewFromShow: async (crewId) => {
+        const { error } = await supabase
+            .from('show_crew')
+            .delete()
+            .eq('id', crewId);
+        if (error) throw error;
+    },
+
+    // --- Hours Tracking ---
+    getTimesheetEntries: async (showId) => {
+        // Fetch all crew for the show first
+        const { data: crew, error: crewError } = await supabase
+            .from('show_crew')
+            .select('id')
+            .eq('show_id', showId);
+        
+        if (crewError) throw crewError;
+        
+        const crewIds = crew.map(c => c.id);
+        if (crewIds.length === 0) return [];
+
+        const { data, error } = await supabase
+            .from('timesheet_entries')
+            .select('*')
+            .in('show_crew_id', crewIds);
+            
+        if (error) throw error;
+        return data;
+    },
+
+    saveTimesheetEntries: async (entries) => {
+        const { data, error } = await supabase
+            .from('timesheet_entries')
+            .upsert(entries, { onConflict: 'show_crew_id,date' })
+            .select();
+        if (error) throw error;
+        return data;
+    },
 
     // --- VLANs ---
-    getVlans: async (showId) => fetch(`/api/vlans/${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createVlan: async (showId, vlanData) => fetch(`/api/vlans/${showId}`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(vlanData), 
-    }).then(handleResponse),
-    
-    updateVlan: async (vlanId, vlanData) => fetch(`/api/vlans/${vlanId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(vlanData), 
-    }).then(handleResponse),
-    
-    deleteVlan: async (vlanId) => fetch(`/api/vlans/${vlanId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
-    
-    generateVlanScript: async (showId, payload) => fetch(`/api/vlans/${showId}/generate-script`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(payload), 
-    }).then(handleResponse),
-
-    // --- Admin Metrics ---
-    getMetrics: async () => fetch('/api/admin/metrics', { headers: await getAuthHeader() }).then(handleResponse),
-    getOverallActivityStatus: async () => fetch('/api/admin/activity/status', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    // --- Admin User Management ---
-    getAllUsers: async (searchTerm) => {
-        const url = searchTerm ? `/api/admin/users?search=${encodeURIComponent(searchTerm)}` : '/api/admin/users';
-        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
+    getVlans: async (showId) => {
+        const { data, error } = await supabase
+            .from('vlans')
+            .select('*')
+            .eq('show_id', showId)
+            .order('tag', { ascending: true });
+        if (error) throw error;
+        return data;
     },
-    
-    updateUserTier: async (userId, tier) => fetch(`/api/admin/users/${userId}/tier`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ tier }), 
-    }).then(handleResponse),
-    
-    updateUserEntitlement: async (userId, isFounding, isBeta) => fetch(`/api/admin/users/${userId}/entitlement`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ is_founding: isFounding, is_beta: isBeta }), 
-    }).then(handleResponse),
-    
-    deactivateUser: async (userId) => fetch(`/api/admin/users/${userId}/deactivate`, { method: 'POST', headers: await getAuthHeader(), }).then(handleResponse),
-    reactivateUser: async (userId) => fetch(`/api/admin/users/${userId}/reactivate`, { method: 'POST', headers: await getAuthHeader(), }).then(handleResponse),
-    
-    startImpersonation: async (userId) => fetch('/api/admin/impersonate', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ user_id: userId }), 
-    }).then(handleResponse),
-    
-    stopImpersonation: async () => fetch('/api/admin/impersonate/stop', { method: 'POST', headers: await getAuthHeader(), }).then(handleResponse),
-    
-    // --- Admin Tier Limits ---
-    getDetailedTiers: async () => fetch('/api/admin/tiers/detailed', { headers: await getAuthHeader() }).then(handleResponse),
-    updateTierLimits: async (tierName, limits) => fetch(`/api/admin/tiers/${tierName}/limits`, {
-        method: 'PUT',
-        headers: await getAuthHeader(),
-        body: JSON.stringify(limits),
-    }).then(handleResponse),
 
-    // --- Admin Email ---
-    getAdminTiers: async () => fetch('/api/admin/tiers', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    adminSendEmail: async (payload) => fetch('/api/admin/send-email', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(payload), 
-    }).then(handleResponse),
-    
-    sendNewUserListEmail: async (payload) => fetch('/api/admin/send-new-user-list-email', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(payload), 
-    }).then(handleResponse),
+    createVlan: async (vlanData) => {
+        const { data, error } = await supabase
+            .from('vlans')
+            .insert([vlanData])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
 
-    // --- Sender Identity ---
-    getSenderIdentities: async () => fetch('/api/admin/senders', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createSenderIdentity: async (data) => fetch('/api/admin/senders', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(data), 
-    }).then(handleResponse),
-    
-    deleteSenderIdentity: async (id) => fetch(`/api/admin/senders/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+    updateVlan: async (vlanId, updates) => {
+        const { data, error } = await supabase
+            .from('vlans')
+            .update(updates)
+            .eq('id', vlanId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteVlan: async (vlanId) => {
+        const { error } = await supabase
+            .from('vlans')
+            .delete()
+            .eq('id', vlanId);
+        if (error) throw error;
+    },
+
+    // --- PDF Generation (Proxy to Backend) ---
+    generateRacksPdf: async (payload) => {
+        const response = await fetch('/api/pdf/racks', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to generate PDF');
+        }
+        
+        return await response.blob();
+    },
+
+    // --- Switch Configuration ---
+    getSwitchModels: async () => {
+        const { data, error } = await supabase
+            .from('switch_models')
+            .select('*')
+            .order('manufacturer', { ascending: true });
+        if (error) throw error;
+        return data;
+    },
+
+    createSwitchModel: async (modelData) => {
+        const { data, error } = await supabase
+            .from('switch_models')
+            .insert([modelData])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateSwitchModel: async (modelId, updates) => {
+        const { data, error } = await supabase
+            .from('switch_models')
+            .update(updates)
+            .eq('id', modelId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteSwitchModel: async (modelId) => {
+        const { error } = await supabase
+            .from('switch_models')
+            .delete()
+            .eq('id', modelId);
+        if (error) throw error;
+    },
+
+    // Fetch switches in a show that have a switch_model_id (are configurable)
+    getConfigurableSwitches: async (showId) => {
+        // Use RPC or complex query. For now, simple join logic or RPC
+        const { data, error } = await supabase
+            .rpc('get_configurable_switches_for_show', { p_show_id: showId });
+        
+        if (error) throw error;
+        return data; // Returns grouped by rack
+    },
+
+    getSwitchConfig: async (rackItemId) => {
+        const { data, error } = await supabase
+            .from('switch_configs')
+            .select('*')
+            .eq('rack_item_id', rackItemId)
+            .single();
+        
+        // Return null if not found (406/PGRST116)
+        if (error && error.code !== 'PGRST116') throw error;
+        return data;
+    },
+
+    saveSwitchConfig: async (rackItemId, showId, configData) => {
+        const { data, error } = await supabase
+            .from('switch_configs')
+            .upsert({ 
+                rack_item_id: rackItemId, 
+                show_id: showId, 
+                ...configData 
+            }, { onConflict: 'rack_item_id' })
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    // --- Notes ---
+    getNotes: async (entityType, entityId) => {
+        const { data, error } = await supabase
+            .from('notes')
+            .select(`
+                *,
+                user:user_id (first_name, last_name)
+            `)
+            .eq('parent_entity_type', entityType)
+            .eq('parent_entity_id', entityId)
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data;
+    },
+
+    createNote: async (noteData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('notes')
+            .insert([{ ...noteData, user_id: user.id }])
+            .select(`
+                *,
+                user:user_id (first_name, last_name)
+            `)
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    resolveNote: async (noteId, isResolved) => {
+        const { data, error } = await supabase
+            .from('notes')
+            .update({ is_resolved: isResolved })
+            .eq('id', noteId)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
 
     // --- Email Templates ---
     getEmailTemplates: async (category) => {
-        const url = category ? `/api/communications/templates?category=${encodeURIComponent(category)}` : '/api/communications/templates';
-        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
-    },
-    
-    createEmailTemplate: async (data) => fetch('/api/communications/templates', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(data), 
-    }).then(handleResponse),
-    
-    updateEmailTemplate: async (id, data) => fetch(`/api/communications/templates/${id}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(data), 
-    }).then(handleResponse),
-    
-    deleteEmailTemplate: async (id) => fetch(`/api/communications/templates/${id}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    restoreDefaultEmailTemplates: async () => fetch('/api/communications/templates/restore', { method: 'POST', headers: await getAuthHeader() }).then(handleResponse),
-    
-    sendCommunication: async (payload) => fetch('/api/communications/send', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(payload), 
-    }).then(handleResponse),
-
-    // --- Admin RBAC ---
-    getAllFeatureRestrictions: async () => fetch('/api/admin/feature_restrictions', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    updateFeatureRestriction: async (featureName, restrictionData) => fetch(`/api/admin/feature_restrictions/${featureName}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(restrictionData), 
-    }).then(handleResponse),
-
-    // --- Permissions Versioning ---
-    getPermissionsVersion: async () => fetch('/api/permissions/version', { headers: await getAuthHeader() }).then(handleResponse),
-
-    // --- Roster ---
-    getRoster: async () => fetch('/api/roster', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createRosterMember: async (rosterData) => fetch('/api/roster', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(rosterData), 
-    }).then(handleResponse),
-    
-    updateRosterMember: async (rosterId, rosterData) => fetch(`/api/roster/${rosterId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(rosterData), 
-    }).then(handleResponse),
-    
-    deleteRosterMember: async (rosterId) => fetch(`/api/roster/${rosterId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
-
-    // --- Show Crew ---
-    getShowCrew: async (showId) => fetch(`/api/shows/${showId}/crew`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    updateShowSettings: async (showId, settings) => fetch(`/api/shows/${showId}/settings`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(settings), 
-    }).then(handleResponse),
-    
-    addCrewToShow: async (showId, rosterId, details) => fetch(`/api/shows/${showId}/crew/${rosterId}`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(details), 
-    }).then(handleResponse),
-    
-    removeCrewFromShow: async (showId, showCrewId) => fetch(`/api/shows/${showId}/crew/${showCrewId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
-    
-    createRosterMemberAndAddToShow: async (data) => fetch('/api/roster_and_show_crew', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(data), 
-    }).then(handleResponse),
-    
-    updateShowCrewMember: async (showCrewId, data) => fetch(`/api/show_crew/${showCrewId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(data), 
-    }).then(handleResponse),
-
-    // --- User SMTP ---
-    getUserSmtpSettings: async () => fetch('/api/user/smtp-settings', { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createUserSmtpSettings: async (settings) => fetch('/api/user/smtp-settings', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(settings) 
-    }).then(handleResponse),
-    
-    testUserSmtpSettings: async (settings) => fetch('/api/user/smtp-settings/test', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(settings) 
-    }).then(handleResponse),
-    
-    // --- Timesheets ---
-    getWeeklyTimesheet: async (showId, weekStartDate) => fetch(`/api/shows/${showId}/timesheet?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    updateWeeklyTimesheet: async (showId, timesheetData) => fetch(`/api/shows/${showId}/timesheet`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(timesheetData) 
-    }).then(handleResponse),
-    
-    getTimesheetPdf: async (showId, weekStartDate) => fetch(`/api/shows/${showId}/timesheet/pdf?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    emailTimesheet: async (showId, weekStartDate, emailPayload) => fetch(`/api/shows/${showId}/timesheet/email?week_start_date=${weekStartDate}`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(emailPayload) 
-    }).then(handleResponse),
-
-    // --- Contextual Notes ---
-    getNotesForEntity: async (entityType, entityId, showId) => {
-        let url = `/api/v1/notes/${entityType}/${entityId}`;
-        if (showId) url += `?show_id=${showId}`;
-        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
-    },
-    
-    createNote: async (noteData) => fetch('/api/v1/notes', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(noteData) 
-    }).then(handleResponse),
-    
-    updateNote: async (noteId, updateData) => fetch(`/api/v1/notes/${noteId}`, { 
-        method: 'PATCH', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(updateData) 
-    }).then(handleResponse),
-    
-    deleteNote: async (noteId) => fetch(`/api/v1/notes/${noteId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
-
-    // --- Label Engine ---
-    getLabelTemplates: async (category) => {
-        const url = category ? `/api/v1/library/label-templates?category=${category}` : '/api/v1/library/label-templates';
-        return fetch(url, { headers: await getAuthHeader() }).then(handleResponse);
-    },
-
-    getLabelTemplate: async (templateId) => {
-        return fetch(`/api/v1/library/label-templates/${templateId}`, { headers: await getAuthHeader() }).then(handleResponse);
-    },
-
-    getLabelStocks: async () => {
-        return fetch('/api/v1/library/label-stocks', { headers: await getAuthHeader() }).then(handleResponse);
-    },
-    
-    createLabelTemplate: async (data) => {
-        return fetch('/api/v1/library/label-templates', {
-            method: 'POST',
-            headers: await getAuthHeader(),
-            body: JSON.stringify(data),
-        }).then(handleResponse);
-    },
-    
-    updateLabelTemplate: async (templateId, data) => {
-        return fetch(`/api/v1/library/label-templates/${templateId}`, {
-            method: 'PUT',
-            headers: await getAuthHeader(),
-            body: JSON.stringify(data),
-        }).then(handleResponse);
-    },
-    
-    deleteLabelTemplate: async (templateId) => {
-        return fetch(`/api/v1/library/label-templates/${templateId}`, {
-            method: 'DELETE',
-            headers: await getAuthHeader(),
-        }).then(handleResponse);
-    },
-
-    printLabels: async (showId, printData) => {
-        return fetch(`/api/v1/shows/${showId}/label-engine/print`, {
-            method: 'POST',
-            headers: await getAuthHeader(),
-            body: JSON.stringify(printData),
-        }).then(handleResponse);
-    },
+        const { data: { user } } = await supabase.auth.getUser();
+        let query = supabase
+            .from('email_templates')
+            .select('*')
+            .or(`is_default.eq.true,user_id.eq.${user.id}`);
         
-    // --- Legacy / Deprecated ---
-    getDailyHours: async (showId) => fetch(`/api/shows/${showId}/daily_hours`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    bulkUpdateDailyHours: async (entries) => fetch('/api/daily_hours/bulk-update', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ entries }), 
-    }).then(handleResponse),
+        if (category) {
+            query = query.eq('category', category);
+        }
+        
+        const { data, error } = await query.order('name');
+        if (error) throw error;
+        return data;
+    },
+
+    createEmailTemplate: async (templateData) => {
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data, error } = await supabase
+            .from('email_templates')
+            .insert([{ ...templateData, user_id: user.id }])
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    updateEmailTemplate: async (id, updates) => {
+        const { data, error } = await supabase
+            .from('email_templates')
+            .update(updates)
+            .eq('id', id)
+            .select()
+            .single();
+        if (error) throw error;
+        return data;
+    },
+
+    deleteEmailTemplate: async (id) => {
+        const { error } = await supabase
+            .from('email_templates')
+            .delete()
+            .eq('id', id);
+        if (error) throw error;
+    },
+
+    // --- Collaboration ---
+    getCollaborators: async (showId) => {
+        // Fetch collaborators joined with profile data
+        const { data, error } = await supabase
+            .from('show_collaborators')
+            .select(`
+                *,
+                user:user_id (email, first_name, last_name)
+            `)
+            .eq('show_id', showId);
+        
+        if (error) throw error;
+        
+        // Flatten structure for UI
+        return data.map(c => ({
+            id: c.id,
+            user_id: c.user_id,
+            role: c.role,
+            email: c.user?.email,
+            first_name: c.user?.first_name,
+            last_name: c.user?.last_name
+        }));
+    },
+
+    inviteCollaborator: async (showId, email, role) => {
+        // This likely requires a backend function or a more complex flow 
+        // to look up user by email -> if exists add to show_collaborators -> else send invite email
+        // For now, assuming direct DB insert if user exists, or calling an edge function
+        // We'll call the backend endpoint
+        const response = await fetch(`/api/collaboration/shows/${showId}/invite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, role })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to invite collaborator');
+        }
+        
+        return await response.json();
+    },
+
+    removeCollaborator: async (showId, userId) => {
+        const { error } = await supabase
+            .from('show_collaborators')
+            .delete()
+            .eq('show_id', showId)
+            .eq('user_id', userId);
+        if (error) throw error;
+    },
+
+    updateCollaboratorRole: async (showId, userId, role) => {
+        const { error } = await supabase
+            .from('show_collaborators')
+            .update({ role })
+            .eq('show_id', showId)
+            .eq('user_id', userId);
+        if (error) throw error;
+    }
 };

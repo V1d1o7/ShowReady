@@ -13,6 +13,7 @@ import RackSideView from '../components/RackSideView';
 import RackExportModal from '../components/RackExportModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import PowerReportModal from '../components/PowerReportModal';
+import PanelBuilderModal from '../components/PanelBuilderModal'; // NEW IMPORT
 import toast, { Toaster } from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -30,11 +31,14 @@ const RackBuilderView = () => {
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false); // Export Modal
-    const [isPowerReportOpen, setIsPowerReportOpen] = useState(false); // Power Report Modal
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isPowerReportOpen, setIsPowerReportOpen] = useState(false);
     const [isNamePromptOpen, setIsNamePromptOpen] = useState(false);
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
+    
+    // NEW: Panel Builder Modal State
+    const [panelBuilder, setPanelBuilder] = useState({ isOpen: false, rackItem: null });
     
     // Data State
     const [powerReportData, setPowerReportData] = useState([]);
@@ -127,6 +131,14 @@ const RackBuilderView = () => {
         return () => window.removeEventListener('click', handleClickOutside);
     }, []);
 
+    // --- Handlers: Panel Builder ---
+    
+    const handleOpenPanelBuilder = (rackItem) => {
+        // Only open if the template has slots defined or is a frame type (can add logic here)
+        // For now, allow opening anything, modal handles blank state
+        setPanelBuilder({ isOpen: true, rackItem });
+    };
+
     // --- Handlers: Power Report & Export ---
 
     const handleOpenPowerReport = async () => {
@@ -145,7 +157,6 @@ const RackBuilderView = () => {
     };
 
     const handleProcessExport = async (options) => {
-        // Destructure new options: includePowerReport, voltage
         const { scope, includeFrontRear, includeSide, includeEquipmentList, includePowerReport, voltage, pageSize } = options;
 
         if (!showId) return;
@@ -171,7 +182,6 @@ const RackBuilderView = () => {
                 include_front_rear: includeFrontRear,
                 include_side_view: includeSide,
                 include_equipment_list: includeEquipmentList,
-                // Pass new flags
                 include_power_report: includePowerReport, 
                 power_report_voltage: voltage 
             };
@@ -350,8 +360,12 @@ const RackBuilderView = () => {
         setContextMenu(null);
     };
 
-    // --- Drag & Drop Logic ---
-
+    // --- Drag & Drop Logic (Unchanged for basic placement) ---
+    // ... [Logic preserved from previous file, using same functions] ...
+    // Note: I am omitting repeating the entire generic drag/drop collision logic here for brevity 
+    // but in the real file you must keep the helper functions (getItemSlot, getTargetSlot, checkCollision, handleDragStart, handleDrop, handleDragEnd).
+    
+    // RE-INSERTING THE DRAG DROP LOGIC FOR COMPLETENESS:
     const getItemSlot = (item) => {
         const width = item.equipment_templates.width;
         const side = item.rack_side;
@@ -575,8 +589,8 @@ const RackBuilderView = () => {
                     onUpdateRack={handleUpdateRack}
                     selectedRackId={selectedRackId}
                     onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
-                    onExport={() => setIsExportModalOpen(true)} // Opens the Export Modal
-                    onPowerReport={handleOpenPowerReport} // Opens the Power Report
+                    onExport={() => setIsExportModalOpen(true)}
+                    onPowerReport={handleOpenPowerReport}
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
                     onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? (rackId) => openNotesDrawer('rack', rackId) : undefined}
@@ -621,6 +635,7 @@ const RackBuilderView = () => {
                                     dragOverData={dragOverData}
                                     onDragOverRack={setDragOverData}
                                     onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
+                                    onConfigurePanel={handleOpenPanelBuilder} // NEW PROP
                                     equipmentLibrary={library.equipment}
                                     showHeader={false}
                                 />
@@ -636,6 +651,7 @@ const RackBuilderView = () => {
                                     dragOverData={dragOverData}
                                     onDragOverRack={setDragOverData}
                                     onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? openNotesDrawer : undefined}
+                                    onConfigurePanel={handleOpenPanelBuilder} // NEW PROP
                                     equipmentLibrary={library.equipment}
                                     showHeader={false}
                                 />
@@ -673,11 +689,11 @@ const RackBuilderView = () => {
                 </div>
             )}
             
+            {/* MODALS */}
             <NewRackModal isOpen={isNewRackModalOpen} onClose={() => setIsNewRackModalOpen(false)} onSubmit={handleCreateRack} />
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
             
-            {/* RACK EXPORT MODAL */}
             <RackExportModal 
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}
@@ -686,12 +702,23 @@ const RackBuilderView = () => {
                 selectedRackName={activeRack ? activeRack.rack_name : null}
             />
 
-            {/* POWER REPORT MODAL */}
             <PowerReportModal 
                 isOpen={isPowerReportOpen} 
                 onClose={() => setIsPowerReportOpen(false)} 
                 data={powerReportData} 
             />
+
+            {/* NEW PANEL BUILDER MODAL */}
+            {panelBuilder.isOpen && (
+                <PanelBuilderModal
+                    isOpen={panelBuilder.isOpen}
+                    onClose={() => setPanelBuilder({ isOpen: false, rackItem: null })}
+                    rackItem={panelBuilder.rackItem}
+                    onUpdate={() => {
+                        // Optional: Refresh parent rack if needed, though children data is internal to modal usually
+                    }}
+                />
+            )}
 
             <NamePromptModal
                 isOpen={isNamePromptOpen}
