@@ -16,7 +16,8 @@ async def get_vlans_for_show(show_id: int, user=Depends(get_user), supabase: Cli
     """
     Retrieves all VLANs for a specific show.
     """
-    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    # Fix: Removed .eq('user_id', user.id) to allow collaborators access
+    show_res = supabase.table('shows').select('id').eq('id', show_id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
     
@@ -28,7 +29,8 @@ async def create_vlan_for_show(show_id: int, vlan: VLANCreate, user=Depends(get_
     """
     Creates a new VLAN for a specific show.
     """
-    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    # Fix: Removed .eq('user_id', user.id)
+    show_res = supabase.table('shows').select('id').eq('id', show_id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
         
@@ -63,10 +65,10 @@ async def update_vlan(vlan_id: uuid.UUID, vlan_data: VLANUpdate, user=Depends(ge
         raise HTTPException(status_code=404, detail="VLAN not found.")
     show_id = vlan_res.data['show_id']
 
-    # 2. Verify the user owns the parent show
-    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    # 2. Verify access (Fix: Removed strict owner check, rely on RLS/Membership)
+    show_res = supabase.table('shows').select('id').eq('id', show_id).single().execute()
     if not show_res.data:
-        raise HTTPException(status_code=403, detail="Access denied: You do not own the show this VLAN belongs to.")
+        raise HTTPException(status_code=403, detail="Access denied: Show not found.")
 
     update_dict = vlan_data.model_dump(exclude_unset=True)
 
@@ -109,10 +111,10 @@ async def delete_vlan(vlan_id: uuid.UUID, user=Depends(get_user), supabase: Clie
 
     show_id = vlan_res.data['show_id']
 
-    # 2. Verify the user owns the parent show
-    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    # 2. Verify access (Fix: Removed strict owner check)
+    show_res = supabase.table('shows').select('id').eq('id', show_id).single().execute()
     if not show_res.data:
-        raise HTTPException(status_code=403, detail="Access denied: You do not own the show this VLAN belongs to.")
+        raise HTTPException(status_code=403, detail="Access denied: Show not found.")
         
     # 3. Perform the delete
     supabase.table('vlans').delete().eq('id', str(vlan_id)).execute()

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../api/api';
-import { X, Plus, Edit, Trash2, FileText } from 'lucide-react';
+import { X, Plus, Edit, Trash2, FileText, Copy } from 'lucide-react'; // Added Copy icon
 import CableForm from './CableForm';
 import BulkEditCableForm from './BulkEditCableForm';
 import ConfirmationModal from './ConfirmationModal';
+import NamePromptModal from './NamePromptModal'; // Import NamePromptModal
 import useHotkeys from '../hooks/useHotkeys';
 
 const CableManagerModal = ({ loom, onClose, onExport }) => {
@@ -13,6 +14,9 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
     const [isBulkEditing, setIsBulkEditing] = useState(false);
     const [selectedCables, setSelectedCables] = useState(new Set());
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
+    
+    // New state for duplication flow
+    const [duplicatingCable, setDuplicatingCable] = useState(null);
 
     const fetchCables = useCallback(async () => {
         if (!loom) return;
@@ -32,8 +36,8 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
     }, [fetchCables]);
 
     const handleAddNewCable = useCallback(() => {
-        // This check prevents opening a new cable form if another modal/form is already active.
-        if (editingCable || isBulkEditing || confirmationModal.isOpen) {
+        // Updated check to include duplicatingCable
+        if (editingCable || isBulkEditing || confirmationModal.isOpen || duplicatingCable) {
             return;
         }
         const newCable = {
@@ -49,13 +53,13 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
             is_complete: false,
         };
         setEditingCable(newCable);
-    }, [loom.id, editingCable, isBulkEditing, confirmationModal.isOpen]);
+    }, [loom.id, editingCable, isBulkEditing, confirmationModal.isOpen, duplicatingCable]);
 
     useHotkeys({
         'n': handleAddNewCable,
         'escape': () => {
-            // This ensures escape only closes the main modal if no other forms are open.
-            if (!editingCable && !isBulkEditing && !confirmationModal.isOpen) {
+            // Updated check to include duplicatingCable to prevent closing parent modal during rename
+            if (!editingCable && !isBulkEditing && !confirmationModal.isOpen && !duplicatingCable) {
                 onClose();
             }
         }
@@ -102,6 +106,36 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                 }
             }
         });
+    };
+
+    // Handler to initiate duplication
+    const handleDuplicateClick = (cable) => {
+        setDuplicatingCable(cable);
+    };
+
+    // Handler to confirm duplication after renaming
+    const handleDuplicateConfirm = async (newName) => {
+        if (!duplicatingCable) return;
+
+        try {
+            // Create a copy of the cable
+            const newCable = { ...duplicatingCable };
+            
+            // Remove the ID so the backend treats it as a new entry
+            delete newCable.id;
+            
+            // Apply new name and reset status flags
+            newCable.label_content = newName;
+            newCable.is_rcvd = false;
+            newCable.is_complete = false;
+
+            await api.createCable(newCable);
+            
+            setDuplicatingCable(null);
+            fetchCables();
+        } catch (error) {
+            console.error("Failed to duplicate cable:", error);
+        }
     };
     
     const handleSelectCable = (cableId) => {
@@ -189,6 +223,13 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                                             <td className="p-3">{renderLocation(cable.origin)}</td>
                                             <td className="p-3">{renderLocation(cable.destination)}</td>
                                             <td className="p-3 flex justify-end gap-2">
+                                                <button 
+                                                    onClick={() => handleDuplicateClick(cable)} 
+                                                    className="text-green-400 hover:text-green-300" 
+                                                    title="Duplicate"
+                                                >
+                                                    <Copy size={16} />
+                                                </button>
                                                 <button onClick={() => setEditingCable(cable)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
                                                 <button onClick={() => handleDeleteCable(cable.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
                                             </td>
@@ -217,6 +258,14 @@ const CableManagerModal = ({ loom, onClose, onExport }) => {
                     onCancel={() => setIsBulkEditing(false)}
                 />
             )}
+            {/* Rename Prompt for Duplication */}
+            <NamePromptModal
+                isOpen={!!duplicatingCable}
+                onClose={() => setDuplicatingCable(null)}
+                onSubmit={handleDuplicateConfirm}
+                title="Duplicate Cable"
+                initialValue={duplicatingCable ? `${duplicatingCable.label_content} (Copy)` : ''}
+            />
             {confirmationModal.isOpen && (
                 <ConfirmationModal
                     message={confirmationModal.message}

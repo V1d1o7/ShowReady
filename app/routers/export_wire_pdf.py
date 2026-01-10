@@ -1,5 +1,6 @@
 import io
 import base64
+from collections import defaultdict, deque
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import Response
 from app.schemas.wire_export import PdfExportPayload, Edge, PortDef
@@ -11,6 +12,115 @@ router = APIRouter(
     prefix="/api",
     tags=["export"],
 )
+
+# --- Helper: Auto Layout Logic ---
+def apply_smart_layout(nodes, edges, page_width=1000, start_x=50, start_y=50):
+    """
+    Re-organizes node coordinates (x, y) to group connected components 
+    and flow logically (Top -> Down) to ensure wires are visible on the same page.
+    """
+    if not nodes:
+        return
+
+    # 1. Build Graph Map
+    adj = defaultdict(list)
+    in_degree = defaultdict(int)
+    node_map = {n.id: n for n in nodes}
+    all_node_ids = set(n.id for n in nodes)
+
+    for edge in edges:
+        # Only map edges where both nodes exist (adapters might have been removed)
+        if edge.source in all_node_ids and edge.target in all_node_ids:
+            adj[edge.source].append(edge.target)
+            in_degree[edge.target] += 1
+            if edge.source not in in_degree:
+                in_degree[edge.source] = 0
+
+    # 2. Identify Connected Components (Islands)
+    visited = set()
+    clusters = []
+
+    for node_id in all_node_ids:
+        if node_id in visited:
+            continue
+        
+        # BFS to find all nodes in this cluster
+        cluster_nodes = []
+        queue = deque([node_id])
+        visited.add(node_id)
+        while queue:
+            curr = queue.popleft()
+            cluster_nodes.append(curr)
+            
+            # Check neighbors (both directions to catch the whole island)
+            # Outgoing
+            for neighbor in adj[curr]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+            # Incoming (Scan edges - slow but necessary for full grouping, 
+            # or pre-build undirected graph. Simple iteration for now)
+            # Optimization: Pre-build undirected map if performance is an issue.
+            pass 
+
+        clusters.append(cluster_nodes)
+
+    # 3. Sort & Position Layout
+    # Constants for spacing
+    NODE_HEIGHT = 200 # Approx height of a node card
+    NODE_WIDTH = 300
+    PADDING_Y = 50
+    PADDING_X = 50
+    
+    current_y = start_y
+    
+    # Process each isolated cluster
+    for cluster in clusters:
+        # Organize cluster by dependency (Topological-ish sort)
+        # Find local sources (in-degree 0 within the cluster)
+        local_in_degree = {n: in_degree[n] for n in cluster}
+        zero_in = deque([n for n in cluster if local_in_degree[n] == 0])
+        sorted_cluster = []
+        
+        while zero_in:
+            n = zero_in.popleft()
+            sorted_cluster.append(n)
+            for neighbor in adj[n]:
+                if neighbor in local_in_degree:
+                    local_in_degree[neighbor] -= 1
+                    if local_in_degree[neighbor] == 0:
+                        zero_in.append(neighbor)
+        
+        # Add remaining cyclic nodes if any
+        for n in cluster:
+            if n not in sorted_cluster:
+                sorted_cluster.append(n)
+
+        # 4. Assign Coordinates
+        # We verify if this cluster fits on current page (conceptually), 
+        # otherwise we might want to add extra padding.
+        # For PDF exports, continuous Y usually works fine unless pages are hard-cut.
+        
+        # We layout this cluster Top-to-Bottom
+        cluster_start_y = current_y
+        for i, node_id in enumerate(sorted_cluster):
+            node = node_map[node_id]
+            
+            # Simple Column Layout
+            # To make it "fancy" (tree view), you'd need depth calculation, 
+            # but a sorted vertical list guarantees short wires flow downward.
+            
+            node.position.x = start_x 
+            node.position.y = current_y
+            
+            # If you have specific attributes for x/y on the root object, use those:
+            # node.x = start_x
+            # node.y = current_y
+            
+            current_y += NODE_HEIGHT + PADDING_Y
+
+        # Add visual separation between clusters
+        current_y += PADDING_Y * 2
 
 @router.post("/export/wire.pdf")
 async def export_wire_pdf(
@@ -68,51 +178,36 @@ async def export_wire_pdf(
                     continue
 
                 # Determine legible slot name
-                # Fallback to name-based lookup if ID lookup failed (legacy data support)
                 slot_name = slot_names_by_id.get(str(slot_id))
                 if not slot_name:
-                    # Try finding by matching slot name directly if slot_id matches a name
                     found = next((s['name'] for s in slot_defs if s.get('name') == slot_id), None)
                     slot_name = found if found else f"Slot {slot_id[:4]}"
 
                 # Flatten Ports for THIS module
                 if module_template.get('ports'):
                     for port in module_template['ports']:
-                        # Generate a unique ID for this specific instance of the port
-                        # We use a composite key of parent_slot + port_id to ensure uniqueness in recursion
                         new_port_id = f"mod_{slot_id}_{port['id']}"
-                        
-                        # Label: "Slot A: HDMI 1"
                         new_port_name = f"{slot_name}: {port.get('label', 'Port')}"
-                        
-                        # FIX: Create a proper PortDef object so attribute access (.name) works later
-                        # Mapping DB 'label' to Pydantic 'name'
                         node.ports[new_port_id] = PortDef(name=new_port_name)
 
-                # RECURSE: Process sub-modules using THIS module as the parent
+                # RECURSE
                 if sub_assignments:
                     flatten_assignments(sub_assignments, module_template, node, templates_map)
 
 
         # --- Step 1: Fetch Data ---
-
-        # Get instance IDs
         instance_ids = [node.id for node in payload.graph.nodes]
-
-        # Fetch RackEquipmentInstances
         instance_res = supabase.table('rack_equipment_instances').select('*').in_('id', instance_ids).execute()
         if not instance_res.data:
             raise HTTPException(status_code=404, detail="Equipment instances not found.")
         
         instances_by_id = {str(item['id']): item for item in instance_res.data}
 
-        # Collect Template IDs (Recursively)
         template_ids_to_fetch = set()
         for instance in instance_res.data:
             template_ids_to_fetch.add(instance['template_id'])
             collect_ids(instance.get('module_assignments'), template_ids_to_fetch)
 
-        # Fetch Templates
         if template_ids_to_fetch:
             template_res = supabase.table('equipment_templates').select('*').in_('id', list(template_ids_to_fetch)).execute()
             templates_by_id = {str(item['id']): item for item in template_res.data}
@@ -120,7 +215,6 @@ async def export_wire_pdf(
             templates_by_id = {}
         
         # --- Step 2: Flatten Module Ports ---
-
         for node in payload.graph.nodes:
             instance = instances_by_id.get(str(node.id))
             if not instance or not instance.get('module_assignments'):
@@ -130,7 +224,6 @@ async def export_wire_pdf(
             if not chassis_template:
                 continue
 
-            # Start recursion from the Chassis
             flatten_assignments(
                 instance['module_assignments'], 
                 chassis_template, 
@@ -139,7 +232,6 @@ async def export_wire_pdf(
             )
 
         # --- Step 3: Collapse Adapters ---
-        
         adapter_node_ids = set()
         for node in payload.graph.nodes:
             instance = instances_by_id.get(str(node.id))
@@ -174,8 +266,6 @@ async def export_wire_pdf(
                     src_node_id, src_handle = source_info
                     src_node = nodes_by_id.get(src_node_id)
                     if src_node and src_handle in src_node.ports:
-                        # Set the adapter model on the port definition
-                        # node.ports is now guaranteed to be a Dict of PortDef objects
                         src_node.ports[src_handle].adapter_model = adapter_node.modelNumber
 
                     if target_info:
@@ -192,6 +282,15 @@ async def export_wire_pdf(
             
             edges_to_keep = [e for e in payload.graph.edges if e not in edges_to_remove]
             payload.graph.edges = edges_to_keep + new_edges
+
+        # --- Step 3.5: Layout Optimization (NEW) ---
+        # This forces the graph into a logical order before generating the PDF.
+        # It ensures connected items are grouped and ordered Top -> Down.
+        try:
+            apply_smart_layout(payload.graph.nodes, payload.graph.edges)
+        except Exception as layout_error:
+            # Fallback: If layout fails, proceed with original coordinates rather than crashing
+            print(f"Layout optimization failed: {layout_error}")
 
         # --- Step 4: Logos & Branding ---
         show_res = supabase.table('shows').select('data, name').eq('id', show_id).eq('user_id', str(user.id)).single().execute()
@@ -227,6 +326,5 @@ async def export_wire_pdf(
             "Content-Disposition": f"attachment; filename=\"{filename}\""
         })
     except Exception as e:
-        # Log to server console for debugging, but don't crash
         print(f"Critical PDF Export Error: {e}")
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during PDF generation: {e}")

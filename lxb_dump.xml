@@ -1,0 +1,86 @@
+<?xml version="1.0" ?>
+<pt:document xmlns:pt="http://schemas.brother.info/ptouch/2007/lbx/main" xmlns:style="http://schemas.brother.info/ptouch/2007/lbx/style" xmlns:text="http://schemas.brother.info/ptouch/2007/lbx/text" xmlns:draw="http://schemas.brother.info/ptouch/2007/lbx/draw" xmlns:image="http://schemas.brother.info/ptouch/2007/lbx/image" xmlns:barcode="http://schemas.brother.info/ptouch/2007/lbx/barcode" xmlns:database="http://schemas.brother.info/ptouch/2007/lbx/database" xmlns:table="http://schemas.brother.info/ptouch/2007/lbx/table" xmlns:cable="http://schemas.brother.info/ptouch/2007/lbx/cable" version="1.10" generator="P-touch Editor 6.7.1.0 Windows">
+        <pt:body currentSheet="Sheet 1" direction="LTR">
+                <style:sheet name="Sheet 1">
+                        <style:paper media="0" width="68pt" height="180pt" marginLeft="8.4pt" marginTop="5.6pt" marginRight="8.4pt" marginBottom="5.6pt" orientation="landscape" autoLength="false" monochromeDisplay="true" printColorDisplay="false" printColorsID="0" paperColor="#FFFFFF" paperInk="#000000" split="1" format="261" backgroundTheme="0" printerID="32560" printerName="Brother PT-E560BT"/>
+                        <style:cutLine regularCut="0pt" freeCut=""/>
+                        <style:backGround x="5.6pt" y="8.4pt" width="168.8pt" height="51.2pt" brushStyle="NULL" brushId="0" userPattern="NONE" userPatternId="0" color="#000000" printColorNumber="1" backColor="#FFFFFF" backPrintColorNumber="0"/>
+                        <pt:objects>
+                                <text:text>
+                                        <pt:objectStyle x="5.6pt" y="8.9pt" width="168.8pt" height="51.2pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE">
+                                                <pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/>
+                                                <pt:brush style="NULL" color="#000000" printColorNumber="1" id="0"/>
+                                                <pt:expanded objectName="Text1" ID="0" lock="0" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" allowOutOfBoundsTransfer="false" linkStatus="NONE" linkID="0"/>
+                                        </pt:objectStyle>
+                                        <text:ptFontInfo>
+                                                <text:logFont name="Ubuntu Mono" width="0" italic="true" weight="700" charSet="0" pitchAndFamily="49"/>
+                                                <text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="22pt" orgSize="28.8pt" textColor="#000000" textPrintColorNumber="1"/>
+                                        </text:ptFontInfo>
+                                        <text:textControl control="LONGTEXTFIXED" clipFrame="false" aspectNormal="true" shrink="true" autoLF="true" avoidImage="false"/>
+                                        <text:textAlign horizontalAlignment="CENTER" verticalAlignment="CENTER" inLineAlignment="BASELINE"/>
+                                        <text:textStyle vertical="false" nullBlock="false" charSpace="0" lineSpace="0" orgPoint="22pt" combinedChars="false"/>
+                                        <text:transferSettings editOnPrintFormat="" editOnPrintOrder="0"/>
+                                        <pt:data>{cableName}</pt:data>
+                                        <text:stringItem charLen="1">
+                                                <text:ptFontInfo>
+                                                        <text:logFont name="Ubuntu Mono" width="0" italic="true" weight="700" charSet="0" pitchAndFamily="49"/>
+                                                        <text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="22pt" orgSize="28.8pt" textColor="#000000" textPrintColorNumber="1"/>
+                                                </text:ptFontInfo>
+                                        </text:stringItem>
+                                        <text:stringItem charLen="9">
+                                                <text:ptFontInfo>
+                                                        <text:logFont name="Ubuntu Mono" width="0" italic="true" weight="700" charSet="0" pitchAndFamily="49"/>
+                                                        <text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="22pt" orgSize="28.8pt" textColor="#000000" textPrintColorNumber="1"/>
+                                                </text:ptFontInfo>
+                                        </text:stringItem>
+                                        <text:stringItem charLen="1">
+                                                <text:ptFontInfo>
+                                                        <text:logFont name="Ubuntu Mono" width="0" italic="true" weight="700" charSet="0" pitchAndFamily="49"/>
+                                                        <text:fontExt effect="NOEFFECT" underline="0" strikeout="0" size="22pt" orgSize="28.8pt" textColor="#000000" textPrintColorNumber="1"/>
+                                                </text:ptFontInfo>
+                                        </text:stringItem>
+                                </text:text>
+                                <draw:rect>
+                                        <pt:objectStyle x="5.6pt" y="8.9pt" width="168.8pt" height="15.8pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE">
+                                                <pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/>
+                                                <pt:brush style="PATTERN" color="#000000" printColorNumber="1" id="21"/>
+                                                <pt:expanded objectName="Shape1" ID="0" lock="2" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" allowOutOfBoundsTransfer="false" linkStatus="NONE" linkID="0"/>
+                                        </pt:objectStyle>
+                                        <draw:rectStyle shape="RECTANGLE" roundnessX="4pt" roundnessY="4pt"/>
+                                </draw:rect>
+                                <draw:rect>
+                                        <pt:objectStyle x="5.6pt" y="44.3pt" width="168.8pt" height="15.8pt" backColor="#FFFFFF" backPrintColorNumber="0" ropMode="COPYPEN" angle="0" anchor="TOPLEFT" flip="NONE">
+                                                <pt:pen style="NULL" widthX="0.5pt" widthY="0.5pt" color="#000000" printColorNumber="1"/>
+                                                <pt:brush style="PATTERN" color="#000000" printColorNumber="1" id="21"/>
+                                                <pt:expanded objectName="Shape2" ID="0" lock="2" templateMergeTarget="LABELLIST" templateMergeType="NONE" templateMergeID="0" allowOutOfBoundsTransfer="false" linkStatus="NONE" linkID="0"/>
+                                        </pt:objectStyle>
+                                        <draw:rectStyle shape="RECTANGLE" roundnessX="4pt" roundnessY="4pt"/>
+                                </draw:rect>
+                        </pt:objects>
+                </style:sheet>
+        </pt:body>
+</pt:document>
+
+
+--- Content of prop.xml (Properties) ---
+<?xml version="1.0" ?>
+<meta:properties xmlns:meta="http://schemas.brother.info/ptouch/2007/lbx/meta" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/">
+        <meta:appName>P-touch Editor 6.7.1.0 Windows</meta:appName>
+        <dc:title/>
+        <dc:subject/>
+        <dc:creator/>
+        <meta:keyword/>
+        <dc:description/>
+        <meta:template/>
+        <dcterms:created>2025-12-29T21:43:20Z</dcterms:created>
+        <dcterms:modified>2025-12-29T21:45:05Z</dcterms:modified>
+        <meta:lastPrinted/>
+        <meta:modifiedBy/>
+        <meta:revision>10</meta:revision>
+        <meta:editTime>1</meta:editTime>
+        <meta:numPages>1</meta:numPages>
+        <meta:numWords>0</meta:numWords>
+        <meta:numChars>0</meta:numChars>
+        <meta:security>0</meta:security>
+        <meta:transferScript/>
+</meta:properties>

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict Er0JtqymbcelXempYhdt1EqZhnQzgODnff0nYQtVb2fhTc54noB7iQRejGDNFzr
+\restrict SSqdrwsg6CAoQFaqr7clxyI5667aRHEJyN0xaaZ4w1TLi935jnkRma3btuEQ8Up
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -813,6 +813,37 @@ $$;
 ALTER FUNCTION public.add_constraint_if_not_exists(t_name text, c_name text, c_def text) OWNER TO postgres;
 
 --
+-- Name: can_access_logo(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.can_access_logo(_name text) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  -- Fast check: Allow if the user is the direct owner (file path starts with user_id)
+  IF (split_part(_name, '/', 1)::uuid = auth.uid()) THEN
+    RETURN true;
+  END IF;
+
+  -- Collaborative check: Allow if the logo path exists in a show the user is a member of
+  RETURN EXISTS (
+    SELECT 1 
+    FROM public.shows s
+    JOIN public.show_collaborators sc ON s.id = sc.show_id
+    WHERE 
+      -- Match the file path stored in the show's JSON data
+      s.data->'info'->>'logo_path' = _name
+      -- Check if the requesting user is a collaborator on that show
+      AND sc.user_id = auth.uid()
+  );
+END;
+$$;
+
+
+ALTER FUNCTION public.can_access_logo(_name text) OWNER TO postgres;
+
+--
 -- Name: delete_user(); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1065,6 +1096,26 @@ $$;
 
 
 ALTER FUNCTION public.is_global_admin() OWNER TO postgres;
+
+--
+-- Name: is_show_editor_or_owner(bigint); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.is_show_editor_or_owner(_show_id bigint) RETURNS boolean
+    LANGUAGE sql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM show_collaborators
+    WHERE show_id = _show_id
+    AND user_id = auth.uid()
+    AND role IN ('owner', 'editor')
+  );
+$$;
+
+
+ALTER FUNCTION public.is_show_editor_or_owner(_show_id bigint) OWNER TO postgres;
 
 --
 -- Name: is_show_member(bigint); Type: FUNCTION; Schema: public; Owner: postgres
@@ -3613,7 +3664,11 @@ CREATE TABLE public.equipment_templates (
     is_module boolean DEFAULT false,
     module_type text,
     slots jsonb DEFAULT '[]'::jsonb,
-    depth numeric(10,2) DEFAULT 0.00
+    depth numeric(10,2) DEFAULT 0.00,
+    is_adapter boolean DEFAULT false,
+    is_connector boolean DEFAULT false,
+    slot_type text,
+    width_bays numeric
 );
 
 
@@ -3810,7 +3865,9 @@ CREATE TABLE public.rack_equipment_instances (
     x_pos integer,
     y_pos integer,
     page_number integer,
-    module_assignments jsonb DEFAULT '{}'::jsonb
+    module_assignments jsonb DEFAULT '{}'::jsonb,
+    parent_item_id uuid,
+    parent_slot_id text
 );
 
 
@@ -5549,6 +5606,13 @@ CREATE INDEX audit_log_target_id_idx ON public.audit_log USING btree (target_id)
 
 
 --
+-- Name: idx_rack_equipment_parent_item_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_rack_equipment_parent_item_id ON public.rack_equipment_instances USING btree (parent_item_id);
+
+
+--
 -- Name: user_entitlements_user_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6034,6 +6098,14 @@ ALTER TABLE ONLY public.profiles
 
 
 --
+-- Name: rack_equipment_instances rack_equipment_instances_parent_item_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.rack_equipment_instances
+    ADD CONSTRAINT rack_equipment_instances_parent_item_id_fkey FOREIGN KEY (parent_item_id) REFERENCES public.rack_equipment_instances(id) ON DELETE CASCADE;
+
+
+--
 -- Name: rack_equipment_instances rack_equipment_instances_rack_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6346,6 +6418,76 @@ ALTER TABLE auth.sso_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: cables Allow access to cables in visible looms; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to cables in visible looms" ON public.cables USING ((EXISTS ( SELECT 1
+   FROM public.looms l
+  WHERE (l.id = cables.loom_id))));
+
+
+--
+-- Name: rack_equipment_instances Allow access to equipment on visible racks; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to equipment on visible racks" ON public.rack_equipment_instances USING ((EXISTS ( SELECT 1
+   FROM public.racks r
+  WHERE (r.id = rack_equipment_instances.rack_id))));
+
+
+--
+-- Name: connections Allow access to show connections; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to show connections" ON public.connections USING ((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = connections.show_id) AND ((s.user_id = auth.uid()) OR public.is_show_member(s.id))))));
+
+
+--
+-- Name: show_crew Allow access to show crew; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to show crew" ON public.show_crew USING (((EXISTS ( SELECT 1
+   FROM public.shows
+  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))) OR public.is_show_editor_or_owner(show_id)));
+
+
+--
+-- Name: looms Allow access to show looms; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to show looms" ON public.looms USING (((auth.uid() = user_id) OR public.is_show_member(show_id)));
+
+
+--
+-- Name: racks Allow access to show members; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to show members" ON public.racks USING (((auth.uid() = user_id) OR public.is_show_member(show_id)));
+
+
+--
+-- Name: timesheet_entries Allow access to show timesheets; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to show timesheets" ON public.timesheet_entries USING ((EXISTS ( SELECT 1
+   FROM public.show_crew sc
+  WHERE ((sc.id = timesheet_entries.show_crew_id) AND ((EXISTS ( SELECT 1
+           FROM public.shows
+          WHERE ((shows.id = sc.show_id) AND (shows.user_id = auth.uid())))) OR public.is_show_editor_or_owner(sc.show_id))))));
+
+
+--
+-- Name: vlans Allow access to show vlans; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow access to show vlans" ON public.vlans USING ((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = vlans.show_id) AND ((s.user_id = auth.uid()) OR public.is_show_member(s.id))))));
+
+
+--
 -- Name: equipment_templates Allow access to user-owned or default equipment; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6468,24 +6610,6 @@ CREATE POLICY "Allow collaborative write access on Notes" ON public.notes USING 
 
 
 --
--- Name: racks Allow full access based on user_id; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access based on user_id" ON public.racks USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
-
---
--- Name: rack_equipment_instances Allow full access to equipment on own racks; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access to equipment on own racks" ON public.rack_equipment_instances USING ((EXISTS ( SELECT 1
-   FROM public.racks
-  WHERE ((racks.id = rack_equipment_instances.rack_id) AND (racks.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.racks
-  WHERE ((racks.id = rack_equipment_instances.rack_id) AND (racks.user_id = auth.uid())))));
-
-
---
 -- Name: user_smtp_settings Allow full access to own SMTP settings; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6493,37 +6617,10 @@ CREATE POLICY "Allow full access to own SMTP settings" ON public.user_smtp_setti
 
 
 --
--- Name: cables Allow full access to own cables via loom; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access to own cables via loom" ON public.cables USING ((EXISTS ( SELECT 1
-   FROM public.looms
-  WHERE ((looms.id = cables.loom_id) AND (looms.user_id = auth.uid())))));
-
-
---
--- Name: looms Allow full access to own looms; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access to own looms" ON public.looms USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
-
---
 -- Name: roster Allow full access to own roster; Type: POLICY; Schema: public; Owner: postgres
 --
 
 CREATE POLICY "Allow full access to own roster" ON public.roster USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
-
---
--- Name: show_crew Allow full access to own show crew; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access to own show crew" ON public.show_crew USING ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = show_crew.show_id) AND (shows.user_id = auth.uid())))));
 
 
 --
@@ -6549,30 +6646,6 @@ CREATE POLICY "Allow full access to own show switch push jobs" ON public.switch_
 --
 
 CREATE POLICY "Allow full access to own shows" ON public.shows USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
-
-
---
--- Name: timesheet_entries Allow full access to timesheet entries for show owners; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access to timesheet entries for show owners" ON public.timesheet_entries USING ((EXISTS ( SELECT 1
-   FROM (public.show_crew sc
-     JOIN public.shows s ON ((sc.show_id = s.id)))
-  WHERE ((sc.id = timesheet_entries.show_crew_id) AND (s.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM (public.show_crew sc
-     JOIN public.shows s ON ((sc.show_id = s.id)))
-  WHERE ((sc.id = timesheet_entries.show_crew_id) AND (s.user_id = auth.uid())))));
-
-
---
--- Name: vlans Allow full access to vlans for show owners; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Allow full access to vlans for show owners" ON public.vlans USING ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = vlans.show_id) AND (shows.user_id = auth.uid()))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = vlans.show_id) AND (shows.user_id = auth.uid())))));
 
 
 --
@@ -6725,6 +6798,27 @@ CREATE POLICY "Allow users to view folders" ON public.folders FOR SELECT USING (
 
 
 --
+-- Name: equipment_templates Allow viewing of custom templates used in shared shows; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow viewing of custom templates used in shared shows" ON public.equipment_templates FOR SELECT USING (((is_default = true) OR (auth.uid() = user_id) OR (EXISTS ( SELECT 1
+   FROM (public.rack_equipment_instances rei
+     JOIN public.racks r ON ((rei.rack_id = r.id)))
+  WHERE ((rei.template_id = equipment_templates.id) AND ((r.user_id = auth.uid()) OR public.is_show_member(r.show_id)))))));
+
+
+--
+-- Name: roster Allow viewing roster members on shared shows; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow viewing roster members on shared shows" ON public.roster FOR SELECT USING (((auth.uid() = user_id) OR (EXISTS ( SELECT 1
+   FROM public.show_crew sc
+  WHERE ((sc.roster_id = roster.id) AND ((EXISTS ( SELECT 1
+           FROM public.shows
+          WHERE ((shows.id = sc.show_id) AND (shows.user_id = auth.uid())))) OR public.is_show_editor_or_owner(sc.show_id)))))));
+
+
+--
 -- Name: show_collaborators Manage collaborators; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -6767,28 +6861,10 @@ CREATE POLICY "Users can manage their own templates" ON public.email_templates U
 
 
 --
--- Name: connections Users can modify connections for their shows.; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Users can modify connections for their shows." ON public.connections USING ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = connections.show_id) AND (shows.user_id = auth.uid())))));
-
-
---
 -- Name: sso_configs Users can update their own SSO config; Type: POLICY; Schema: public; Owner: postgres
 --
 
 CREATE POLICY "Users can update their own SSO config" ON public.sso_configs FOR UPDATE USING ((auth.uid() = id));
-
-
---
--- Name: connections Users can view all connections for their shows.; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY "Users can view all connections for their shows." ON public.connections FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM public.shows
-  WHERE ((shows.id = connections.show_id) AND (shows.user_id = auth.uid())))));
 
 
 --
@@ -7041,6 +7117,13 @@ ALTER TABLE realtime.messages ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY "Allow authenticated users to read their own logos 1peuqw_0" ON storage.objects FOR SELECT USING (((bucket_id = 'logos'::text) AND (auth.uid() = ((storage.foldername(name))[1])::uuid)));
+
+
+--
+-- Name: objects Allow collaborators to read shared logos; Type: POLICY; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE POLICY "Allow collaborators to read shared logos" ON storage.objects FOR SELECT TO authenticated USING (((bucket_id = 'logos'::text) AND public.can_access_logo(name)));
 
 
 --
@@ -7741,6 +7824,15 @@ GRANT ALL ON FUNCTION public.add_constraint_if_not_exists(t_name text, c_name te
 
 
 --
+-- Name: FUNCTION can_access_logo(_name text); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.can_access_logo(_name text) TO anon;
+GRANT ALL ON FUNCTION public.can_access_logo(_name text) TO authenticated;
+GRANT ALL ON FUNCTION public.can_access_logo(_name text) TO service_role;
+
+
+--
 -- Name: FUNCTION delete_user(); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7819,6 +7911,15 @@ GRANT ALL ON FUNCTION public.increment_permissions_version() TO service_role;
 GRANT ALL ON FUNCTION public.is_global_admin() TO anon;
 GRANT ALL ON FUNCTION public.is_global_admin() TO authenticated;
 GRANT ALL ON FUNCTION public.is_global_admin() TO service_role;
+
+
+--
+-- Name: FUNCTION is_show_editor_or_owner(_show_id bigint); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.is_show_editor_or_owner(_show_id bigint) TO anon;
+GRANT ALL ON FUNCTION public.is_show_editor_or_owner(_show_id bigint) TO authenticated;
+GRANT ALL ON FUNCTION public.is_show_editor_or_owner(_show_id bigint) TO service_role;
 
 
 --
@@ -9025,5 +9126,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Er0JtqymbcelXempYhdt1EqZhnQzgODnff0nYQtVb2fhTc54noB7iQRejGDNFzr
+\unrestrict SSqdrwsg6CAoQFaqr7clxyI5667aRHEJyN0xaaZ4w1TLi935jnkRma3btuEQ8Up
 
