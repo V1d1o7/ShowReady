@@ -350,6 +350,7 @@ class SlotDefinition(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4) 
     name: str
     accepted_module_type: Optional[str] = None
+    default_module_id: Optional[uuid.UUID] = None
 
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
@@ -369,6 +370,8 @@ class EquipmentTemplate(BaseModel):
     is_adapter: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
+    is_patch_panel: bool = False
+    screw_type: Optional[str] = None
 
 class EquipmentTemplateCreate(BaseModel):
     model_number: str
@@ -384,6 +387,8 @@ class EquipmentTemplateCreate(BaseModel):
     is_adapter: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
+    is_patch_panel: bool = False
+    screw_type: Optional[str] = None
 
 class ModuleAssignment(BaseModel):
     id: uuid.UUID
@@ -403,6 +408,8 @@ class RackEquipmentInstance(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
+    signal_label: Optional[str] = None
+    parent_equipment_instance_id: Optional[uuid.UUID] = None
     # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
@@ -411,8 +418,22 @@ class RackEquipmentInstanceCreate(BaseModel):
     ru_position: int
     instance_name: Optional[str] = None
     rack_side: Optional[str] = None
+    signal_label: Optional[str] = None
+    parent_equipment_instance_id: Optional[uuid.UUID] = None
     # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
+
+class PanelInstanceCreate(BaseModel):
+    template_id: uuid.UUID
+    ru_position: int
+    rack_side: str
+
+class ModuleInstanceCreate(BaseModel):
+    template_id: uuid.UUID
+    slot_name: str
+
+class SignalLabelUpdate(BaseModel):
+    signal_label: Optional[str] = None
 
 class EquipmentInstanceCreate(BaseModel):
     equipment_template_id: uuid.UUID
@@ -430,6 +451,7 @@ class RackEquipmentInstanceUpdate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
+    signal_label: Optional[str] = None
     # FIX: Keys MUST be strings
     module_assignments: Optional[Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]]] = None
 
@@ -444,6 +466,8 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     x_pos: Optional[int] = None
     y_pos: Optional[int] = None
     page_number: Optional[int] = 1
+    signal_label: Optional[str] = None
+    parent_equipment_instance_id: Optional[uuid.UUID] = None
     # FIX: Keys MUST be strings
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
     equipment_templates: Optional[EquipmentTemplate] = None
@@ -537,6 +561,8 @@ class EquipmentTemplateUpdate(BaseModel):
     is_adapter: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
+    is_patch_panel: Optional[bool] = None
+    screw_type: Optional[str] = None
     
 class UserEquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
@@ -550,6 +576,8 @@ class UserEquipmentTemplateUpdate(BaseModel):
     is_module: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
+    is_patch_panel: Optional[bool] = None
+    screw_type: Optional[str] = None
 
 class EquipmentCopy(BaseModel):
     template_id: uuid.UUID

@@ -1,10 +1,29 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { api } from '../api/api';
 import InputField from './InputField';
 import ToggleSwitch from './ToggleSwitch';
 import FolderOptions from './FolderOptions';
 import { Plus, Trash2 } from 'lucide-react';
 
 const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = false }) => {
+    const [moduleTemplates, setModuleTemplates] = useState([]);
+
+    useEffect(() => {
+        const fetchModules = async () => {
+            try {
+                // Fetch both admin and user libraries to get all possible modules
+                const adminLib = await api.getAdminLibrary();
+                const userLib = await api.getLibrary();
+                const allEquipment = [...(adminLib.equipment || []), ...(userLib.equipment || [])];
+                const modules = allEquipment.filter(e => e.is_module);
+                setModuleTemplates(modules);
+            } catch (error) {
+                console.error("Failed to fetch module templates:", error);
+            }
+        };
+        fetchModules();
+    }, []);
+
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         const newValue = type === 'checkbox' ? checked : value;
@@ -113,7 +132,22 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                         onChange={handleChange}
                     />
                 </div>
+                <div className="flex items-center justify-between">
+                    <label htmlFor="is_patch_panel" className="block text-sm font-medium text-gray-300">
+                        Is Patch Panel
+                    </label>
+                    <ToggleSwitch
+                        id="is_patch_panel"
+                        name="is_patch_panel"
+                        checked={formData.is_patch_panel}
+                        onChange={handleChange}
+                    />
+                </div>
             </div>
+
+            {formData.is_patch_panel && (
+                 <InputField label="Screw Type (Optional)" name="screw_type" value={formData.screw_type || ''} onChange={handleChange} placeholder="e.g., 10-32 Rack Screw" />
+            )}
 
             {folderTree && (
                 <div className="mt-4">
@@ -125,33 +159,46 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                 </div>
             )}
 
-            <div className="border-t border-gray-700 pt-4 mt-4">
-                <h3 className="text-md font-bold text-white mb-2">Slots Configuration</h3>
-                <div className="space-y-2">
-                    {(formData.slots || []).map((slot, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                            <InputField
-                                placeholder={`Slot ${index + 1} Name`}
-                                value={slot.name}
-                                onChange={(e) => handleSlotChange(index, 'name', e.target.value)}
-                                className="w-1/2"
-                            />
-                            <InputField
-                                placeholder="Accepted Module Type"
-                                value={slot.accepted_module_type || ''}
-                                onChange={(e) => handleSlotChange(index, 'accepted_module_type', e.target.value)}
-                                className="w-1/2"
-                            />
-                            <button type="button" onClick={() => removeSlot(index)} className="p-2 text-gray-400 hover:text-red-500 flex-shrink-0">
-                                <Trash2 size={18} />
-                            </button>
-                        </div>
-                    ))}
+            {formData.is_patch_panel && (
+                <div className="border-t border-gray-700 pt-4 mt-4">
+                    <h3 className="text-md font-bold text-white mb-2">Slots Configuration</h3>
+                    <div className="space-y-2">
+                        {(formData.slots || []).map((slot, index) => (
+                            <div key={index} className="grid grid-cols-3 items-center gap-2">
+                                <InputField
+                                    placeholder={`Slot ${index + 1} Name`}
+                                    value={slot.name}
+                                    onChange={(e) => handleSlotChange(index, 'name', e.target.value)}
+                                />
+                                <InputField
+                                    placeholder="Accepted Module Type"
+                                    value={slot.accepted_module_type || ''}
+                                    onChange={(e) => handleSlotChange(index, 'accepted_module_type', e.target.value)}
+                                />
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={slot.default_module_id || ''}
+                                        onChange={(e) => handleSlotChange(index, 'default_module_id', e.target.value || null)}
+                                        className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-sm"
+                                    >
+                                        <option value="">No Default</option>
+                                        {moduleTemplates
+                                            .filter(m => !slot.accepted_module_type || m.module_type === slot.accepted_module_type)
+                                            .map(m => <option key={m.id} value={m.id}>{m.model_number}</option>)
+                                        }
+                                    </select>
+                                    <button type="button" onClick={() => removeSlot(index)} className="p-2 text-gray-400 hover:text-red-500 flex-shrink-0">
+                                        <Trash2 size={18} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <button onClick={addSlot} type="button" className="mt-2 flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
+                        <Plus size={16} /> Add Slot
+                    </button>
                 </div>
-                <button onClick={addSlot} type="button" className="mt-2 flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
-                    <Plus size={16} /> Add Slot
-                </button>
-            </div>
+            )}
         </>
     );
 };

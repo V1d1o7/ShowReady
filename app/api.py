@@ -21,8 +21,8 @@ from .models import (
     Connection, ConnectionCreate, ConnectionUpdate, PortTemplate, EquipmentInstanceCreate,
     FolderUpdate, EquipmentTemplateUpdate, EquipmentCopy, RackLoad,
     UserFolderUpdate, UserEquipmentTemplateUpdate, WireDiagramPDFPayload, RackEquipmentInstanceWithTemplate,
-    SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload,
-    Loom, LoomCreate, LoomUpdate, LoomWithCables,
+    SenderIdentity, SenderIdentityCreate, SenderIdentityPublic, RackPDFPayload, PanelInstanceCreate, ModuleInstanceCreate,
+    Loom, LoomCreate, LoomUpdate, LoomWithCables, SignalLabelUpdate,
     Cable, CableCreate, CableUpdate, BulkCableUpdate, LoomBuilderPDFPayload,
     ImpersonateRequest, Token, UserRolesUpdate, User, UserTierUpdate, UserEntitlementUpdate,
     TierLimitUpdate
@@ -1614,16 +1614,29 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     
     rack_data = response.data[0]
     
-    # 2. Get all equipment instances for the rack
-    equipment_response = supabase.table('rack_equipment_instances').select('*').eq('rack_id', str(rack_id)).execute()
-    equipment_instances = equipment_response.data if equipment_response.data else []
-    
-    if not equipment_instances:
+    # 2. Get all equipment instances for the rack, including children
+    equipment_response = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('rack_id', str(rack_id)).execute()
+    all_instances = equipment_response.data if equipment_response.data else []
+
+    if not all_instances:
         rack_data['equipment'] = []
         return rack_data
+
+    # 3. Build the hierarchy
+    instance_map = {item['id']: item for item in all_instances}
+    top_level_instances = []
+    for item in all_instances:
+        item['children'] = [] # Add a children list to each item
+        parent_id = item.get('parent_equipment_instance_id')
+        if parent_id and parent_id in instance_map:
+            instance_map[parent_id]['children'].append(item)
+        else:
+            top_level_instances.append(item)
+
+    equipment_instances = top_level_instances
         
     # 3. Get unique template IDs
-    template_ids = list(set(item['template_id'] for item in equipment_instances))
+    template_ids = list(set(item['template_id'] for item in all_instances))
     
     # 4. Query for all needed templates
     templates_response = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
@@ -1649,113 +1662,63 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     return rack_data
 
 # --- Recursive Port Collection Helper ---
-def collect_recursive_ports(assignments, parent_template, module_template_map, prefix=""):
+def collect_recursive_ports_for_panels(parent_instance, children_map, template_map, prefix=""):
     """
-    Recursively collects ports from a tree of module assignments.
+    Recursively collects ports from a tree of panel/module instances.
     """
-    print(f"\n--- DEBUG: START collect_recursive_ports ---", flush=True)
-    
     ports = []
-    if not assignments:
-        print("DEBUG: No assignments found. Returning empty ports.", flush=True)
+    parent_template = template_map.get(parent_instance['template_id'])
+    if not parent_template:
         return ports
+
+    # Get children for this parent
+    children = children_map.get(parent_instance['id'], [])
     
-    # Safe slot getter
-    parent_slots = parent_template.get('slots') or []
-    
-    # Map slot keys to names for lookup
-    slot_map = {}
-    for s in parent_slots:
-        s_id = str(s.get('id'))
-        if s_id: slot_map[s_id] = s.get('name')
-        if s.get('name'): slot_map[s.get('name')] = s.get('name')
+    # Create a map of slot_name -> child_instance for this parent
+    assignments = parent_instance.get('module_assignments', {}) or {}
+    child_by_slot = {}
+    for slot_name, child_id in assignments.items():
+        child = next((c for c in children if c['id'] == child_id), None)
+        if child:
+            child_by_slot[slot_name] = child
 
-    # [FIX 1] FORCE ORDER: Iterate through the Template's Slot Definition
-    sorted_items = []
-    
-    # 1. Add assignments that match defined slots (in order)
-    if parent_slots:
-        for slot_def in parent_slots:
-            s_id = str(slot_def.get('id'))
-            s_name = slot_def.get('name')
-            
-            # Check if this slot ID exists in our assignments
-            if s_id and s_id in assignments:
-                sorted_items.append((s_id, assignments[s_id]))
-            # Fallback: Check if the slot Name exists in assignments (legacy)
-            elif s_name and s_name in assignments:
-                 sorted_items.append((s_name, assignments[s_name]))
-
-    # 2. Catch-all: Add remaining assignments (orphans)
-    processed_keys = set(k for k, v in sorted_items)
-    for k, v in assignments.items():
-        if k not in processed_keys:
-            print(f"DEBUG: Found orphan assignment (not in slot def): {k}", flush=True)
-            sorted_items.append((k, v))
-
-
-    # Iterate through Sorted list
-    for slot_key, val in sorted_items:
-        if not val: continue
+    # Iterate through the parent's defined slots to maintain order
+    for slot_def in parent_template.get('slots', []):
+        slot_name = slot_def['name']
+        child_instance = child_by_slot.get(slot_name)
         
-        # Normalize the assignment value
-        if isinstance(val, dict):
-            module_id = val.get('id')
-            sub_assignments = val.get('assignments', {})
-        else:
-            module_id = val
-            sub_assignments = {}
-            
-        if not module_id: continue
-        
-        # Retrieve the module's template
-        # Ensure we look up by string key, as template map keys are likely strings
-        module_template = module_template_map.get(str(module_id))
-        
-        if not module_template: 
-            print(f"DEBUG: CRITICAL - Module Template not found for ID: {module_id}", flush=True)
+        if not child_instance:
             continue
+            
+        child_template = template_map.get(child_instance['template_id'])
+        if not child_template:
+            continue
+            
+        # Determine the label for this level
+        port_prefix = child_instance.get('signal_label')
+        if not port_prefix:
+            port_prefix = f"{prefix}{slot_name}" if not prefix else f"{prefix}.{slot_name}"
         
-        # Determine the Slot Name for the label
-        slot_name = slot_map.get(str(slot_key), str(slot_key))
+        # If the child has its own ports, it's a terminal module (like a connector)
+        if child_template.get('ports'):
+            for port in child_template['ports']:
+                new_port = port.copy()
+                # Use signal_label if available, otherwise construct from hierarchy
+                new_port['label'] = f"{port_prefix}: {port['label']}" if child_instance.get('signal_label') else f"{port_prefix}"
+                ports.append(new_port)
         
-        # Build prefix
-        current_label_prefix = f"{prefix}{slot_name}: " if prefix == "" else f"{prefix}{slot_name} > "
-        
-        # [FIX 2] Generate Unique, Valid UUIDs for Ports
-        mod_ports = module_template.get('ports') or []
-
-        for p in mod_ports:
-            new_port = p.copy()
-            
-            # Create a composite string unique to this Slot + Port
-            composite_key = f"{slot_key}_{p['id']}"
-            
-            # Generate a DETERMINISTIC UUID (UUIDv5).
-            # This satisfies Pydantic's UUID requirement AND ensures uniqueness.
-            try:
-                new_id = uuid.uuid5(uuid.NAMESPACE_OID, composite_key)
-                new_port['id'] = new_id
-            except Exception as e:
-                print(f"DEBUG: ERROR generating UUID for port: {e}", flush=True)
-            
-            new_port['label'] = f"{current_label_prefix}{p['label']}"
-            ports.append(new_port)
-            
-        # 2. Recurse into sub-assignments if this module has slots
-        mod_slots = module_template.get('slots') or []
-        if sub_assignments and mod_slots:
-            print(f"DEBUG: Recursing into sub-modules for {slot_name}...", flush=True)
+        # If the child has slots, it's a sub-panel (like a UCP plate), so recurse
+        if child_template.get('slots'):
             ports.extend(
-                collect_recursive_ports(sub_assignments, module_template, module_template_map, current_label_prefix)
+                collect_recursive_ports_for_panels(child_instance, children_map, template_map, prefix=f"{port_prefix}.")
             )
             
     return ports
 
+
 @router.get("/shows/{show_id}/detailed_racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
 async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get all racks for the show
-    # FIX: Remove user_id filter
     racks_res = supabase.table('racks').select('*').eq('show_id', show_id).execute()
     if not racks_res.data:
         return []
@@ -1763,88 +1726,71 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
     racks = racks_res.data
     rack_ids = [rack['id'] for rack in racks]
     
-    # 2. Get all equipment instances for all racks in one query
-    equipment_res = supabase.table('rack_equipment_instances').select('*').in_('rack_id', rack_ids).execute()
-    equipment_instances = equipment_res.data if equipment_res.data else []
+    # 2. Get ALL equipment instances for the show's racks at once
+    all_instances_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).execute()
+    all_instances = all_instances_res.data or []
     
-    if not equipment_instances:
-        for rack in racks:
-            rack['equipment'] = []
-        return racks
+    # 3. Separate top-level items from children and build maps
+    top_level_equipment = []
+    children_map = {} # parent_id -> [child_instance, ...]
+    instance_map = {} # instance_id -> instance
+    template_map = {} # template_id -> template
 
-    # 3. Get all unique template IDs from the equipment
-    template_ids = list(set(item['template_id'] for item in equipment_instances))
+    for instance in all_instances:
+        instance_map[instance['id']] = instance
+        if instance.get('equipment_templates'):
+            template_map[instance['template_id']] = instance['equipment_templates']
+        
+        parent_id = instance.get('parent_equipment_instance_id')
+        if parent_id:
+            if parent_id not in children_map:
+                children_map[parent_id] = []
+            children_map[parent_id].append(instance)
+        else:
+            top_level_equipment.append(instance)
     
-    # 4. Get all needed equipment templates
-    templates_res = supabase.table('equipment_templates').select('*').in_('id', template_ids).execute()
-    template_map = {template['id']: template for template in templates_res.data}
-    
-    # 5. Get all module templates for assignments (Recursively)
-    def get_all_module_ids(assignments):
-        ids = []
-        if not assignments: return ids
-        for val in assignments.values():
-            if not val: continue
-            if isinstance(val, dict):
-                ids.append(val.get('id'))
-                if val.get('assignments'):
-                    ids.extend(get_all_module_ids(val['assignments']))
-            else:
-                ids.append(val)
-        return ids
-
-    all_assigned_module_ids = []
-    for instance in equipment_instances:
-        if instance.get('module_assignments'):
-            all_assigned_module_ids.extend(get_all_module_ids(instance['module_assignments']))
-    
-    unique_module_ids = list(set(str(mid) for mid in all_assigned_module_ids if mid))
-    
-    module_templates_res = supabase.table('equipment_templates').select('*').in_('id', unique_module_ids).execute()
-    module_template_map = {mod['id']: mod for mod in module_templates_res.data}
-
-    # 6. Attach templates to their instances and aggregate module ports RECURSIVELY
-    for instance in equipment_instances:
+    # 4. Process top-level items, aggregating ports for patch panels
+    for instance in top_level_equipment:
         template = template_map.get(instance['template_id'])
         if not template:
-            instance['equipment_templates'] = None
             continue
 
-        # Start with the main chassis ports
-        aggregated_ports = list(template.get('ports', []))
-        
-        # Recursively collect ports from all nested modules
-        if instance.get('module_assignments'):
-            module_ports = collect_recursive_ports(
-                instance['module_assignments'], 
-                template, 
-                module_template_map
+        if template.get('is_patch_panel'):
+            # This is a patch panel, so we need to aggregate its ports
+            aggregated_ports = list(template.get('ports', [])) # Start with own ports if any
+            
+            # Recursively collect ports from all nested modules
+            module_ports = collect_recursive_ports_for_panels(
+                instance, 
+                children_map,
+                template_map
             )
             aggregated_ports.extend(module_ports)
-        
-        # Assign the modified port list to this specific instance's template copy
-        instance_template = template.copy()
-        instance_template['ports'] = aggregated_ports
-        instance['equipment_templates'] = instance_template
-        
-    # 7. Create a map of rack_id to its equipment
+            
+            # Create a mutable copy of the template to store the aggregated ports
+            instance_template = template.copy()
+            instance_template['ports'] = aggregated_ports
+            instance['equipment_templates'] = instance_template
+        # Non-panel equipment is processed as before (no changes needed)
+
+    # 5. Group processed equipment by rack
     rack_equipment_map = {}
-    for instance in equipment_instances:
+    for instance in top_level_equipment:
         rack_id = instance['rack_id']
         if rack_id not in rack_equipment_map:
             rack_equipment_map[rack_id] = []
         rack_equipment_map[rack_id].append(instance)
-        
-    # 8. Fetch notes
+
+    # 6. Fetch notes and assemble the final rack objects
+    all_instance_ids = [str(inst['id']) for inst in all_instances]
+    
     rack_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').in_('parent_entity_id', rack_ids).execute()
     racks_with_notes = {note['parent_entity_id'] for note in rack_notes_res.data}
 
-    equipment_ids = [str(instance['id']) for instance in equipment_instances]
-    equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', equipment_ids).execute()
+    equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', all_instance_ids).execute()
     equipment_with_notes = {note['parent_entity_id'] for note in equipment_notes_res.data}
 
-    # 9. Attach notes status
-    for instance in equipment_instances:
+    for instance in all_instances:
         instance['has_notes'] = str(instance['id']) in equipment_with_notes
         
     for rack in racks:
@@ -2129,6 +2075,272 @@ async def add_equipment_to_rack(
             return final_instance_res.data
 
     raise HTTPException(status_code=500, detail="Failed to add equipment to rack.")
+
+@router.post("/racks/{rack_id}/panel-instances", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
+async def add_panel_to_rack(
+    rack_id: uuid.UUID, 
+    panel_data: PanelInstanceCreate, 
+    user=Depends(get_user), 
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Adds a pre-configured patch panel to a rack, recursively creating all of its
+    child components (plates, connectors) as defined in the template.
+    """
+    try:
+        # 1. Fetch rack and template data
+        rack_res = supabase.table('racks').select('id, show_id').eq('id', str(rack_id)).single().execute()
+        if not rack_res.data:
+            raise HTTPException(status_code=404, detail="Rack not found")
+
+        show_id = rack_res.data['show_id']
+        template_res = supabase.table('equipment_templates').select('*, folders(nomenclature_prefix)').eq('id', str(panel_data.template_id)).single().execute()
+        if not template_res.data:
+            raise HTTPException(status_code=404, detail="Panel template not found")
+        
+        panel_template = template_res.data
+        if not panel_template.get('is_patch_panel'):
+            raise HTTPException(status_code=400, detail="The provided template is not a patch panel.")
+
+        # 2. Determine nomenclature for the main panel frame
+        all_show_equipment_res = supabase.table('rack_equipment_instances').select('instance_name').eq('racks.show_id', show_id).execute()
+        all_show_equipment = all_show_equipment_res.data or []
+
+        prefix = panel_template.get('folders', {}).get('nomenclature_prefix') or 'PNL'
+        highest_num = 0
+        for item in all_show_equipment:
+            if item['instance_name'].startswith(prefix + "-"):
+                try:
+                    num = int(item['instance_name'].split('-')[-1])
+                    if num > highest_num:
+                        highest_num = num
+                except (ValueError, IndexError):
+                    continue
+        
+        panel_instance_name = f"{prefix}-{(highest_num + 1):02}"
+
+        # 3. Create the main panel frame instance
+        panel_instance_data = {
+            "rack_id": str(rack_id),
+            "template_id": str(panel_data.template_id),
+            "ru_position": panel_data.ru_position,
+            "rack_side": panel_data.rack_side,
+            "instance_name": panel_instance_name,
+        }
+        panel_instance_res = supabase.table('rack_equipment_instances').insert(panel_instance_data).execute()
+        if not panel_instance_res.data:
+            raise HTTPException(status_code=500, "Failed to create panel frame instance.")
+        
+        panel_instance = panel_instance_res.data[0]
+        panel_instance_id = panel_instance['id']
+        
+        # 4. Recursive function to create children
+        module_assignments = {}
+        
+        async def create_children(parent_instance_id, parent_template):
+            child_assignments = {}
+            if 'slots' not in parent_template or not parent_template['slots']:
+                return child_assignments
+
+            child_templates_to_fetch = []
+            for slot in parent_template['slots']:
+                if slot.get('default_module_id'):
+                    child_templates_to_fetch.append(str(slot['default_module_id']))
+            
+            if not child_templates_to_fetch:
+                return child_assignments
+
+            child_templates_res = supabase.table('equipment_templates').select('*').in_('id', child_templates_to_fetch).execute()
+            child_template_map = {str(t['id']): t for t in child_templates_res.data}
+
+            for slot in parent_template['slots']:
+                child_template_id = slot.get('default_module_id')
+                if not child_template_id:
+                    continue
+
+                child_template = child_template_map.get(str(child_template_id))
+                if not child_template:
+                    continue
+                
+                # Create the child instance
+                child_instance_data = {
+                    "rack_id": str(rack_id),
+                    "template_id": str(child_template_id),
+                    "ru_position": panel_data.ru_position,
+                    "instance_name": child_template.get('model_number', 'Module'),
+                    "parent_equipment_instance_id": parent_instance_id,
+                }
+                child_instance_res = supabase.table('rack_equipment_instances').insert(child_instance_data).execute()
+                
+                if child_instance_res.data:
+                    child_instance = child_instance_res.data[0]
+                    child_assignments[slot['name']] = str(child_instance['id'])
+                    
+                    # Recurse if the child is also a panel/plate with slots
+                    if child_template.get('is_patch_panel') and child_template.get('slots'):
+                        sub_assignments = await create_children(child_instance['id'], child_template)
+                        # Update the child instance with its own module assignments
+                        supabase.table('rack_equipment_instances').update({'module_assignments': sub_assignments}).eq('id', child_instance['id']).execute()
+
+            return child_assignments
+
+        # 5. Start the recursive creation and update the main panel
+        module_assignments = await create_children(panel_instance_id, panel_template)
+        
+        update_res = supabase.table('rack_equipment_instances').update({'module_assignments': module_assignments}).eq('id', panel_instance_id).execute()
+        if not update_res.data:
+            # Clean up if the final update fails
+            supabase.table('rack_equipment_instances').delete().eq('id', panel_instance_id).execute()
+            raise HTTPException(status_code=500, "Failed to link modules to panel frame.")
+
+        # 6. Re-fetch the complete instance for the response
+        final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', panel_instance_id).single().execute()
+        if not final_instance_res.data:
+            raise HTTPException(status_code=404, "Could not retrieve the created panel instance.")
+            
+        return final_instance_res.data
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {str(e)}")
+
+@router.post("/equipment-instances/{target_instance_id}/modules", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
+async def add_module_to_instance(
+    target_instance_id: uuid.UUID,
+    module_data: ModuleInstanceCreate,
+    user: User = Depends(get_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Adds a module (connector, plate) to a slot in a parent equipment instance."""
+    try:
+        # 1. Fetch parent instance and its template
+        parent_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(target_instance_id)).single().execute()
+        if not parent_res.data:
+            raise HTTPException(status_code=404, detail="Parent equipment instance not found.")
+        parent_instance = parent_res.data
+        parent_template = parent_instance.get('equipment_templates')
+        if not parent_template or not parent_template.get('is_patch_panel'):
+            raise HTTPException(status_code=400, detail="Parent is not a valid patch panel or plate.")
+
+        # 2. Fetch module template
+        module_template_res = supabase.table('equipment_templates').select('*').eq('id', str(module_data.template_id)).single().execute()
+        if not module_template_res.data:
+            raise HTTPException(status_code=404, detail="Module template not found.")
+        module_template = module_template_res.data
+
+        # 3. Validate the slot
+        target_slot = next((s for s in parent_template.get('slots', []) if s['name'] == module_data.slot_name), None)
+        if not target_slot:
+            raise HTTPException(status_code=400, detail=f"Slot '{module_data.slot_name}' not found on parent device.")
+        
+        if target_slot.get('accepted_module_type') and target_slot['accepted_module_type'] != module_template.get('module_type'):
+            raise HTTPException(status_code=400, detail="Module type is not compatible with this slot.")
+
+        # 4. Create the new module instance
+        module_instance_data = {
+            "rack_id": parent_instance['rack_id'],
+            "template_id": str(module_data.template_id),
+            "ru_position": parent_instance['ru_position'],
+            "instance_name": module_template.get('model_number', 'Module'),
+            "parent_equipment_instance_id": str(target_instance_id),
+        }
+        module_instance_res = supabase.table('rack_equipment_instances').insert(module_instance_data).execute()
+        if not module_instance_res.data:
+            raise HTTPException(status_code=500, detail="Failed to create module instance.")
+        new_module_instance = module_instance_res.data[0]
+
+        # 5. Update parent's module_assignments
+        current_assignments = parent_instance.get('module_assignments') or {}
+        current_assignments[module_data.slot_name] = str(new_module_instance['id'])
+        
+        update_res = supabase.table('rack_equipment_instances').update({'module_assignments': current_assignments}).eq('id', str(target_instance_id)).execute()
+        if not update_res.data:
+            # Rollback if update fails
+            supabase.table('rack_equipment_instances').delete().eq('id', str(new_module_instance['id'])).execute()
+            raise HTTPException(status_code=500, detail="Failed to assign module to parent.")
+
+        # 6. Return the full new instance
+        new_module_instance['equipment_templates'] = module_template
+        return new_module_instance
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@router.put("/equipment-instances/{instance_id}/signal-label", response_model=RackEquipmentInstanceWithTemplate, tags=["Racks"])
+async def update_signal_label(
+    instance_id: uuid.UUID,
+    payload: SignalLabelUpdate,
+    user: User = Depends(get_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Updates the signal label for a specific equipment instance."""
+    try:
+        # Verify the instance exists and user has access (implicitly through RLS)
+        instance_res = supabase.table('rack_equipment_instances').select('id').eq('id', str(instance_id)).single().execute()
+        if not instance_res.data:
+            raise HTTPException(status_code=404, detail="Equipment instance not found.")
+
+        # Update the signal_label
+        update_res = supabase.table('rack_equipment_instances').update({'signal_label': payload.signal_label}).eq('id', str(instance_id)).execute()
+        if not update_res.data:
+            raise HTTPException(status_code=500, detail="Failed to update signal label.")
+        
+        # Return the full, updated object
+        final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', str(instance_id)).single().execute()
+        if not final_instance_res.data:
+             raise HTTPException(status_code=404, detail="Could not retrieve updated instance.")
+
+        return final_instance_res.data
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/equipment-instances/{instance_id}", status_code=204, tags=["Racks"])
+async def remove_module_instance(
+    instance_id: uuid.UUID,
+    user: User = Depends(get_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """
+    Deletes a module instance. This will also trigger a CASCADE delete for any
+    nested children and will automatically clean up the parent's assignment.
+    """
+    try:
+        # 1. Fetch the instance to find its parent
+        instance_res = supabase.table('rack_equipment_instances').select('id, parent_equipment_instance_id').eq('id', str(instance_id)).single().execute()
+        if not instance_res.data:
+            # If it's already gone, we're good.
+            return
+
+        instance = instance_res.data
+        parent_id = instance.get('parent_equipment_instance_id')
+
+        # 2. If it has a parent, clean up the assignment
+        if parent_id:
+            parent_res = supabase.table('rack_equipment_instances').select('id, module_assignments').eq('id', str(parent_id)).single().execute()
+            if parent_res.data:
+                parent = parent_res.data
+                assignments = parent.get('module_assignments') or {}
+                
+                # Find which slot key holds this module's ID and remove it
+                key_to_remove = None
+                for key, value in assignments.items():
+                    if str(value) == str(instance_id):
+                        key_to_remove = key
+                        break
+                
+                if key_to_remove:
+                    del assignments[key_to_remove]
+                    supabase.table('rack_equipment_instances').update({'module_assignments': assignments}).eq('id', str(parent_id)).execute()
+
+        # 3. Delete the instance itself (CASCADE will handle children)
+        supabase.table('rack_equipment_instances').delete().eq('id', str(instance_id)).execute()
+
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to remove module instance: {str(e)}")
+
 
 @router.get("/racks/equipment/{instance_id}", response_model=RackEquipmentInstance, tags=["Racks"])
 async def get_equipment_instance(instance_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):

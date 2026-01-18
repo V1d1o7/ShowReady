@@ -17,7 +17,9 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         is_module: false,
         is_adapter: false,
         module_type: '',
-        slots: []
+        slots: [],
+        is_patch_panel: false,
+        screw_type: ''
     };
     const [formData, setFormData] = useState(initialFormState);
     const [ports, setPorts] = useState([]);

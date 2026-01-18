@@ -42,7 +42,9 @@ const EditUserEquipmentModal = ({ isOpen, onClose, onSubmit, equipment, userFold
                 is_module: equipment.is_module || false,
                 is_adapter: equipment.is_adapter || false,
                 module_type: equipment.module_type || '',
-                slots: equipment.slots || []
+                slots: equipment.slots || [],
+                is_patch_panel: equipment.is_patch_panel || false,
+                screw_type: equipment.screw_type || ''
             });
             setPorts(equipment.ports || []);
         }
