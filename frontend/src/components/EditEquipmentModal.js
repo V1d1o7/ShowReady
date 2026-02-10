@@ -42,6 +42,8 @@ const EditEquipmentModal = ({ isOpen, onClose, onSubmit, equipment }) => {
                 is_adapter: equipment.is_adapter || false,
                 module_type: equipment.module_type || '',
                 slots: equipment.slots || [],
+                // Initialize has_slots based on existing slots
+                has_slots: (equipment.slots && equipment.slots.length > 0) || false,
                 is_patch_panel: equipment.is_patch_panel || false,
                 screw_type: equipment.screw_type || ''
             });

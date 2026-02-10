@@ -3,8 +3,9 @@ import { Trash2, Edit, MessageSquare, Settings } from 'lucide-react';
 import toast from 'react-hot-toast';
 import EditInstanceModal from './EditInstanceModal';
 import PanelConfigurationModal from './PanelConfigurationModal';
+import ConfigureModulesModal from './ConfigureModulesModal';
 
-const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNotes }) => {
+const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNotes, equipmentLibrary }) => {
     const [isDragging, setIsDragging] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isConfigureModalOpen, setIsConfigureModalOpen] = useState(false);
@@ -85,6 +86,10 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
     })();
 
     const isPatchPanel = template.is_patch_panel;
+    // Check if it has slots, even if it's not a patch panel
+    const hasSlots = template.slots && template.slots.length > 0;
+    const canConfigure = isPatchPanel || hasSlots;
+    
     const totalModuleCount = item.children ? item.children.length : 0;
 
     return (
@@ -119,7 +124,7 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                         </div>
                     )}
                     
-                    {isPatchPanel && (
+                    {canConfigure && (
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsConfigureModalOpen(true); }}
                             className={`p-1 transition-opacity opacity-0 group-hover:opacity-100 relative ${totalModuleCount > 0 ? 'text-green-400' : 'text-gray-300 hover:text-green-400'}`}
@@ -144,13 +149,24 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
             
             <EditInstanceModal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} onSubmit={handleUpdate} item={item} />
             
-            {isPatchPanel && (
-                <PanelConfigurationModal
-                    isOpen={isConfigureModalOpen}
-                    onClose={() => setIsConfigureModalOpen(false)}
-                    chassisInstance={item}
-                    onSave={onUpdate}
-                />
+            {isConfigureModalOpen && (
+                isPatchPanel ? (
+                    <PanelConfigurationModal
+                        isOpen={true}
+                        onClose={() => setIsConfigureModalOpen(false)}
+                        chassisInstance={item}
+                        onSave={onUpdate}
+                        equipmentLibrary={equipmentLibrary}
+                    />
+                ) : (
+                    <ConfigureModulesModal
+                        isOpen={true}
+                        onClose={() => setIsConfigureModalOpen(false)}
+                        chassisInstance={item}
+                        onSave={onUpdate}
+                        equipmentLibrary={equipmentLibrary}
+                    />
+                )
             )}
         </>
     );

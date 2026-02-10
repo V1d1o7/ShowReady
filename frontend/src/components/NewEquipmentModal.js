@@ -18,6 +18,7 @@ const NewEquipmentModal = ({ isOpen, onClose, onSubmit, folderTree }) => {
         is_adapter: false,
         module_type: '',
         slots: [],
+        has_slots: false, // Initial state for the toggle
         is_patch_panel: false,
         screw_type: ''
     };

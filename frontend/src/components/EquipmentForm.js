@@ -143,6 +143,18 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                         onChange={handleChange}
                     />
                 </div>
+                {/* Has Slots / Modules Toggle */}
+                <div className="flex items-center justify-between">
+                    <label htmlFor="has_slots" className="block text-sm font-medium text-gray-300">
+                        Has Slots / Modules
+                    </label>
+                    <ToggleSwitch
+                        id="has_slots"
+                        name="has_slots"
+                        checked={formData.has_slots} 
+                        onChange={(e) => onFormChange({ ...formData, has_slots: e.target.checked })}
+                    />
+                </div>
             </div>
 
             {formData.is_patch_panel && (
@@ -159,7 +171,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                 </div>
             )}
 
-            {formData.is_patch_panel && (
+            {(formData.is_patch_panel || formData.has_slots) && (
                 <div className="border-t border-gray-700 pt-4 mt-4">
                     <h3 className="text-md font-bold text-white mb-2">Slots Configuration</h3>
                     <div className="space-y-2">

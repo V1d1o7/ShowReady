@@ -66,11 +66,30 @@ const RackBuilderView = () => {
             if (!showId) return;
             setIsLoading(true);
             try {
-                const [fullLibrary, racksData] = await Promise.all([
+                // Fetch both User library and Admin library to ensure we have ALL modules
+                const [userLib, adminLib, racksData] = await Promise.all([
                     api.getLibrary(),
+                    api.getAdminLibrary().catch(err => {
+                        console.warn("Could not fetch admin library", err);
+                        return { folders: [], equipment: [] };
+                    }),
                     api.getRacksForShow(showId)
                 ]);
-                setLibrary(fullLibrary || { folders: [], equipment: [] });
+
+                // Deduplicate and merge items (User overrides Admin if IDs conflict)
+                const equipmentMap = new Map();
+                if (adminLib?.equipment) adminLib.equipment.forEach(e => equipmentMap.set(e.id, e));
+                if (userLib?.equipment) userLib.equipment.forEach(e => equipmentMap.set(e.id, e));
+
+                const folderMap = new Map();
+                if (adminLib?.folders) adminLib.folders.forEach(f => folderMap.set(f.id, f));
+                if (userLib?.folders) userLib.folders.forEach(f => folderMap.set(f.id, f));
+
+                setLibrary({
+                    folders: Array.from(folderMap.values()),
+                    equipment: Array.from(equipmentMap.values())
+                });
+
                 setRacks(racksData);
                 if (racksData.length > 0 && !selectedRackId) {
                     setSelectedRackId(racksData[0].id);
@@ -277,7 +296,24 @@ const RackBuilderView = () => {
     const handleCreateUserEquipment = async (equipmentData) => {
         try {
             await api.createUserEquipment(equipmentData);
-            fetchData();
+            // Re-fetch merged library to ensure new item appears
+             const [userLib, adminLib] = await Promise.all([
+                api.getLibrary(),
+                api.getAdminLibrary().catch(() => ({ folders: [], equipment: [] }))
+            ]);
+            
+            const equipmentMap = new Map();
+            if (adminLib?.equipment) adminLib.equipment.forEach(e => equipmentMap.set(e.id, e));
+            if (userLib?.equipment) userLib.equipment.forEach(e => equipmentMap.set(e.id, e));
+
+            const folderMap = new Map();
+            if (adminLib?.folders) adminLib.folders.forEach(f => folderMap.set(f.id, f));
+            if (userLib?.folders) userLib.folders.forEach(f => folderMap.set(f.id, f));
+
+            setLibrary({
+                folders: Array.from(folderMap.values()),
+                equipment: Array.from(equipmentMap.values())
+            });
         } catch (error) {
             console.error("Failed to create user equipment:", error);
             toast.error(`Error: ${error.message}`);
@@ -341,7 +377,24 @@ const RackBuilderView = () => {
         if (!contextMenu) return;
         try {
             await api.copyEquipmentToLibrary({ template_id: contextMenu.item.id, folder_id: null });
-            fetchData();
+            // Re-fetch to update library view
+            const [userLib, adminLib] = await Promise.all([
+                api.getLibrary(),
+                api.getAdminLibrary().catch(() => ({ folders: [], equipment: [] }))
+            ]);
+             const equipmentMap = new Map();
+            if (adminLib?.equipment) adminLib.equipment.forEach(e => equipmentMap.set(e.id, e));
+            if (userLib?.equipment) userLib.equipment.forEach(e => equipmentMap.set(e.id, e));
+
+            const folderMap = new Map();
+            if (adminLib?.folders) adminLib.folders.forEach(f => folderMap.set(f.id, f));
+            if (userLib?.folders) userLib.folders.forEach(f => folderMap.set(f.id, f));
+
+            setLibrary({
+                folders: Array.from(folderMap.values()),
+                equipment: Array.from(equipmentMap.values())
+            });
+
             toast.success(`${contextMenu.item.model_number} copied to your library!`);
         } catch (error) {
             console.error("Failed to copy equipment:", error);

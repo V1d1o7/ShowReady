@@ -18,6 +18,7 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         is_adapter: false,
         module_type: '',
         slots: [],
+        has_slots: false, // Initial state for toggle
         is_patch_panel: false,
         screw_type: ''
     };
