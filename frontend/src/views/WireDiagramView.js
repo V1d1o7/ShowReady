@@ -90,10 +90,7 @@ const flattenNodePorts = (instance, libraryMap) => {
             if (!moduleId) return;
 
             const moduleTemplate = libraryMap.get(moduleId);
-            if (!moduleTemplate) {
-                console.warn(`Template not found for module ID: ${moduleId}`);
-                return;
-            }
+            if (!moduleTemplate) return;
 
             // Determine a readable slot name
             let slotName = slotMap[slotId];
@@ -200,14 +197,11 @@ const WireDiagramView = () => {
         setDraggingItem(equipmentWithZoom);
     };
 
-    // REMOVED 'fitView' from dependency array to prevent infinite loop
     const fetchData = useCallback(async () => {
         if (!showId) return;
         setIsLoading(true);
         setError(null);
         try {
-            console.group("WireDiagramView Debug: fetchData");
-            
             // 1. Fetch Show Data AND Library Data in parallel
             const [detailedRacks, connectionsData, libData] = await Promise.all([
                 api.getDetailedRacksForShow(showId),
@@ -253,9 +247,6 @@ const WireDiagramView = () => {
                 };
             });
             
-            console.log("Final Initial Nodes State (with Modules):", initialNodes);
-            console.groupEnd();
-
             setNodes(initialNodes);
 
             const nodePageMap = new Map(placedEquipment.map(eq => [eq.id.toString(), eq.page_number]));
@@ -294,12 +285,10 @@ const WireDiagramView = () => {
         }
 
         setTimeout(() => {
-            // We use fitView inside the callback, but we don't list it in deps
-            // to avoid instability causing loops.
             if (fitView) fitView({ padding: 0.1 });
         }, 100);
 
-    }, [showId, setNodes, setEdges]); // Removed fitView
+    }, [showId, setNodes, setEdges]); 
 
     const fetchUnassignedEquipment = useCallback(async () => {
         if (!showId) return;
@@ -316,8 +305,6 @@ const WireDiagramView = () => {
             fetchData();
             fetchUnassignedEquipment();
         }
-        // Removed fetchData and fetchUnassignedEquipment from dependency array
-        // to strictly fetch only when showId changes (or on mount)
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showId]);
 
