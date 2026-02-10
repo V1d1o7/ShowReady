@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
-import { Plus, Trash2, Mail, Check } from 'lucide-react';
+import { Plus, Trash2, Mail, Check, Edit } from 'lucide-react';
 import AddCrewFromRosterModal from '../components/AddCrewFromRosterModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EmailComposeModal from '../components/EmailComposeModal';
@@ -13,6 +13,7 @@ const ShowCrewView = () => {
     const [crew, setCrew] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [editingMember, setEditingMember] = useState(null); // New state for editing
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
     const [selectedCrewIds, setSelectedCrewIds] = useState([]);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -57,6 +58,16 @@ const ShowCrewView = () => {
         });
     };
 
+    const handleEdit = (member) => {
+        setEditingMember(member);
+        setIsAddModalOpen(true);
+    };
+
+    const handleModalClose = () => {
+        setIsAddModalOpen(false);
+        setEditingMember(null);
+    };
+
     const handleSelectAll = (e) => {
         if (e.target.checked) {
             setSelectedCrewIds(crew.map(c => c.roster.id));
@@ -71,9 +82,6 @@ const ShowCrewView = () => {
         );
     };
 
-    // --- FIX APPLIED HERE ---
-    // Previously: .map(c => c.roster) returned the roster object (ID = roster_id).
-    // Fixed: Removed .map() to return the crew object (ID = show_crew_id), which the backend requires.
     const selectedRecipients = useMemo(() => {
         return crew.filter(c => selectedCrewIds.includes(c.roster.id));
     }, [crew, selectedCrewIds]);
@@ -156,9 +164,22 @@ const ShowCrewView = () => {
                                         </td>
                                         <td className="px-3 py-4 text-sm text-gray-300">{member.roster.email}</td>
                                         <td className="py-4 pl-3 pr-4 text-right text-sm font-medium">
-                                            <button onClick={() => handleRemoveCrew(member)} className="text-gray-500 hover:text-red-500 transition-colors">
-                                                <Trash2 size={18} />
-                                            </button>
+                                            <div className="flex items-center justify-end gap-2">
+                                                <button 
+                                                    onClick={() => handleEdit(member)} 
+                                                    className="text-gray-500 hover:text-blue-400 transition-colors"
+                                                    title="Edit Details"
+                                                >
+                                                    <Edit size={18} />
+                                                </button>
+                                                <button 
+                                                    onClick={() => handleRemoveCrew(member)} 
+                                                    className="text-gray-500 hover:text-red-500 transition-colors"
+                                                    title="Remove Crew Member"
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -173,7 +194,13 @@ const ShowCrewView = () => {
                 )}
             </main>
 
-            <AddCrewFromRosterModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} onAdded={fetchCrew} showId={showId} />
+            <AddCrewFromRosterModal 
+                isOpen={isAddModalOpen} 
+                onClose={handleModalClose} 
+                onAdded={fetchCrew} 
+                showId={showId}
+                initialData={editingMember} 
+            />
             <EmailComposeModal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} recipients={selectedRecipients} category="CREW" showId={showId} />
             
             {confirmModal.isOpen && (

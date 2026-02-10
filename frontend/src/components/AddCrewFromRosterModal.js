@@ -3,7 +3,7 @@ import { api } from '../api/api';
 import { UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
+const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId, initialData }) => {
     // Mode: 'existing' or 'new'
     const [mode, setMode] = useState('existing');
 
@@ -23,12 +23,23 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
     const [isLoadingRoster, setIsLoadingRoster] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const isEditing = !!initialData;
+
     // Reset and Fetch when modal opens
     useEffect(() => {
         if (isOpen) {
-            setMode('existing');
-            resetForm();
-            fetchRoster();
+            if (isEditing) {
+                // Edit Mode: Pre-fill data
+                setPosition(initialData.position || '');
+                setRateType(initialData.rate_type || 'hourly');
+                const rateVal = initialData.rate_type === 'daily' ? initialData.daily_rate : initialData.hourly_rate;
+                setRate(rateVal || 0);
+            } else {
+                // Add Mode: Reset
+                setMode('existing');
+                resetForm();
+                fetchRoster();
+            }
             
             const handleEsc = (e) => {
                 if (e.key === 'Escape') onClose();
@@ -36,7 +47,7 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
             window.addEventListener('keydown', handleEsc);
             return () => window.removeEventListener('keydown', handleEsc);
         }
-    }, [isOpen]);
+    }, [isOpen, initialData, isEditing]);
 
     const resetForm = () => {
         setSelectedRosterId('');
@@ -63,42 +74,57 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
     const handleSubmit = async (e) => {
         if (e) e.preventDefault(); // Prevent default if triggered by form submit
 
-        if (mode === 'existing' && !selectedRosterId) return;
-        if (mode === 'new' && (!firstName || !lastName)) return;
+        if (!isEditing && mode === 'existing' && !selectedRosterId) return;
+        if (!isEditing && mode === 'new' && (!firstName || !lastName)) return;
         
         setIsSubmitting(true);
         try {
-            let targetRosterId = selectedRosterId;
-
-            // If creating new, first create the roster member
-            if (mode === 'new') {
-                const newMemberData = {
-                    first_name: firstName,
-                    last_name: lastName,
-                    email: email || null,
-                    position: position // Default position for roster
+            if (isEditing) {
+                // Update Existing Crew Member
+                const updateData = {
+                    position,
+                    rate_type: rateType,
+                    hourly_rate: rateType === 'hourly' ? parseFloat(rate) : 0,
+                    daily_rate: rateType === 'daily' ? parseFloat(rate) : 0,
                 };
-                const newMember = await api.createRosterMember(newMemberData);
-                targetRosterId = newMember.id;
+                
+                await api.updateShowCrewMember(initialData.id, updateData);
+                toast.success("Crew member updated successfully");
+
+            } else {
+                // Add Logic
+                let targetRosterId = selectedRosterId;
+
+                // If creating new, first create the roster member
+                if (mode === 'new') {
+                    const newMemberData = {
+                        first_name: firstName,
+                        last_name: lastName,
+                        email: email || null,
+                        position: position // Default position for roster
+                    };
+                    const newMember = await api.createRosterMember(newMemberData);
+                    targetRosterId = newMember.id;
+                }
+
+                // Prepare Rate Data
+                const rateData = {
+                    position,
+                    rate_type: rateType,
+                    hourly_rate: rateType === 'hourly' ? parseFloat(rate) : 0,
+                    daily_rate: rateType === 'daily' ? parseFloat(rate) : 0,
+                };
+
+                // Add to Show
+                await api.addCrewToShow(showId, targetRosterId, rateData);
+                toast.success("Crew member added successfully");
             }
-
-            // Prepare Rate Data
-            const rateData = {
-                position,
-                rate_type: rateType,
-                hourly_rate: rateType === 'hourly' ? parseFloat(rate) : 0,
-                daily_rate: rateType === 'daily' ? parseFloat(rate) : 0,
-            };
-
-            // Add to Show
-            await api.addCrewToShow(showId, targetRosterId, rateData);
             
-            toast.success("Crew member added successfully");
             if (onAdded) onAdded();
             onClose();
         } catch (error) {
-            console.error("Failed to add crew member:", error);
-            toast.error(`Failed to add crew member: ${error.message}`);
+            console.error("Failed to save crew member:", error);
+            toast.error(`Failed to save crew member: ${error.message}`);
         } finally {
             setIsSubmitting(false);
         }
@@ -115,36 +141,48 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
                 className="bg-gray-800 rounded-lg p-6 w-full max-w-md shadow-xl border border-gray-700"
                 onClick={(e) => e.stopPropagation()} // Prevent close when clicking inside
             >
-                {/* Header with Mode Toggle */}
+                {/* Header */}
                 <div className="flex items-center justify-between mb-6">
                     <h3 className="text-xl font-bold text-white">
-                        {mode === 'existing' ? 'Add Crew from Roster' : 'Create New Crew Member'}
+                        {isEditing ? 'Edit Crew Member' : (mode === 'existing' ? 'Add Crew from Roster' : 'Create New Crew Member')}
                     </h3>
                 </div>
 
-                {/* Mode Tabs */}
-                <div className="flex bg-gray-700 rounded-lg p-1 mb-6">
-                    <button
-                        onClick={() => setMode('existing')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
-                            mode === 'existing' ? 'bg-gray-600 text-white shadow' : 'text-gray-400 hover:text-white'
-                        }`}
-                    >
-                        <Users size={16} /> From Roster
-                    </button>
-                    <button
-                        onClick={() => setMode('new')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
-                            mode === 'new' ? 'bg-amber-600 text-white shadow' : 'text-gray-400 hover:text-white'
-                        }`}
-                    >
-                        <UserPlus size={16} /> Create New
-                    </button>
-                </div>
+                {/* Mode Tabs - Only show if not editing */}
+                {!isEditing && (
+                    <div className="flex bg-gray-700 rounded-lg p-1 mb-6">
+                        <button
+                            onClick={() => setMode('existing')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
+                                mode === 'existing' ? 'bg-gray-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                            }`}
+                        >
+                            <Users size={16} /> From Roster
+                        </button>
+                        <button
+                            onClick={() => setMode('new')}
+                            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
+                                mode === 'new' ? 'bg-amber-600 text-white shadow' : 'text-gray-400 hover:text-white'
+                            }`}
+                        >
+                            <UserPlus size={16} /> Create New
+                        </button>
+                    </div>
+                )}
 
                 <form onSubmit={handleSubmit}>
+                    {/* EDIT MODE: Read Only Name */}
+                    {isEditing && (
+                         <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
+                            <div className="w-full bg-gray-900 border border-gray-600 rounded-md p-2.5 text-gray-300">
+                                {initialData.roster.first_name} {initialData.roster.last_name}
+                            </div>
+                        </div>
+                    )}
+
                     {/* EXISTING MODE: Roster Select */}
-                    {mode === 'existing' && (
+                    {!isEditing && mode === 'existing' && (
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-400 mb-1">Select Person</label>
                             {isLoadingRoster ? (
@@ -172,7 +210,7 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
                     )}
 
                     {/* NEW MODE: Personal Details */}
-                    {mode === 'new' && (
+                    {!isEditing && mode === 'new' && (
                         <div className="space-y-4 mb-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
@@ -261,14 +299,14 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId }) => {
                         </button>
                         <button 
                             type="submit"
-                            disabled={isSubmitting || (mode === 'existing' && !selectedRosterId) || (mode === 'new' && (!firstName || !lastName))}
+                            disabled={isSubmitting || (!isEditing && mode === 'existing' && !selectedRosterId) || (!isEditing && mode === 'new' && (!firstName || !lastName))}
                             className={`px-4 py-2 rounded-md font-bold text-black transition-colors ${
-                                isSubmitting || (mode === 'existing' && !selectedRosterId) || (mode === 'new' && (!firstName || !lastName))
+                                isSubmitting || (!isEditing && mode === 'existing' && !selectedRosterId) || (!isEditing && mode === 'new' && (!firstName || !lastName))
                                 ? 'bg-gray-600 cursor-not-allowed' 
                                 : 'bg-amber-500 hover:bg-amber-400'
                             }`}
                         >
-                            {isSubmitting ? 'Saving...' : (mode === 'existing' ? 'Add Selected' : 'Create & Add')}
+                            {isSubmitting ? 'Saving...' : (isEditing ? 'Update Member' : (mode === 'existing' ? 'Add Selected' : 'Create & Add'))}
                         </button>
                     </div>
                 </form>

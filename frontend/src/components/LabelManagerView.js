@@ -76,7 +76,19 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
     const handleSaveLabel = (formData) => {
         let newLabels;
         if (editingLabel) {
-            newLabels = labels.map(label => (label.id === editingLabel.id ? { ...label, ...formData } : label));
+            newLabels = labels.map(label => {
+                // BUG FIX: Handle cases where legacy labels might have missing/undefined IDs.
+                // 1. Strict Check: If both have valid IDs, match by ID.
+                // 2. Reference Check: If no IDs, fallback to object reference (handles legacy data).
+                const idsMatch = label.id && editingLabel.id && label.id === editingLabel.id;
+                const refsMatch = label === editingLabel;
+
+                if (idsMatch || refsMatch) {
+                    // Update matching label and ensure it has an ID moving forward
+                    return { ...label, ...formData, id: label.id || Date.now() };
+                }
+                return label;
+            });
         } else {
             const newLabel = { id: Date.now(), ...formData };
             newLabels = [...labels, newLabel];

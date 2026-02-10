@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, Printer, ChevronDown, ChevronRight, Tag } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, ChevronDown, ChevronRight, Tag } from 'lucide-react';
 import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
@@ -69,7 +69,6 @@ const ShowSidebar = () => {
 
     // Group 3: Technical Tools
     const techTabs = [
-        { path: 'label-engine', label: 'Label Engine', icon: Printer, feature: 'label_engine' },
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
         { path: 'switchconfig', label: 'Switch Config', icon: HardDrive, feature: 'switch_config' },
         { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },
