@@ -60,6 +60,72 @@ const edgeTypes = {
     custom: CustomEdge,
 };
 
+// Helper to flatten ports from modules into the main template ports
+const flattenNodePorts = (instance, libraryMap) => {
+    if (!instance || !instance.equipment_templates) return [];
+    
+    // Start with the chassis ports
+    let allPorts = [...(instance.equipment_templates.ports || [])];
+    const chassisTemplate = instance.equipment_templates;
+    
+    // If no modules, return basic ports
+    if (!instance.module_assignments || Object.keys(instance.module_assignments).length === 0) {
+        return allPorts;
+    }
+
+    // Recursive function to drill down into assignments
+    const processAssignments = (assignments, parentTemplate) => {
+        if (!assignments || !parentTemplate) return;
+
+        // Create a map of slot IDs to names for this level
+        const slotDefs = parentTemplate.slot_definitions || parentTemplate.slots || [];
+        const slotMap = {};
+        slotDefs.forEach(s => { slotMap[s.id] = s.name; });
+
+        Object.entries(assignments).forEach(([slotId, assignmentData]) => {
+            // Handle data structure variations (some might be just ID string, others object with assignments)
+            const moduleId = typeof assignmentData === 'object' ? assignmentData.id : assignmentData;
+            const subAssignments = typeof assignmentData === 'object' ? assignmentData.assignments : null;
+
+            if (!moduleId) return;
+
+            const moduleTemplate = libraryMap.get(moduleId);
+            if (!moduleTemplate) {
+                console.warn(`Template not found for module ID: ${moduleId}`);
+                return;
+            }
+
+            // Determine a readable slot name
+            let slotName = slotMap[slotId];
+            if (!slotName) {
+                const foundSlot = slotDefs.find(s => s.name === slotId);
+                slotName = foundSlot ? foundSlot.name : `Slot ${slotId.substring(0, 4)}`;
+            }
+
+            // Add the module's ports to the list
+            if (moduleTemplate.ports && Array.isArray(moduleTemplate.ports)) {
+                const modulePorts = moduleTemplate.ports.map(p => ({
+                    ...p,
+                    // SYNTHESIZE ID: Must match backend logic (mod_{slotId}_{portId})
+                    id: `mod_${slotId}_${p.id}`,
+                    original_id: p.id, 
+                    label: `${slotName}: ${p.label}`, // Visual label: "Slot 1: Input 1"
+                    isModule: true
+                }));
+                allPorts.push(...modulePorts);
+            }
+
+            // Recurse if this module has its own slots/assignments
+            if (subAssignments) {
+                processAssignments(subAssignments, moduleTemplate);
+            }
+        });
+    };
+
+    processAssignments(instance.module_assignments, chassisTemplate);
+    return allPorts;
+};
+
 const createApiGraph = (nodes, edges, pageSize) => {
     const apiNodes = nodes.map(node => {
         const portsData = node.data?.equipment_templates?.ports || [];
@@ -74,6 +140,7 @@ const createApiGraph = (nodes, edges, pageSize) => {
             }
             return acc;
         }, {});
+
         return {
             id: node.id,
             deviceNomenclature: node.data.instance_name || 'N/A',
@@ -133,32 +200,62 @@ const WireDiagramView = () => {
         setDraggingItem(equipmentWithZoom);
     };
 
-
+    // REMOVED 'fitView' from dependency array to prevent infinite loop
     const fetchData = useCallback(async () => {
         if (!showId) return;
         setIsLoading(true);
         setError(null);
         try {
-            const detailedRacks = await api.getDetailedRacksForShow(showId);
+            console.group("WireDiagramView Debug: fetchData");
+            
+            // 1. Fetch Show Data AND Library Data in parallel
+            const [detailedRacks, connectionsData, libData] = await Promise.all([
+                api.getDetailedRacksForShow(showId),
+                api.getConnectionsForShow(showId),
+                api.getLibrary()
+            ]);
+
+            setLibraryData(libData || { folders: [], equipment: [] });
+
+            // Create a quick lookup map for templates (ID -> Template Object)
+            const templateMap = new Map();
+            if (libData && libData.equipment) {
+                libData.equipment.forEach(eq => templateMap.set(eq.id, eq));
+            }
+
             const allEquipment = detailedRacks.flatMap(rack => 
                 rack.equipment.map(eq => ({ ...eq, rack_name: rack.rack_name }))
             );
 
-            const connectionsData = await api.getConnectionsForShow(showId);
             const connections = connectionsData.connections || [];
-
             const maxPage = allEquipment.reduce((max, eq) => Math.max(max, eq.page_number || 1), 1);
             setNumTabs(prev => Math.max(prev, maxPage));
 
             const placedEquipment = allEquipment.filter(eq => eq.page_number);
 
-            const initialNodes = placedEquipment.map((item) => ({
-                id: item.id.toString(),
-                type: 'device',
-                position: { x: item.x_pos || 0, y: item.y_pos || 0 },
-                data: { ...item, label: item.instance_name },
-            }));
+            const initialNodes = placedEquipment.map((item) => {
+                // FLATTEN PORTS: Merge module ports into the main template ports
+                const flattenedPorts = flattenNodePorts(item, templateMap);
+                
+                const enrichedItem = {
+                    ...item,
+                    equipment_templates: {
+                        ...item.equipment_templates,
+                        ports: flattenedPorts
+                    }
+                };
+
+                return {
+                    id: item.id.toString(),
+                    type: 'device',
+                    position: { x: item.x_pos || 0, y: item.y_pos || 0 },
+                    data: { ...enrichedItem, label: item.instance_name },
+                };
+            });
             
+            console.log("Final Initial Nodes State (with Modules):", initialNodes);
+            console.groupEnd();
+
             setNodes(initialNodes);
 
             const nodePageMap = new Map(placedEquipment.map(eq => [eq.id.toString(), eq.page_number]));
@@ -197,10 +294,12 @@ const WireDiagramView = () => {
         }
 
         setTimeout(() => {
-            fitView({ padding: 0.1 });
+            // We use fitView inside the callback, but we don't list it in deps
+            // to avoid instability causing loops.
+            if (fitView) fitView({ padding: 0.1 });
         }, 100);
 
-    }, [showId, setNodes, setEdges]);
+    }, [showId, setNodes, setEdges]); // Removed fitView
 
     const fetchUnassignedEquipment = useCallback(async () => {
         if (!showId) return;
@@ -212,22 +311,15 @@ const WireDiagramView = () => {
         }
     }, [showId]);
 
-    const fetchLibraryData = useCallback(async () => {
-        try {
-            const data = await api.getLibrary();
-            setLibraryData(data || { folders: [], equipment: [] });
-        } catch (err) {
-            console.error("Failed to fetch library data:", err);
-        }
-    }, []);
-
     useEffect(() => {
         if (showId) {
             fetchData();
             fetchUnassignedEquipment();
-            fetchLibraryData();
         }
-    }, [showId, fetchData, fetchUnassignedEquipment, fetchLibraryData]);
+        // Removed fetchData and fetchUnassignedEquipment from dependency array
+        // to strictly fetch only when showId changes (or on mount)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showId]);
 
     useEffect(() => {
         setNodes(nds =>
@@ -473,7 +565,7 @@ const WireDiagramView = () => {
                 toast.error("Failed to save equipment position. It has been returned to the library.");
             });
         }
-    }, [activeTab, screenToFlowPosition, showData?.info?.id, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
+    }, [activeTab, screenToFlowPosition, showId, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
 
     const onEdgesChangeCustom = useCallback((changes) => {
         for (const change of changes) {
