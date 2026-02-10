@@ -2129,7 +2129,7 @@ async def add_panel_to_rack(
         }
         panel_instance_res = supabase.table('rack_equipment_instances').insert(panel_instance_data).execute()
         if not panel_instance_res.data:
-            raise HTTPException(status_code=500, "Failed to create panel frame instance.")
+            raise HTTPException(status_code=500, detail=f"Failed to create panel frame instance.")
         
         panel_instance = panel_instance_res.data[0]
         panel_instance_id = panel_instance['id']
@@ -2191,12 +2191,12 @@ async def add_panel_to_rack(
         if not update_res.data:
             # Clean up if the final update fails
             supabase.table('rack_equipment_instances').delete().eq('id', panel_instance_id).execute()
-            raise HTTPException(status_code=500, "Failed to link modules to panel frame.")
+            raise HTTPException(status_code=500, detail=f"Failed to link modules to panel frame.")
 
         # 6. Re-fetch the complete instance for the response
         final_instance_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').eq('id', panel_instance_id).single().execute()
         if not final_instance_res.data:
-            raise HTTPException(status_code=404, "Could not retrieve the created panel instance.")
+            raise HTTPException(status_code=404, detail=f"Could not retrieve the created panel instance.")
             
         return final_instance_res.data
 
