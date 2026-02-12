@@ -731,12 +731,10 @@ def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = Tr
     if payload.include_equipment_list:
         equipment_counts = {}
         screw_counts = {}
-        all_equipment_instances = {equip.id: equip for rack in payload.racks for equip in rack.equipment}
         
-        def get_instance_template(instance_id):
-            instance = all_equipment_instances.get(instance_id)
-            return instance.equipment_templates if instance else None
-
+        # Build lookup map (normalize keys to string for safety)
+        all_equipment_instances = {str(equip.id): equip for rack in payload.racks for equip in rack.equipment}
+        
         def process_equipment(item, counts, screws):
             template = item.equipment_templates
             if not template: return
@@ -751,22 +749,32 @@ def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = Tr
                 if template.module_type == "UCP-Plate":
                     screw_qty = 2
                 elif template.module_type == "D-Series":
-                    screw_qty = 2 # M3 screws, but we just count them by type for now
+                    screw_qty = 2 
                 screws[template.screw_type] = screws.get(template.screw_type, 0) + screw_qty
 
             # If it's a panel, recurse
             if template.is_patch_panel and item.module_assignments:
-                for slot_name, module_id in item.module_assignments.items():
-                    if not module_id: continue
+                for slot_name, assignment_data in item.module_assignments.items():
+                    if not assignment_data: continue
                     
-                    # In our new structure, module_id is the ID of another RackEquipmentInstance
-                    child_item = all_equipment_instances.get(module_id)
-                    if child_item:
-                        process_equipment(child_item, counts, screws)
+                    # Extract ID safely (handle UUID object, Pydantic model, or dict)
+                    target_id = None
+                    if isinstance(assignment_data, dict):
+                        target_id = assignment_data.get('id')
+                    elif hasattr(assignment_data, 'id'): # Pydantic model
+                        target_id = assignment_data.id
+                    else: # Assuming it's a UUID/String directly
+                        target_id = assignment_data
+
+                    if target_id:
+                        child_item = all_equipment_instances.get(str(target_id))
+                        if child_item:
+                            process_equipment(child_item, counts, screws)
 
         for rack in payload.racks:
             for item in rack.equipment:
-                # Process only top-level items in the main loop
+                # Process only top-level items in the main loop to avoid double counting
+                # (Children are counted via recursion in process_equipment)
                 if not item.parent_equipment_instance_id:
                     process_equipment(item, equipment_counts, screw_counts)
         
@@ -787,7 +795,7 @@ def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = Tr
             merger.append(list_buffer)
             has_pages = True
 
-    # 3. Power Report (NEW)
+    # 3. Power Report
     if payload.include_power_report:
         power_buffer = generate_power_report_pdf(payload, show_branding)
         merger.append(power_buffer)

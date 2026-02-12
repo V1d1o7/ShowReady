@@ -1775,7 +1775,9 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
 
     # 5. Group processed equipment by rack
     rack_equipment_map = {}
-    for instance in top_level_equipment:
+    
+    # CHANGED: Iterate over ALL instances to ensure modules are included in the export payload
+    for instance in all_instances:
         rack_id = instance['rack_id']
         if rack_id not in rack_equipment_map:
             rack_equipment_map[rack_id] = []
