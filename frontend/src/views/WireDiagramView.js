@@ -5,6 +5,7 @@ import ReactFlow, {
     Controls,
     Background,
     useReactFlow,
+    ReactFlowProvider
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { Download, Plus } from 'lucide-react';
@@ -18,7 +19,6 @@ import EditInstanceModal from '../components/EditInstanceModal';
 import WireDiagramPdfModal from '../components/WireDiagramPdfModal';
 import LibrarySidebar from '../components/LibrarySidebar';
 import CustomDragLayer from '../components/CustomDragLayer';
-import { ReactFlowProvider } from 'reactflow';
 import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -103,7 +103,6 @@ const flattenNodePorts = (instance, libraryMap) => {
             if (moduleTemplate.ports && Array.isArray(moduleTemplate.ports)) {
                 const modulePorts = moduleTemplate.ports.map(p => ({
                     ...p,
-                    // SYNTHESIZE ID: Must match backend logic (mod_{slotId}_{portId})
                     id: `mod_${slotId}_${p.id}`,
                     original_id: p.id, 
                     label: `${slotName}: ${p.label}`, // Visual label: "Slot 1: Input 1"
@@ -288,6 +287,7 @@ const WireDiagramView = () => {
             if (fitView) fitView({ padding: 0.1 });
         }, 100);
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showId, setNodes, setEdges]); 
 
     const fetchUnassignedEquipment = useCallback(async () => {

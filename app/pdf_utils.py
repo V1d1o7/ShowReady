@@ -1088,7 +1088,7 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
     table = Table(table_data, colWidths=col_widths, hAlign='CENTER')
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.darkgrey),
+        ("BACKGROUND", (0, 0), (-1, 0), COLOR_GRAY_BG),
         ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.lightgrey),
         ("LINEABOVE", (0, -1), (-1, -1), 1.5, colors.black),
         ('SPAN', (0, -1), (1, -1)),

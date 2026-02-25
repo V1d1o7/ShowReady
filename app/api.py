@@ -2715,6 +2715,76 @@ async def get_unassigned_equipment(show_id: int, user = Depends(get_user), supab
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch unassigned equipment: {str(e)}")
 
+def collect_recursive_ports(assignments, parent_template, module_template_map, prefix=""):
+    import uuid
+    ports = []
+    if not assignments:
+        return ports
+    
+    parent_slots = parent_template.get('slots') or []
+    slot_map = {}
+    for s in parent_slots:
+        s_id = str(s.get('id'))
+        if s_id: slot_map[s_id] = s.get('name')
+        if s.get('name'): slot_map[s.get('name')] = s.get('name')
+
+    sorted_items = []
+    if parent_slots:
+        for slot_def in parent_slots:
+            s_id = str(slot_def.get('id'))
+            s_name = slot_def.get('name')
+            if s_id and s_id in assignments:
+                sorted_items.append((s_id, assignments[s_id]))
+            elif s_name and s_name in assignments:
+                 sorted_items.append((s_name, assignments[s_name]))
+
+    processed_keys = set(k for k, v in sorted_items)
+    for k, v in assignments.items():
+        if k not in processed_keys:
+            sorted_items.append((k, v))
+
+    for slot_key, val in sorted_items:
+        if not val: continue
+        
+        if isinstance(val, dict):
+            module_id = val.get('id')
+            sub_assignments = val.get('assignments', {})
+        else:
+            module_id = val
+            sub_assignments = {}
+            
+        if not module_id: continue
+        
+        module_template = module_template_map.get(str(module_id))
+        if not module_template: 
+            continue
+        
+        slot_name = slot_map.get(str(slot_key), str(slot_key))
+        current_label_prefix = f"{prefix}{slot_name}: " if prefix == "" else f"{prefix}{slot_name} > "
+        
+        mod_ports = module_template.get('ports') or []
+
+        for p in mod_ports:
+            new_port = p.copy()
+            composite_key = f"{slot_key}_{p['id']}"
+            
+            try:
+                new_id = str(uuid.uuid5(uuid.NAMESPACE_OID, composite_key))
+                new_port['id'] = new_id
+            except Exception as e:
+                pass
+            
+            new_port['label'] = f"{current_label_prefix}{p['label']}"
+            ports.append(new_port)
+            
+        mod_slots = module_template.get('slots') or []
+        if sub_assignments and mod_slots:
+            ports.extend(
+                collect_recursive_ports(sub_assignments, module_template, module_template_map, current_label_prefix)
+            )
+            
+    return ports
+
 @router.get("/shows/{show_id}/connections", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
 async def get_connections_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     try:
