@@ -132,17 +132,6 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                         onChange={handleChange}
                     />
                 </div>
-                <div className="flex items-center justify-between">
-                    <label htmlFor="is_patch_panel" className="block text-sm font-medium text-gray-300">
-                        Is Patch Panel
-                    </label>
-                    <ToggleSwitch
-                        id="is_patch_panel"
-                        name="is_patch_panel"
-                        checked={formData.is_patch_panel}
-                        onChange={handleChange}
-                    />
-                </div>
                 {/* Has Slots / Modules Toggle */}
                 <div className="flex items-center justify-between">
                     <label htmlFor="has_slots" className="block text-sm font-medium text-gray-300">
@@ -157,10 +146,6 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                 </div>
             </div>
 
-            {formData.is_patch_panel && (
-                 <InputField label="Screw Type (Optional)" name="screw_type" value={formData.screw_type || ''} onChange={handleChange} placeholder="e.g., 10-32 Rack Screw" />
-            )}
-
             {folderTree && (
                 <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-300 mb-1.5">Parent Folder (Optional)</label>
@@ -171,7 +156,7 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                 </div>
             )}
 
-            {(formData.is_patch_panel || formData.has_slots) && (
+            {formData.has_slots && (
                 <div className="border-t border-gray-700 pt-4 mt-4">
                     <h3 className="text-md font-bold text-white mb-2">Slots Configuration</h3>
                     <div className="space-y-2">

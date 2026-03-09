@@ -326,20 +326,6 @@ class Note(NoteBase):
 
 # --- AV Rack Builder Models ---
 
-class ConnectorTemplate(BaseModel):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    user_id: Optional[uuid.UUID] = None
-    name: str
-    connector_svg: str
-    default_type: str
-    default_signal: str
-
-class PanelLayout(BaseModel):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4)
-    view: str
-    background_svg: str
-    connectors: List[Dict]
-
 class PortTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     label: str
@@ -361,7 +347,6 @@ class EquipmentTemplate(BaseModel):
     width: str = 'full'
     depth: Optional[Union[float, Decimal]] = 0.0
     power_consumption_watts: Optional[int] = None
-    panels: List[PanelLayout] = Field(default_factory=list)
     ports: List[PortTemplate] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
     is_default: bool = False
@@ -370,8 +355,6 @@ class EquipmentTemplate(BaseModel):
     is_adapter: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
-    is_patch_panel: bool = False
-    screw_type: Optional[str] = None
 
 class EquipmentTemplateCreate(BaseModel):
     model_number: str
@@ -387,8 +370,6 @@ class EquipmentTemplateCreate(BaseModel):
     is_adapter: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
-    is_patch_panel: bool = False
-    screw_type: Optional[str] = None
 
 class ModuleAssignment(BaseModel):
     id: uuid.UUID
@@ -422,11 +403,6 @@ class RackEquipmentInstanceCreate(BaseModel):
     parent_equipment_instance_id: Optional[uuid.UUID] = None
     # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
-
-class PanelInstanceCreate(BaseModel):
-    template_id: uuid.UUID
-    ru_position: int
-    rack_side: str
 
 class ModuleInstanceCreate(BaseModel):
     template_id: uuid.UUID
@@ -561,8 +537,6 @@ class EquipmentTemplateUpdate(BaseModel):
     is_adapter: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
-    is_patch_panel: Optional[bool] = None
-    screw_type: Optional[str] = None
     
 class UserEquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
@@ -576,8 +550,6 @@ class UserEquipmentTemplateUpdate(BaseModel):
     is_module: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
-    is_patch_panel: Optional[bool] = None
-    screw_type: Optional[str] = None
 
 class EquipmentCopy(BaseModel):
     template_id: uuid.UUID
@@ -795,6 +767,7 @@ class AgentApiKeyWithKey(AgentApiKey):
 
 class AgentPublicKeyUpload(BaseModel):
     public_key: str
+
 # --- Email Template Models ---
 class EmailTemplate(BaseModel):
     id: uuid.UUID
