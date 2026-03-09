@@ -1,5 +1,6 @@
 import io
 import cairosvg
+import re
 from pypdf import PdfWriter, PdfReader
 from typing import List, Tuple, Dict
 from xml.sax.saxutils import escape
@@ -143,9 +144,12 @@ def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: fl
         if 'in' in handle_id: ports_by_id[port_id]['in'] = handle_id
         if 'out' in handle_id: ports_by_id[port_id]['out'] = handle_id
 
-    input_ports = sorted([p for p in ports_by_id.values() if p['in'] and not p['out']], key=lambda p: p['name'] or '')
-    output_ports = sorted([p for p in ports_by_id.values() if p['out'] and not p['in']], key=lambda p: p['name'] or '')
-    io_ports = sorted([p for p in ports_by_id.values() if p['in'] and p['out']], key=lambda p: p['name'] or '')
+    def natural_keys(text):
+        return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', text or '')]
+
+    input_ports = sorted([p for p in ports_by_id.values() if p['in'] and not p['out']], key=lambda p: natural_keys(p['name']))
+    output_ports = sorted([p for p in ports_by_id.values() if p['out'] and not p['in']], key=lambda p: natural_keys(p['name']))
+    io_ports = sorted([p for p in ports_by_id.values() if p['in'] and p['out']], key=lambda p: natural_keys(p['name']))
 
     # --- Height Calculation ---
     total_port_rows = max(len(input_ports), len(output_ports)) + len(io_ports)

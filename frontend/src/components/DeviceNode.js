@@ -5,9 +5,15 @@ const DeviceNode = ({ data, onDoubleClick }) => {
     const { label, ip_address, rack_name, ru_position, equipment_templates } = data;
     const ports = equipment_templates?.ports || [];
 
-    const inputPorts = ports.filter(p => p.type === 'input');
-    const outputPorts = ports.filter(p => p.type === 'output');
-    const ioPorts = ports.filter(p => p.type === 'io');
+    const naturalSort = (a, b) => {
+        const labelA = a.label || '';
+        const labelB = b.label || '';
+        return labelA.localeCompare(labelB, undefined, { numeric: true, sensitivity: 'base' });
+    };
+
+    const inputPorts = ports.filter(p => p.type === 'input').sort(naturalSort);
+    const outputPorts = ports.filter(p => p.type === 'output').sort(naturalSort);
+    const ioPorts = ports.filter(p => p.type === 'io').sort(naturalSort);
 
     const topContentRef = useRef(null);
     const [topContentHeight, setTopContentHeight] = useState(70); 

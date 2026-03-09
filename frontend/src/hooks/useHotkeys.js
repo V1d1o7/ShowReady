@@ -5,8 +5,8 @@ const useHotkeys = (hotkeys) => {
         const handleKeyDown = (event) => {
             const { target, key } = event;
 
-            // Do not capture hotkeys if the user is typing in an input, textarea, or select field.
-            if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+            // Do not capture hotkeys if the user is typing in an input, textarea, select field, or contenteditable element.
+            if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) {
                 return;
             }
             
