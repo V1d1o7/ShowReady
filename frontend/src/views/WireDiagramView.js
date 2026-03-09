@@ -73,8 +73,8 @@ const flattenNodePorts = (instance, libraryMap) => {
         return allPorts;
     }
 
-    // Recursive function to drill down into assignments
-    const processAssignments = (assignments, parentTemplate) => {
+    // Recursive function to drill down into assignments, adding prefixId and prefixName tracking
+    const processAssignments = (assignments, parentTemplate, prefixId = '', prefixName = '') => {
         if (!assignments || !parentTemplate) return;
 
         // Create a map of slot IDs to names for this level
@@ -83,7 +83,10 @@ const flattenNodePorts = (instance, libraryMap) => {
         slotDefs.forEach(s => { slotMap[s.id] = s.name; });
 
         Object.entries(assignments).forEach(([slotId, assignmentData]) => {
-            // Handle data structure variations (some might be just ID string, others object with assignments)
+            // Guard against null or undefined assignments
+            if (!assignmentData) return;
+
+            // Handle data structure variations
             const moduleId = typeof assignmentData === 'object' ? assignmentData.id : assignmentData;
             const subAssignments = typeof assignmentData === 'object' ? assignmentData.assignments : null;
 
@@ -99,21 +102,41 @@ const flattenNodePorts = (instance, libraryMap) => {
                 slotName = foundSlot ? foundSlot.name : `Slot ${slotId.substring(0, 4)}`;
             }
 
+            // Accumulate the prefix to show the full nesting path (e.g., "Slot 1 - SFP 1")
+            const currentPrefixName = prefixName ? `${prefixName} - ${slotName}` : slotName;
+            const currentPrefixId = prefixId ? `${prefixId}_${slotId}` : slotId;
+
+            // Create a deterministic 8-character hex hash from the physical slot path
+            let hash = 0;
+            for (let i = 0; i < currentPrefixId.length; i++) {
+                hash = (hash << 5) - hash + currentPrefixId.charCodeAt(i);
+                hash |= 0;
+            }
+            const hexPrefix = Math.abs(hash).toString(16).padStart(8, '0');
+
             // Add the module's ports to the list
             if (moduleTemplate.ports && Array.isArray(moduleTemplate.ports)) {
-                const modulePorts = moduleTemplate.ports.map(p => ({
-                    ...p,
-                    id: `mod_${slotId}_${p.id}`,
-                    original_id: p.id, 
-                    label: `${slotName}: ${p.label}`, // Visual label: "Slot 1: Input 1"
-                    isModule: true
-                }));
+                const modulePorts = moduleTemplate.ports.map(p => {
+                    // Backend requires a valid UUID. We merge our hash with the end of the original UUID 
+                    // to perfectly maintain the 8-4-4-4-12 UUID format.
+                    const deterministicUUID = p.id && p.id.length >= 8 
+                        ? `${hexPrefix}${p.id.substring(8)}`
+                        : `${hexPrefix}-0000-0000-0000-000000000000`; // safe fallback
+
+                    return {
+                        ...p,
+                        id: deterministicUUID, 
+                        original_id: p.id,
+                        label: `${currentPrefixName}: ${p.label}`, // Keeps the nice labeling
+                        isModule: true
+                    };
+                });
                 allPorts.push(...modulePorts);
             }
 
             // Recurse if this module has its own slots/assignments
             if (subAssignments) {
-                processAssignments(subAssignments, moduleTemplate);
+                processAssignments(subAssignments, moduleTemplate, currentPrefixId, currentPrefixName);
             }
         });
     };
@@ -458,18 +481,33 @@ const WireDiagramView = () => {
         
         try {
             const updatedInstance = await api.updateEquipmentInstance(editingNode.id, updatedData);
+            
+            // Re-build template map from current library data
+            const templateMap = new Map();
+            if (libraryData && libraryData.equipment) {
+                libraryData.equipment.forEach(eq => templateMap.set(eq.id, eq));
+            }
+
+            // Flatten the ports again with the newly updated module assignments
+            const flattenedPorts = flattenNodePorts(updatedInstance, templateMap);
+            
+            const enrichedItem = {
+                ...updatedInstance,
+                equipment_templates: {
+                    ...updatedInstance.equipment_templates,
+                    ports: flattenedPorts
+                }
+            };
+
             setNodes((nds) =>
                 nds.map((n) => {
                     if (n.id === editingNode.id) {
-                        const newLabel = updatedInstance.instance_name || n.data.label;
-                        const newIpAddress = updatedInstance.ip_address || n.data.ip_address;
+                        const newLabel = enrichedItem.instance_name || n.data.label;
                         return {
                             ...n,
                             data: {
-                                ...n.data,
+                                ...enrichedItem,
                                 label: newLabel,
-                                instance_name: newLabel,
-                                ip_address: newIpAddress,
                             },
                         };
                     }
