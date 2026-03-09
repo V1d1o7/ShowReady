@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict b1Bn2V1kfXEApnMwxqkaJs1V2rCZzZbfILmvhYBJlG7goJajvS0gSgshHiAKsCu
+\restrict gEJ4WQbb3UNgTL80fn1yF4bPBq6JONFHK6kJawc4PYehjm7Ld4NUCmzbbxK2lll
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -3742,23 +3742,6 @@ CREATE TABLE public.connections (
 ALTER TABLE public.connections OWNER TO postgres;
 
 --
--- Name: connector_templates; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.connector_templates (
-    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
-    user_id uuid,
-    name text NOT NULL,
-    connector_svg text,
-    default_type text,
-    default_signal text,
-    created_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.connector_templates OWNER TO postgres;
-
---
 -- Name: email_templates; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3808,9 +3791,7 @@ CREATE TABLE public.equipment_templates (
     is_adapter boolean DEFAULT false,
     is_connector boolean DEFAULT false,
     slot_type text,
-    width_bays numeric,
-    is_patch_panel boolean DEFAULT false,
-    screw_type text
+    width_bays numeric
 );
 
 
@@ -3934,22 +3915,6 @@ CREATE TABLE public.notes (
 
 
 ALTER TABLE public.notes OWNER TO postgres;
-
---
--- Name: panel_layouts; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.panel_layouts (
-    id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
-    equipment_template_id uuid,
-    view text NOT NULL,
-    background_svg text,
-    connectors jsonb,
-    created_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.panel_layouts OWNER TO postgres;
 
 --
 -- Name: permissions_meta; Type: TABLE; Schema: public; Owner: postgres
@@ -4939,14 +4904,6 @@ ALTER TABLE ONLY public.connections
 
 
 --
--- Name: connector_templates connector_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.connector_templates
-    ADD CONSTRAINT connector_templates_pkey PRIMARY KEY (id);
-
-
---
 -- Name: email_templates email_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5024,14 +4981,6 @@ ALTER TABLE ONLY public.looms
 
 ALTER TABLE ONLY public.notes
     ADD CONSTRAINT notes_pkey PRIMARY KEY (id);
-
-
---
--- Name: panel_layouts panel_layouts_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.panel_layouts
-    ADD CONSTRAINT panel_layouts_pkey PRIMARY KEY (id);
 
 
 --
@@ -6094,14 +6043,6 @@ ALTER TABLE ONLY public.connections
 
 
 --
--- Name: connector_templates connector_templates_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.connector_templates
-    ADD CONSTRAINT connector_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
-
-
---
 -- Name: email_templates email_templates_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6195,14 +6136,6 @@ ALTER TABLE ONLY public.notes
 
 ALTER TABLE ONLY public.notes
     ADD CONSTRAINT notes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
-
-
---
--- Name: panel_layouts panel_layouts_equipment_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.panel_layouts
-    ADD CONSTRAINT panel_layouts_equipment_template_id_fkey FOREIGN KEY (equipment_template_id) REFERENCES public.equipment_templates(id) ON DELETE CASCADE;
 
 
 --
@@ -7051,12 +6984,6 @@ ALTER TABLE public.cables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.connections ENABLE ROW LEVEL SECURITY;
 
 --
--- Name: connector_templates; Type: ROW SECURITY; Schema: public; Owner: postgres
---
-
-ALTER TABLE public.connector_templates ENABLE ROW LEVEL SECURITY;
-
---
 -- Name: email_templates; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -7103,12 +7030,6 @@ ALTER TABLE public.looms ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
-
---
--- Name: panel_layouts; Type: ROW SECURITY; Schema: public; Owner: postgres
---
-
-ALTER TABLE public.panel_layouts ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: permissions_meta; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -8492,16 +8413,6 @@ GRANT ALL ON TABLE public.connections TO supabase_admin;
 
 
 --
--- Name: TABLE connector_templates; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.connector_templates TO anon;
-GRANT ALL ON TABLE public.connector_templates TO authenticated;
-GRANT ALL ON TABLE public.connector_templates TO service_role;
-GRANT ALL ON TABLE public.connector_templates TO supabase_admin;
-
-
---
 -- Name: TABLE email_templates; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8577,16 +8488,6 @@ GRANT ALL ON TABLE public.notes TO anon;
 GRANT ALL ON TABLE public.notes TO authenticated;
 GRANT ALL ON TABLE public.notes TO service_role;
 GRANT ALL ON TABLE public.notes TO supabase_admin;
-
-
---
--- Name: TABLE panel_layouts; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.panel_layouts TO anon;
-GRANT ALL ON TABLE public.panel_layouts TO authenticated;
-GRANT ALL ON TABLE public.panel_layouts TO service_role;
-GRANT ALL ON TABLE public.panel_layouts TO supabase_admin;
 
 
 --
@@ -9243,5 +9144,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict b1Bn2V1kfXEApnMwxqkaJs1V2rCZzZbfILmvhYBJlG7goJajvS0gSgshHiAKsCu
+\unrestrict gEJ4WQbb3UNgTL80fn1yF4bPBq6JONFHK6kJawc4PYehjm7Ld4NUCmzbbxK2lll
 
