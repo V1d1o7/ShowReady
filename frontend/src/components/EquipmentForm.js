@@ -144,6 +144,18 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
                         onChange={(e) => onFormChange({ ...formData, has_slots: e.target.checked })}
                     />
                 </div>
+                {/* Is Patch Panel Toggle */}
+                <div className="flex items-center justify-between">
+                    <label htmlFor="is_patch_panel" className="block text-sm font-medium text-gray-300">
+                        Is this a Patch Panel?
+                    </label>
+                    <ToggleSwitch
+                        id="is_patch_panel"
+                        name="is_patch_panel"
+                        checked={formData.is_patch_panel}
+                        onChange={handleChange}
+                    />
+                </div>
             </div>
 
             {folderTree && (

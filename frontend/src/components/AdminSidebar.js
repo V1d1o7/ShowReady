@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Mail, Users, BarChart2, HardDrive, Shield } from 'lucide-react';
+import { Mail, Users, BarChart2, HardDrive, Shield, Layout } from 'lucide-react';
 
 const AdminSidebar = () => {
     const { profile } = useAuth(); // Using the hook, though not strictly necessary for this component yet
@@ -18,6 +18,7 @@ const AdminSidebar = () => {
     const tabs = [
         { path: 'email', label: 'Email Sending', icon: Mail },
         { path: 'equipment-library', label: 'Equipment Library', icon: HardDrive },
+        { path: 'panel-library', label: 'PE Library', icon: Layout },
         { path: 'switch-models', label: 'Switch Models', icon: HardDrive },
         { path: 'user-management', label: 'User Management', icon: Users },
         { path: 'metrics', label: 'Metrics', icon: BarChart2 },

@@ -37,6 +37,7 @@ from app.routers.notes import router as notes_router
 from app.routers.communications import router as communications_router
 from app.routers.collaboration import router as collaboration_router
 from app.routers.label_engine import router as label_engine_router
+from app.routers.panels import router as panels_router
 from .scheduler import scheduler
 
 
@@ -138,6 +139,7 @@ app.include_router(switch_agent_router, prefix="/api/v1")
 app.include_router(notes_router, prefix="/api/v1")
 app.include_router(label_engine_router, prefix="/api/v1", tags=["Label Engine"])
 app.include_router(communications_router, prefix="/api/communications", tags=["Communications"])
+app.include_router(panels_router)
 
 app.include_router(api_router, prefix="/api")
 

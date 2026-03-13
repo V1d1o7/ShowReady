@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, ChevronDown, ChevronRight, Tag } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, ChevronDown, ChevronRight, Tag, Layout } from 'lucide-react';
 import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
     const { profile } = useAuth();
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
     const [isLabelsOpen, setIsLabelsOpen] = useState(false);
+    const [isRackBuildingOpen, setIsRackBuildingOpen] = useState(false);
     const { shows, isLoadingShows } = useShows();
     const { showName: showNameFromParams } = useParams();
     const navigate = useNavigate();
@@ -67,9 +68,14 @@ const ShowSidebar = () => {
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
     ];
 
-    // Group 3: Technical Tools
-    const techTabs = [
+    // Group 3: Collapsible Rack Building
+    const rackTabs = [
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
+        { path: 'panelbuilder', label: 'Panel Builder', icon: Layout, feature: 'panel_builder' },
+    ];
+
+    // Group 4: Technical Tools
+    const techTabs = [
         { path: 'switchconfig', label: 'Switch Config', icon: HardDrive, feature: 'switch_config' },
         { path: 'wirediagram', label: 'Wire Diagram', icon: GitMerge, feature: 'wire_diagram' },
         { path: 'loombuilder', label: 'Loom Builder', icon: Combine, feature: 'loom_builder' },
@@ -78,6 +84,7 @@ const ShowSidebar = () => {
 
     const visibleMainTabs = mainTabs.filter(tab => checkAccess(tab.feature));
     const visibleLabelTabs = labelTabs.filter(tab => checkAccess(tab.feature));
+    const visibleRackTabs = rackTabs.filter(tab => checkAccess(tab.feature));
     const visibleTechTabs = techTabs.filter(tab => checkAccess(tab.feature));
 
     return (
@@ -131,6 +138,38 @@ const ShowSidebar = () => {
                         {isLabelsOpen && (
                             <div className="flex flex-col gap-1 pl-4 border-l border-gray-700 ml-4">
                                 {visibleLabelTabs.map(tab => (
+                                    <NavLink
+                                        key={tab.path}
+                                        to={tab.path}
+                                        end
+                                        className={navLinkClasses}
+                                    >
+                                        <tab.icon className="mr-3 h-5 w-5" />
+                                        {tab.label}
+                                    </NavLink>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Collapsible Rack Building Section */}
+                {visibleRackTabs.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                        <button
+                            onClick={() => setIsRackBuildingOpen(!isRackBuildingOpen)}
+                            className="flex items-center justify-between px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white rounded-lg transition-colors w-full"
+                        >
+                            <div className="flex items-center">
+                                <Server className="mr-3 h-5 w-5" />
+                                Rack Building
+                            </div>
+                            {isRackBuildingOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+                        
+                        {isRackBuildingOpen && (
+                            <div className="flex flex-col gap-1 pl-4 border-l border-gray-700 ml-4">
+                                {visibleRackTabs.map(tab => (
                                     <NavLink
                                         key={tab.path}
                                         to={tab.path}

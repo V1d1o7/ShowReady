@@ -210,6 +210,21 @@ export const api = {
     
     exportRacksListPdf: async (showId) => fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
 
+    // --- Panel Builder ---
+    getPanelFolders: async () => fetch('/api/panels/folders', { headers: await getAuthHeader() }).then(handleResponse),
+    createPanelFolder: async (data) => fetch('/api/panels/folders', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    deletePanelFolder: async (id) => fetch(`/api/panels/folders/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+    getPanelTemplates: async () => fetch('/api/panels/templates', { headers: await getAuthHeader() }).then(handleResponse),
+    createPanelTemplate: async (data) => fetch('/api/panels/templates', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    updatePanelTemplate: async (id, data) => fetch(`/api/panels/templates/${id}`, { method: 'PUT', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    deletePanelTemplate: async (id) => fetch(`/api/panels/templates/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+    getPanelInstances: async (panelInstanceId) => fetch(`/api/panels/instances/${panelInstanceId}`, { headers: await getAuthHeader() }).then(handleResponse),
+    createPanelInstance: async (data) => fetch('/api/panels/instances', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    updatePanelInstance: async (id, data) => fetch(`/api/panels/instances/${id}`, { method: 'PUT', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    deletePanelInstance: async (id) => fetch(`/api/panels/instances/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+    exportPanelsPdf: async (showId) => fetch(`/api/panels/shows/${showId}/export`, { headers: await getAuthHeader() }).then(handleResponse),
+    getAllPanelInstancesForShow: async (showId) => fetch(`/api/panels/shows/${showId}/panel-instances`, { headers: await getAuthHeader() }).then(handleResponse),
+
     // --- Admin Library ---
     getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
     

@@ -25,6 +25,7 @@ import UserManagementView from './views/admin/UserManagementView';
 import MetricsView from './views/admin/MetricsView';
 import RbacView from './views/admin/RbacView';
 import SwitchModelView from './views/admin/SwitchModelView';
+import PanelLibraryView from './views/admin/PanelLibraryView';
 import UserLibraryView from './views/UserLibraryView';
 import EquipmentLibraryView from './views/EquipmentLibraryView';
 import UserRackBuilderView from './views/UserRackBuilderView';
@@ -36,6 +37,7 @@ import RackBuilderView from './views/RackBuilderView';
 import WireDiagramView from './views/WireDiagramView';
 import LoomBuilderView from './views/LoomBuilderView';
 import VLANView from './views/VLANView';
+import PanelBuilderView from './views/PanelBuilderView';
 import RosterView from './views/RosterView';
 import ShowCrewView from './views/ShowCrewView';
 import HoursTrackingView from './views/HoursTrackingView';
@@ -178,6 +180,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
                                                 <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
                                                 <Route path="vlan" element={<ProtectedRoute feature="vlan_management"><VLANView /></ProtectedRoute>} />
+                                                <Route path="panelbuilder" element={<ProtectedRoute feature="panel_builder"><PanelBuilderView /></ProtectedRoute>} />
                                                 <Route path="team" element={<ProtectedRoute feature="show_collaboration"><ShowTeamView /></ProtectedRoute>} />
                                             </Route>
                                         </Route>
@@ -209,6 +212,7 @@ const MainLayout = ({ session }) => {
                                         <Route path="metrics" element={<MetricsView />} />
                                         <Route path="rbac" element={<RbacView />} />
                                         <Route path="switch-models" element={<SwitchModelView />} />
+                                        <Route path="panel-library" element={<PanelLibraryView />} />
                                     </Route>
                                 </Routes>
                             </main>

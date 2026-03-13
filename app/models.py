@@ -338,6 +338,11 @@ class SlotDefinition(BaseModel):
     accepted_module_type: Optional[str] = None
     default_module_id: Optional[uuid.UUID] = None
 
+class PanelSlot(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    name: str
+    accepted_module_type: Optional[str] = None
+
 class EquipmentTemplate(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     user_id: Optional[uuid.UUID] = None
@@ -353,6 +358,7 @@ class EquipmentTemplate(BaseModel):
     has_ip_address: bool = False
     is_module: bool = False
     is_adapter: bool = False
+    is_patch_panel: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
 
@@ -368,6 +374,7 @@ class EquipmentTemplateCreate(BaseModel):
     has_ip_address: bool = False
     is_module: bool = False
     is_adapter: bool = False
+    is_patch_panel: bool = False
     module_type: Optional[str] = None
     slots: List[SlotDefinition] = Field(default_factory=list)
 
@@ -610,6 +617,7 @@ class RackPDFPayload(BaseModel):
     include_side_view: bool = True
     include_equipment_list: bool = False
     include_power_report: bool = False
+    include_panels: bool = False
     power_report_voltage: int = 120
 
 class LoomWithCables(Loom):
@@ -878,3 +886,71 @@ class DynamicLabelPdfPayload(BaseModel):
     data_rows: List[Dict[str, str]]  
     show_logo_bytes: Optional[str] = None
     company_logo_bytes: Optional[str] = None
+
+# --- Panel Builder Models ---
+
+class PanelFolderBase(BaseModel):
+    name: str
+    parent_id: Optional[uuid.UUID] = None
+
+class PanelFolderCreate(PanelFolderBase):
+    pass
+
+class PanelFolder(PanelFolderBase):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    created_at: datetime
+    is_default: bool = False
+
+class PanelEquipmentTemplateBase(BaseModel):
+    name: str
+    manufacturer: Optional[str] = None
+    model_number: Optional[str] = None
+    description: Optional[str] = None
+    width_units: float = 1.0
+    depth_in: float = 0.0
+    slot_type: Optional[str] = None
+    panel_slots: List[PanelSlot] = Field(default_factory=list)
+    folder_id: Optional[uuid.UUID] = None
+
+class PanelEquipmentTemplateCreate(PanelEquipmentTemplateBase):
+    pass
+
+class PanelEquipmentTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model_number: Optional[str] = None
+    description: Optional[str] = None
+    width_units: Optional[float] = None
+    depth_in: Optional[float] = None
+    slot_type: Optional[str] = None
+    panel_slots: Optional[List[PanelSlot]] = None
+    folder_id: Optional[uuid.UUID] = None
+
+class PanelEquipmentTemplate(PanelEquipmentTemplateBase):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    is_default: bool = False
+    created_at: datetime
+
+class PanelEquipmentInstanceBase(BaseModel):
+    panel_instance_id: uuid.UUID
+    template_id: uuid.UUID
+    parent_instance_id: Optional[uuid.UUID] = None
+    slot_id: Optional[str] = None
+    label: Optional[str] = None
+
+class PanelEquipmentInstanceCreate(PanelEquipmentInstanceBase):
+    pass
+
+class PanelEquipmentInstanceUpdate(BaseModel):
+    label: Optional[str] = None
+
+class PanelEquipmentInstance(PanelEquipmentInstanceBase):
+    id: uuid.UUID
+    created_at: datetime
+    template: Optional[PanelEquipmentTemplate] = None
+    children: List['PanelEquipmentInstance'] = Field(default_factory=list)
+
+# Enable recursion
+PanelEquipmentInstance.update_forward_refs()

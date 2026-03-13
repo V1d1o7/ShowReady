@@ -165,7 +165,7 @@ const RackBuilderView = () => {
 
     const handleProcessExport = async (options) => {
         // Destructure new options: includePowerReport, voltage
-        const { scope, includeFrontRear, includeSide, includeEquipmentList, includePowerReport, voltage, pageSize } = options;
+        const { scope, includeFrontRear, includeSide, includeEquipmentList, includePowerReport, includePanels, voltage, pageSize } = options;
 
         if (!showId) return;
 
@@ -192,6 +192,7 @@ const RackBuilderView = () => {
                 include_equipment_list: includeEquipmentList,
                 // Pass new flags
                 include_power_report: includePowerReport, 
+                include_panels: includePanels,
                 power_report_voltage: voltage 
             };
 

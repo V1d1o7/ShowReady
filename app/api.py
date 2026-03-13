@@ -33,8 +33,10 @@ from .pdf_utils import (
     generate_racks_pdf, 
     generate_loom_builder_pdf, 
     generate_hours_pdf,
-    generate_combined_rack_pdf
+    generate_combined_rack_pdf,
+    generate_panel_export_pdf
 )
+from .utils.panel_utils import get_panel_children_recursive
 from .email_utils import create_email_html, send_email, create_downgrade_warning_email_html
 from typing import List, Dict, Optional
 from .models import HoursPDFPayload
@@ -797,6 +799,7 @@ ALL_FEATURES = [
     {"key": "communications", "name": "Communications Suite", "paywalled": True},
     {"key": "show_collaboration", "name": "Show Collaboration", "paywalled": True},
     {"key": "label_engine", "name": "Label Engine", "paywalled": True},
+    {"key": "panel_builder", "name": "Panel Builder", "paywalled": True},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
@@ -2764,8 +2767,25 @@ async def create_case_label_pdf(payload: CaseLabelPayload, user = Depends(get_us
 async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), show_branding: bool = Depends(get_branding_visibility), supabase: Client = Depends(get_supabase_client)):
     """Generates a PDF for the rack builder view."""
     try:
+        panel_export_data = None
+        if payload.include_panels:
+            admin_client = get_service_client()
+            rack_ids = [str(r.id) for r in payload.racks]
+            panel_instances_res = admin_client.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).eq('equipment_templates.is_patch_panel', True).execute()
+            panels = panel_instances_res.data or []
+            
+            if panels:
+                panel_export_data = []
+                for panel in panels:
+                    pe_res = admin_client.table('panel_equipment_instances').select('*, template:panel_equipment_templates(*)').eq('panel_instance_id', panel['id']).execute()
+                    all_pe = pe_res.data or []
+                    mounted_top_level = [i for i in all_pe if not i.get('parent_instance_id')]
+                    for item in mounted_top_level:
+                        item['children'] = get_panel_children_recursive(item['id'], all_pe)
+                    panel_export_data.append({"panel": panel, "mounted_instances": mounted_top_level})
+
         # Use the combined PDF generator which handles equipment list + drawings
-        pdf_buffer = generate_combined_rack_pdf(payload, show_branding=show_branding)
+        pdf_buffer = generate_combined_rack_pdf(payload, show_branding=show_branding, panel_export_data=panel_export_data)
         
         # Create a clean filename
         safe_name = payload.show_name.replace(' ', '_')

@@ -8,6 +8,7 @@ const RackExportModal = ({ isOpen, onClose, onExport, rackCount, selectedRackNam
     const [includeSide, setIncludeSide] = useState(true);
     const [includeEquipmentList, setIncludeEquipmentList] = useState(false);
     const [includePowerReport, setIncludePowerReport] = useState(false); // NEW
+    const [includePanels, setIncludePanels] = useState(false);
     const [voltage, setVoltage] = useState(120); // NEW
     const [pageSize, setPageSize] = useState('letter');
 
@@ -18,6 +19,7 @@ const RackExportModal = ({ isOpen, onClose, onExport, rackCount, selectedRackNam
             includeSide,
             includeEquipmentList,
             includePowerReport, // Pass to parent
+            includePanels,
             voltage,            // Pass to parent
             pageSize
         });
@@ -130,6 +132,13 @@ const RackExportModal = ({ isOpen, onClose, onExport, rackCount, selectedRackNam
                                 </div>
                             )}
                         </div>
+
+                        <Checkbox 
+                            label="Panel Build Sheets" 
+                            checked={includePanels} 
+                            onChange={setIncludePanels}
+                            icon={Layout} 
+                        />
                     </div>
                 </div>
 

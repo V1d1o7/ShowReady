@@ -9,7 +9,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape, portrait
 from reportlab.lib import colors
-from reportlab.platypus import Paragraph, Table, TableStyle, Image, Spacer, SimpleDocTemplate
+from reportlab.platypus import Paragraph, Table, TableStyle, Image, Spacer, SimpleDocTemplate, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -61,7 +61,7 @@ def parse_color(color_string: Optional[str]) -> colors.Color:
         'red': '#FF0000', 'orange': '#FFA500', 'yellow': '#FFFF00', 'green': '#008000', 
         'blue': '#0000FF', 'indigo': '#4B0082', 'violet': '#EE82EE', 'black': '#000000', 
         'white': '#FFFFFF', 'gray': '#808000', 'silver': '#C0C0C0', 'maroon': '#800000',
-        'olive': '#808000', 'lime': '#00FF00', 'aqua': '#00FFFF', 'teal': '#008080',
+        'olive': '#808000', 'limit': '#00FF00', 'aqua': '#00FFFF', 'teal': '#008080',
         'navy': '#000080', 'fuchsia': '#FF00FF', 'purple': '#800080'
     }.get(color_string)
     
@@ -714,7 +714,7 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
     buffer.seek(0)
     return buffer
 
-def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
+def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = True, panel_export_data: Optional[List[dict]] = None) -> io.BytesIO:
     merger = PdfWriter()
     has_pages = False
 
@@ -799,6 +799,12 @@ def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = Tr
     if payload.include_power_report:
         power_buffer = generate_power_report_pdf(payload, show_branding)
         merger.append(power_buffer)
+        has_pages = True
+
+    # 4. Panel Build Sheets
+    if payload.include_panels and panel_export_data:
+        panel_pdf_buffer = generate_panel_export_pdf(payload.show_name, panel_export_data, show_branding)
+        merger.append(panel_pdf_buffer)
         has_pages = True
 
     # Output
@@ -1235,5 +1241,157 @@ def generate_power_report_pdf(payload: RackPDFPayload, show_branding: bool = Tru
             canvas.restoreState()
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    buffer.seek(0)
+    return buffer
+
+def draw_panel_visual(c, x, y, width, height, panel_data):
+    """
+    Renders a visual representation of a patch panel and its contents.
+    Recursive for nested plates/connectors.
+    """
+    # 1. Draw Frame
+    c.setStrokeColor(colors.black)
+    c.setLineWidth(2)
+    c.setFillColor(colors.black)
+    c.rect(x, y, width, height, fill=1, stroke=1)
+    
+    # Rails
+    c.setStrokeColor(colors.grey)
+    c.setLineWidth(1)
+    c.line(x + 20, y, x + 20, y + height)
+    c.line(x + width - 20, y, x + width - 20, y + height)
+
+    # 2. Main Slots Area
+    draw_width = width - 40
+    slots_area_x = x + 20
+    
+    infra_slots = panel_data['panel']['equipment_templates'].get('panel_slots') or []
+    mounted_instances = panel_data['mounted_instances']
+    
+    if infra_slots:
+        slot_width = (draw_width - (len(infra_slots) * 5)) / len(infra_slots)
+        for i, slot in enumerate(infra_slots):
+            slot_x = slots_area_x + 5 + (i * (slot_width + 5))
+            slot_y = y + 5
+            slot_h = height - 10
+            
+            c.setStrokeColor(colors.darkgrey)
+            c.setDash(2, 2)
+            c.rect(slot_x, slot_y, slot_width, slot_h, fill=0, stroke=1)
+            c.setDash(1, 0)
+            
+            # Find mounted item
+            instance = next((m for m in mounted_instances if m.get('slot_id') == slot['id']), None)
+            if instance:
+                _draw_pe_recursive(c, slot_x, slot_y, slot_width, slot_h, instance)
+
+def _draw_pe_recursive(c, x, y, w, h, instance):
+    template = instance.get('template')
+    if not template: return
+
+    # Component Box
+    c.setFillColor(colors.gray)
+    c.setStrokeColor(colors.black)
+    c.rect(x, y, w, h, fill=1, stroke=1)
+    
+    # Label
+    c.setFillColor(colors.whitesmoke)
+    c.setFont("SpaceMono-Bold", 6)
+    c.drawCentredString(x + w/2, y + h - 10, template.get('model_number') or template.get('name'))
+    
+    if instance.get('label'):
+        c.setFillColor(colors.orange)
+        c.setFont("SpaceMono-Bold", 7)
+        c.drawCentredString(x + w/2, y + 5, instance['label'])
+
+    # Sub-slots
+    sub_slots = template.get('panel_slots') or []
+    children = instance.get('children') or []
+    
+    if sub_slots:
+        # Simplistic layout for subslots (stacking)
+        sub_h = (h - 20) / len(sub_slots)
+        for i, ss in enumerate(sub_slots):
+            ss_y = y + 15 + (i * sub_h)
+            child = next((c for c in children if c.get('slot_id') == ss['id']), None)
+            if child:
+                _draw_pe_recursive(c, x + 2, ss_y, w - 4, sub_h - 2, child)
+            else:
+                c.setStrokeColor(colors.black)
+                c.setDash(1, 1)
+                c.rect(x + 5, ss_y + 2, w - 10, sub_h - 4, stroke=1, fill=0)
+                c.setDash(1, 0)
+
+def generate_panel_export_pdf(show_name, export_data, show_branding=True):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(letter),
+        rightMargin=0.5*inch, leftMargin=0.5*inch,
+        topMargin=0.5*inch, bottomMargin=0.5*inch,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+    styles['Normal'].fontName = "SpaceMono"
+    styles['Title'].fontName = "SpaceMono-Bold"
+    styles['Title'].fontSize = 18
+
+    def count_pe(instances, counts):
+        for inst in instances:
+            t = inst.get('template')
+            if t:
+                key = (t.get('manufacturer') or 'N/A', t.get('model_number') or t.get('name'))
+                counts[key] = counts.get(key, 0) + 1
+            if inst.get('children'):
+                count_pe(inst['children'], counts)
+
+    for data in export_data:
+        # Title
+        panel_name = data['panel']['instance_name']
+        story.append(Paragraph(f"Panel Build Sheet: {panel_name}", styles['Title']))
+        story.append(Paragraph(f"Show: {show_name}", styles['Normal']))
+        story.append(Spacer(1, 20))
+        
+        # 1. The Visual (using a custom flowable or raw drawing on canvas)
+        # For simplicity in story, we'll use a placeholder spacer and draw on canvas in the build
+        story.append(Spacer(1, 3 * inch)) # Reserve space for visual
+        
+        # 2. Component List
+        story.append(Paragraph("Components Required:", styles['Normal']))
+        story.append(Spacer(1, 10))
+        
+        pe_counts = {}
+        count_pe(data['mounted_instances'], pe_counts)
+        
+        tbl_data = [["Manufacturer", "Model/Part", "Qty"]]
+        for (mfr, model), qty in sorted(pe_counts.items()):
+            tbl_data.append([mfr, model, str(qty)])
+            
+        t = Table(tbl_data, colWidths=[2.5*inch, 3.5*inch, 1*inch])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.grey),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey)
+        ]))
+        story.append(t)
+        story.append(PageBreak())
+
+    def on_page(canvas, doc):
+        if show_branding:
+            canvas.setFont("SpaceMono", 8)
+            canvas.drawString(0.5*inch, 0.25*inch, "Created using ShowReady")
+            
+        # Draw the visual for the current panel
+        # We need to know which panel data to draw. doc.page starts at 1.
+        page_idx = doc.page - 1
+        if page_idx < len(export_data):
+            panel_data = export_data[page_idx]
+            ru_height = panel_data['panel']['equipment_templates'].get('ru_height') or 1
+            vis_h = ru_height * 0.75 * inch
+            vis_w = 9 * inch
+            draw_panel_visual(canvas, 0.5 * inch, 5 * inch, vis_w, vis_h, panel_data)
+
+    doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
     buffer.seek(0)
     return buffer
