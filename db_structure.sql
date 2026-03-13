@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict gEJ4WQbb3UNgTL80fn1yF4bPBq6JONFHK6kJawc4PYehjm7Ld4NUCmzbbxK2lll
+\restrict WHpc4bYH6kdf3TdbsBB3UxB42BxYD21eCiZpt0I7fmIxVtzCuCvxBO8TwbFNPMl
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -3791,7 +3791,8 @@ CREATE TABLE public.equipment_templates (
     is_adapter boolean DEFAULT false,
     is_connector boolean DEFAULT false,
     slot_type text,
-    width_bays numeric
+    width_bays numeric,
+    is_patch_panel boolean DEFAULT false
 );
 
 
@@ -3915,6 +3916,62 @@ CREATE TABLE public.notes (
 
 
 ALTER TABLE public.notes OWNER TO postgres;
+
+--
+-- Name: panel_equipment_instances; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.panel_equipment_instances (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    panel_instance_id uuid NOT NULL,
+    template_id uuid NOT NULL,
+    parent_instance_id uuid,
+    slot_id uuid,
+    label text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.panel_equipment_instances OWNER TO postgres;
+
+--
+-- Name: panel_equipment_templates; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.panel_equipment_templates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid,
+    folder_id uuid,
+    name text NOT NULL,
+    manufacturer text,
+    model_number text,
+    description text,
+    is_default boolean DEFAULT false,
+    width_units numeric DEFAULT 1,
+    depth_in numeric DEFAULT 0,
+    slot_type text,
+    panel_slots jsonb DEFAULT '[]'::jsonb,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+ALTER TABLE public.panel_equipment_templates OWNER TO postgres;
+
+--
+-- Name: panel_folders; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.panel_folders (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid,
+    parent_id uuid,
+    name text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    is_default boolean DEFAULT false
+);
+
+
+ALTER TABLE public.panel_folders OWNER TO postgres;
 
 --
 -- Name: permissions_meta; Type: TABLE; Schema: public; Owner: postgres
@@ -4981,6 +5038,30 @@ ALTER TABLE ONLY public.looms
 
 ALTER TABLE ONLY public.notes
     ADD CONSTRAINT notes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: panel_equipment_instances panel_equipment_instances_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_instances
+    ADD CONSTRAINT panel_equipment_instances_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: panel_equipment_templates panel_equipment_templates_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_templates
+    ADD CONSTRAINT panel_equipment_templates_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: panel_folders panel_folders_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_folders
+    ADD CONSTRAINT panel_folders_pkey PRIMARY KEY (id);
 
 
 --
@@ -6139,6 +6220,62 @@ ALTER TABLE ONLY public.notes
 
 
 --
+-- Name: panel_equipment_instances panel_equipment_instances_panel_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_instances
+    ADD CONSTRAINT panel_equipment_instances_panel_instance_id_fkey FOREIGN KEY (panel_instance_id) REFERENCES public.rack_equipment_instances(id) ON DELETE CASCADE;
+
+
+--
+-- Name: panel_equipment_instances panel_equipment_instances_parent_instance_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_instances
+    ADD CONSTRAINT panel_equipment_instances_parent_instance_id_fkey FOREIGN KEY (parent_instance_id) REFERENCES public.panel_equipment_instances(id) ON DELETE CASCADE;
+
+
+--
+-- Name: panel_equipment_instances panel_equipment_instances_template_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_instances
+    ADD CONSTRAINT panel_equipment_instances_template_id_fkey FOREIGN KEY (template_id) REFERENCES public.panel_equipment_templates(id) ON DELETE CASCADE;
+
+
+--
+-- Name: panel_equipment_templates panel_equipment_templates_folder_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_templates
+    ADD CONSTRAINT panel_equipment_templates_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES public.panel_folders(id) ON DELETE SET NULL;
+
+
+--
+-- Name: panel_equipment_templates panel_equipment_templates_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_equipment_templates
+    ADD CONSTRAINT panel_equipment_templates_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: panel_folders panel_folders_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_folders
+    ADD CONSTRAINT panel_folders_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.panel_folders(id) ON DELETE CASCADE;
+
+
+--
+-- Name: panel_folders panel_folders_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.panel_folders
+    ADD CONSTRAINT panel_folders_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: profiles profiles_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -6876,10 +7013,60 @@ CREATE POLICY "Allow viewing roster members on shared shows" ON public.roster FO
 
 
 --
+-- Name: panel_folders Manage Folders; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Manage Folders" ON public.panel_folders USING ((auth.uid() = user_id));
+
+
+--
+-- Name: panel_equipment_instances Manage Instances; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Manage Instances" ON public.panel_equipment_instances USING ((EXISTS ( SELECT 1
+   FROM ((public.rack_equipment_instances rei
+     JOIN public.racks r ON ((r.id = rei.rack_id)))
+     JOIN public.show_collaborators sc ON ((sc.show_id = r.show_id)))
+  WHERE ((rei.id = panel_equipment_instances.panel_instance_id) AND (sc.user_id = auth.uid()) AND (sc.role = ANY (ARRAY['owner'::text, 'editor'::text]))))));
+
+
+--
+-- Name: panel_equipment_templates Manage Templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Manage Templates" ON public.panel_equipment_templates USING ((auth.uid() = user_id));
+
+
+--
 -- Name: show_collaborators Manage collaborators; Type: POLICY; Schema: public; Owner: postgres
 --
 
 CREATE POLICY "Manage collaborators" ON public.show_collaborators USING (public.is_show_owner(show_id));
+
+
+--
+-- Name: panel_folders Select Folders; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Select Folders" ON public.panel_folders FOR SELECT USING (((is_default = true) OR (auth.uid() = user_id)));
+
+
+--
+-- Name: panel_equipment_instances Select Instances; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Select Instances" ON public.panel_equipment_instances FOR SELECT USING ((EXISTS ( SELECT 1
+   FROM ((public.rack_equipment_instances rei
+     JOIN public.racks r ON ((r.id = rei.rack_id)))
+     JOIN public.show_collaborators sc ON ((sc.show_id = r.show_id)))
+  WHERE ((rei.id = panel_equipment_instances.panel_instance_id) AND (sc.user_id = auth.uid())))));
+
+
+--
+-- Name: panel_equipment_templates Select Templates; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Select Templates" ON public.panel_equipment_templates FOR SELECT USING (((is_default = true) OR (auth.uid() = user_id)));
 
 
 --
@@ -7030,6 +7217,24 @@ ALTER TABLE public.looms ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.notes ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: panel_equipment_instances; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.panel_equipment_instances ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: panel_equipment_templates; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.panel_equipment_templates ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: panel_folders; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.panel_folders ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: permissions_meta; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -8491,6 +8696,33 @@ GRANT ALL ON TABLE public.notes TO supabase_admin;
 
 
 --
+-- Name: TABLE panel_equipment_instances; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.panel_equipment_instances TO anon;
+GRANT ALL ON TABLE public.panel_equipment_instances TO authenticated;
+GRANT ALL ON TABLE public.panel_equipment_instances TO service_role;
+
+
+--
+-- Name: TABLE panel_equipment_templates; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.panel_equipment_templates TO anon;
+GRANT ALL ON TABLE public.panel_equipment_templates TO authenticated;
+GRANT ALL ON TABLE public.panel_equipment_templates TO service_role;
+
+
+--
+-- Name: TABLE panel_folders; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.panel_folders TO anon;
+GRANT ALL ON TABLE public.panel_folders TO authenticated;
+GRANT ALL ON TABLE public.panel_folders TO service_role;
+
+
+--
 -- Name: TABLE permissions_meta; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -9144,5 +9376,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict gEJ4WQbb3UNgTL80fn1yF4bPBq6JONFHK6kJawc4PYehjm7Ld4NUCmzbbxK2lll
+\unrestrict WHpc4bYH6kdf3TdbsBB3UxB42BxYD21eCiZpt0I7fmIxVtzCuCvxBO8TwbFNPMl
 
