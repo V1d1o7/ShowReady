@@ -210,7 +210,7 @@ export const api = {
     
     exportRacksListPdf: async (showId) => fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
 
-    // --- Panel Builder ---
+    // --- User Panel Builder ---
     getPanelFolders: async () => fetch('/api/panels/folders', { headers: await getAuthHeader() }).then(handleResponse),
     createPanelFolder: async (data) => fetch('/api/panels/folders', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
     deletePanelFolder: async (id) => fetch(`/api/panels/folders/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
@@ -225,7 +225,14 @@ export const api = {
     exportPanelsPdf: async (showId) => fetch(`/api/panels/shows/${showId}/export`, { headers: await getAuthHeader() }).then(handleResponse),
     getAllPanelInstancesForShow: async (showId) => fetch(`/api/panels/shows/${showId}/panel-instances`, { headers: await getAuthHeader() }).then(handleResponse),
 
-    // --- Admin Library ---
+    // --- Admin Panel Library ---
+    createAdminPanelFolder: async (data) => fetch('/api/panels/admin/folders', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    deleteAdminPanelFolder: async (id) => fetch(`/api/panels/admin/folders/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+    createAdminPanelTemplate: async (data) => fetch('/api/panels/admin/templates', { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    updateAdminPanelTemplate: async (id, data) => fetch(`/api/panels/admin/templates/${id}`, { method: 'PUT', headers: await getAuthHeader(), body: JSON.stringify(data) }).then(handleResponse),
+    deleteAdminPanelTemplate: async (id) => fetch(`/api/panels/admin/templates/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+
+    // --- Admin Equipment Library ---
     getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
     
     createAdminFolder: async (folderData) => fetch('/api/admin/folders', { 

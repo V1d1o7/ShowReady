@@ -52,7 +52,8 @@ const EquipmentForm = ({ formData, onFormChange, folderTree, isNew, isAdmin = fa
     };
 
     const addSlot = () => {
-        const newSlots = [...(formData.slots || []), { name: '' }];
+        // FIX: Ensure every slot has a unique ID so drag-and-drop works in Panel Builder!
+        const newSlots = [...(formData.slots || []), { id: crypto.randomUUID(), name: '' }];
         onFormChange({ ...formData, slots: newSlots });
     };
 

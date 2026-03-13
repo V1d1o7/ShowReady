@@ -398,7 +398,6 @@ class RackEquipmentInstance(BaseModel):
     page_number: Optional[int] = None
     signal_label: Optional[str] = None
     parent_equipment_instance_id: Optional[uuid.UUID] = None
-    # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class RackEquipmentInstanceCreate(BaseModel):
@@ -408,7 +407,6 @@ class RackEquipmentInstanceCreate(BaseModel):
     rack_side: Optional[str] = None
     signal_label: Optional[str] = None
     parent_equipment_instance_id: Optional[uuid.UUID] = None
-    # Ensure this matches the recursive definition
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
 
 class ModuleInstanceCreate(BaseModel):
@@ -435,7 +433,6 @@ class RackEquipmentInstanceUpdate(BaseModel):
     y_pos: Optional[int] = None
     page_number: Optional[int] = None
     signal_label: Optional[str] = None
-    # FIX: Keys MUST be strings
     module_assignments: Optional[Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]]] = None
 
 class RackEquipmentInstanceWithTemplate(BaseModel):
@@ -451,7 +448,6 @@ class RackEquipmentInstanceWithTemplate(BaseModel):
     page_number: Optional[int] = 1
     signal_label: Optional[str] = None
     parent_equipment_instance_id: Optional[uuid.UUID] = None
-    # FIX: Keys MUST be strings
     module_assignments: Dict[str, Optional[Union[uuid.UUID, ModuleAssignment]]] = Field(default_factory=dict)
     equipment_templates: Optional[EquipmentTemplate] = None
     has_notes: Optional[bool] = False
@@ -529,7 +525,6 @@ class UserFolderUpdate(BaseModel):
     parent_id: Optional[uuid.UUID] = None
     nomenclature_prefix: Optional[str] = None
 
-
 class EquipmentTemplateUpdate(BaseModel):
     model_number: Optional[str] = None
     manufacturer: Optional[str] = None
@@ -542,6 +537,7 @@ class EquipmentTemplateUpdate(BaseModel):
     has_ip_address: Optional[bool] = None
     is_module: Optional[bool] = None
     is_adapter: Optional[bool] = None
+    is_patch_panel: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
     
@@ -550,11 +546,14 @@ class UserEquipmentTemplateUpdate(BaseModel):
     manufacturer: Optional[str] = None
     ru_height: Optional[int] = None
     width: Optional[str] = None
+    depth: Optional[Union[float, Decimal]] = None
     power_consumption_watts: Optional[int] = None
     ports: Optional[List[PortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
     has_ip_address: Optional[bool] = None
     is_module: Optional[bool] = None
+    is_adapter: Optional[bool] = None
+    is_patch_panel: Optional[bool] = None
     module_type: Optional[str] = None
     slots: Optional[List[SlotDefinition]] = None
 
@@ -837,10 +836,9 @@ class LabelElement(BaseModel):
     y: float   # inches 
     width: float 
     height: float 
-    # Text Props 
     content_mode: str = 'static' # 'static' or 'variable'
     text_content: Optional[str] = None  
-    variable_field: Optional[str] = None # Reserved: __SHOW_LOGO__, __COMPANY_LOGO__
+    variable_field: Optional[str] = None 
     font_family: Optional[str] = 'SpaceMono' 
     font_size: Optional[int] = 10 
     font_weight: Optional[str] = 'normal' 
@@ -849,20 +847,16 @@ class LabelElement(BaseModel):
     vertical_align: Optional[str] = 'top'  
     text_color: Optional[str] = '#000000' 
     text_decoration: Optional[str] = 'none' 
-    # Dynamic Colors
     text_color_variable: Optional[str] = None
     stroke_color_variable: Optional[str] = None
     fill_color_variable: Optional[str] = None
-    # Shape Props 
     shape: Optional[str] = 'rectangle' 
     fill_color: Optional[str] = None 
     stroke_color: Optional[str] = '#000000' 
     stroke_width: Optional[float] = 1.0 
     z_index: int = 0 
     lineDirection: Optional[str] = 'down' 
-    # Barcode Props
     barcode_type: Optional[str] = 'CODE128' 
-    # QR Props 
     qr_content: Optional[str] = None 
  
 class LabelTemplate(BaseModel): 
@@ -879,13 +873,12 @@ class LabelTemplateCreate(BaseModel):
     category: str 
     elements: List[LabelElement] 
  
-# Payload for generating the PDF 
 class DynamicLabelPdfPayload(BaseModel): 
     template_id: uuid.UUID 
-    # Dynamic data: Keys must match 'variable_field' in elements 
     data_rows: List[Dict[str, str]]  
     show_logo_bytes: Optional[str] = None
     company_logo_bytes: Optional[str] = None
+
 
 # --- Panel Builder Models ---
 
@@ -910,6 +903,7 @@ class PanelEquipmentTemplateBase(BaseModel):
     width_units: float = 1.0
     depth_in: float = 0.0
     slot_type: Optional[str] = None
+    visual_style: Optional[str] = 'standard'
     panel_slots: List[PanelSlot] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
 
@@ -924,6 +918,7 @@ class PanelEquipmentTemplateUpdate(BaseModel):
     width_units: Optional[float] = None
     depth_in: Optional[float] = None
     slot_type: Optional[str] = None
+    visual_style: Optional[str] = None
     panel_slots: Optional[List[PanelSlot]] = None
     folder_id: Optional[uuid.UUID] = None
 

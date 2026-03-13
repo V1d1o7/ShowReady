@@ -80,8 +80,8 @@ const PeTemplateForm = ({ formData, setFormData, folders }) => {
                 <div className="space-y-2">
                     {(formData.panel_slots || []).map((slot, idx) => (
                         <div key={idx} className="flex gap-2 items-center">
-                            <input className="flex-grow bg-gray-800 border border-gray-700 rounded p-1.5 text-xs" placeholder="Slot Name" value={slot.name} onChange={(e) => handleSlotChange(idx, 'name', e.target.value)} />
-                            <input className="w-24 bg-gray-800 border border-gray-700 rounded p-1.5 text-xs" placeholder="Type" value={slot.accepted_module_type} onChange={(e) => handleSlotChange(idx, 'accepted_module_type', e.target.value)} />
+                            <input className="flex-grow bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-white" placeholder="Slot Name" value={slot.name} onChange={(e) => handleSlotChange(idx, 'name', e.target.value)} />
+                            <input className="w-24 bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-white" placeholder="Type" value={slot.accepted_module_type} onChange={(e) => handleSlotChange(idx, 'accepted_module_type', e.target.value)} />
                             <button type="button" onClick={() => setFormData({...formData, panel_slots: formData.panel_slots.filter((_, i) => i !== idx)})} className="text-red-500 hover:text-red-400">
                                 <Trash2 size={14} />
                             </button>
@@ -124,7 +124,7 @@ const PanelLibraryView = () => {
     const handleCreateFolder = async (e) => {
         e.preventDefault();
         try {
-            await api.createPanelFolder({ name: folderName });
+            await api.createAdminPanelFolder({ name: folderName });
             toast.success("Folder created.");
             fetchData();
             setIsFolderModalOpen(false);
@@ -136,12 +136,20 @@ const PanelLibraryView = () => {
 
     const handleSaveTemplate = async (e) => {
         e.preventDefault();
+        // Format payload properly to avoid 422 errors for UUIDs and Floats
+        const payload = {
+            ...formData,
+            folder_id: formData.folder_id || null,
+            width_units: parseFloat(formData.width_units) || 1.0,
+            depth_in: parseFloat(formData.depth_in) || 0.0,
+        };
+
         try {
             if (editingItem) {
-                await api.updatePanelTemplate(editingItem.id, formData);
+                await api.updateAdminPanelTemplate(editingItem.id, payload);
                 toast.success("Template updated.");
             } else {
-                await api.createPanelTemplate(formData);
+                await api.createAdminPanelTemplate(payload);
                 toast.success("Template created.");
             }
             fetchData();
@@ -156,9 +164,9 @@ const PanelLibraryView = () => {
     const handleDelete = async () => {
         try {
             if (itemToDelete.type === 'folder') {
-                await api.deletePanelFolder(itemToDelete.id);
+                await api.deleteAdminPanelFolder(itemToDelete.id);
             } else {
-                await api.deletePanelTemplate(itemToDelete.id);
+                await api.deleteAdminPanelTemplate(itemToDelete.id);
             }
             toast.success("Item deleted.");
             fetchData();

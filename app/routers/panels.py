@@ -81,6 +81,54 @@ async def delete_panel_template(template_id: uuid.UUID, user = Depends(get_user)
         raise HTTPException(status_code=404, detail="Template not found or access denied")
     return
 
+# --- Admin Endpoints for PE Library ---
+
+@router.post("/admin/folders", response_model=PanelFolder, tags=["Admin"])
+async def admin_create_panel_folder(folder_data: PanelFolderCreate, user = Depends(get_user)):
+    admin_client = get_service_client()
+    insert_data = {
+        "name": folder_data.name,
+        "user_id": None,
+        "parent_id": str(folder_data.parent_id) if folder_data.parent_id else None,
+        "is_default": True
+    }
+    res = admin_client.table('panel_folders').insert(insert_data).execute()
+    return res.data[0]
+
+@router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])
+async def admin_delete_panel_folder(folder_id: uuid.UUID, user = Depends(get_user)):
+    admin_client = get_service_client()
+    temp_res = admin_client.table('panel_equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
+    if temp_res.count > 0:
+        raise HTTPException(status_code=400, detail="Cannot delete folder that contains templates")
+    admin_client.table('panel_folders').delete().eq('id', str(folder_id)).execute()
+    return
+
+@router.post("/admin/templates", response_model=PanelEquipmentTemplate, tags=["Admin"])
+async def admin_create_panel_template(template_data: PanelEquipmentTemplateCreate, user = Depends(get_user)):
+    admin_client = get_service_client()
+    insert_data = template_data.model_dump(mode='json')
+    insert_data['is_default'] = True
+    insert_data['user_id'] = None
+    
+    res = admin_client.table('panel_equipment_templates').insert(insert_data).execute()
+    return res.data[0]
+
+@router.put("/admin/templates/{template_id}", response_model=PanelEquipmentTemplate, tags=["Admin"])
+async def admin_update_panel_template(template_id: uuid.UUID, template_data: PanelEquipmentTemplateUpdate, user = Depends(get_user)):
+    admin_client = get_service_client()
+    update_data = template_data.model_dump(mode='json', exclude_unset=True)
+    res = admin_client.table('panel_equipment_templates').update(update_data).eq('id', str(template_id)).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return res.data[0]
+
+@router.delete("/admin/templates/{template_id}", status_code=204, tags=["Admin"])
+async def admin_delete_panel_template(template_id: uuid.UUID, user = Depends(get_user)):
+    admin_client = get_service_client()
+    admin_client.table('panel_equipment_templates').delete().eq('id', str(template_id)).execute()
+    return
+
 # --- Panel Equipment Instances ---
 
 @router.get("/instances/{panel_instance_id}", response_model=List[PanelEquipmentInstance])
@@ -133,17 +181,6 @@ async def delete_panel_instance(instance_id: uuid.UUID, user = Depends(get_user)
     supabase.table('panel_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
 
-# --- Admin Endpoints for PE Library ---
-
-@router.post("/admin/templates", response_model=PanelEquipmentTemplate, tags=["Admin"])
-async def admin_create_panel_template(template_data: PanelEquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    admin_client = get_service_client()
-    insert_data = template_data.model_dump(mode='json')
-    insert_data['is_default'] = True
-    insert_data['user_id'] = None
-    
-    res = admin_client.table('panel_equipment_templates').insert(insert_data).execute()
-    return res.data[0]
 
 @router.get("/shows/{show_id}/panel-instances", response_model=List[PanelEquipmentInstance])
 async def get_all_panel_instances_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
