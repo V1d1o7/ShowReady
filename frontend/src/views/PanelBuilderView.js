@@ -269,7 +269,7 @@ const PanelBuilderView = () => {
                         <ConnectorFace style={template.visual_style || 'standard'} />
                         
                         {instance.label && (
-                            <div className={`absolute ${isTop ? '-top-4' : '-bottom-4'} left-1/2 -translate-x-1/2 w-[150%] flex justify-center z-20`} title={instance.label}>
+                            <div className={`absolute ${isTop ? '-top-3' : '-bottom-3'} left-1/2 -translate-x-1/2 w-[150%] flex justify-center z-20`} title={instance.label}>
                                 <div className="bg-white text-black font-bold px-1 py-[1px] rounded shadow-sm text-[6px] truncate max-w-full border border-gray-400 leading-none">
                                     {instance.label}
                                 </div>
@@ -367,7 +367,8 @@ const PanelBuilderView = () => {
                         }
 
                         const isTopSub = subLabelPlacement === 'top';
-                        const emptyLabelPlacementClass = isTopSub ? '-bottom-4' : '-top-4';
+                        // FIX: Corrected ternary output so top labels are at the top and bottom labels at the bottom
+                        const emptyLabelPlacementClass = isTopSub ? '-top-4' : '-bottom-4';
 
                         return (
                             <div key={subSlotId} className="relative w-full h-full flex items-center justify-center min-h-0 min-w-0">
