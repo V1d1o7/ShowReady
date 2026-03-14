@@ -9,7 +9,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter, landscape, portrait
 from reportlab.lib import colors
-from reportlab.platypus import Paragraph, Table, TableStyle, Image, Spacer, SimpleDocTemplate, PageBreak
+from reportlab.platypus import Paragraph, Table, TableStyle, Image, Spacer, SimpleDocTemplate
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.utils import ImageReader
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -61,7 +61,7 @@ def parse_color(color_string: Optional[str]) -> colors.Color:
         'red': '#FF0000', 'orange': '#FFA500', 'yellow': '#FFFF00', 'green': '#008000', 
         'blue': '#0000FF', 'indigo': '#4B0082', 'violet': '#EE82EE', 'black': '#000000', 
         'white': '#FFFFFF', 'gray': '#808000', 'silver': '#C0C0C0', 'maroon': '#800000',
-        'olive': '#808000', 'limit': '#00FF00', 'aqua': '#00FFFF', 'teal': '#008080',
+        'olive': '#808000', 'lime': '#00FF00', 'aqua': '#00FFFF', 'teal': '#008080',
         'navy': '#000080', 'fuchsia': '#FF00FF', 'purple': '#800080'
     }.get(color_string)
     
@@ -208,6 +208,7 @@ def generate_case_label_pdf(labels: List[CaseLabel], logo_bytes: Optional[bytes]
     return buffer
 
 def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], show_branding: bool = True) -> io.BytesIO:
+    """Generates a PDF listing equipment for a show."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -224,22 +225,30 @@ def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], sho
     styles['Title'].fontSize = 18
     styles['Title'].spaceAfter = 16
 
+    # --- Title ---
     story.append(Paragraph(f"{show_name} - Equipment List", styles["Title"]))
 
+    # --- Table ---
     if table_data and len(table_data) > 0:
+        # Calculate column widths based on the number of columns
         num_cols = len(table_data[0])
         
         if num_cols == 3:
+            # Standard Equipment List (Manufacturer, Model, Qty)
             col_widths = [3*inch, 3.5*inch, 1*inch]
         else:
+            # Fallback for any other column count (dynamic distribution)
             available_width = 7.5 * inch
             col_widths = [available_width / num_cols] * num_cols
 
+        # Apply paragraph styles to all cells for consistent formatting
         styled_table_data = []
         header_style = ParagraphStyle(name='Header', parent=styles['Normal'], fontName='SpaceMono-Bold', alignment=TA_LEFT)
         body_style = ParagraphStyle(name='Body', parent=styles['Normal'], alignment=TA_LEFT)
 
+        # Header Row
         styled_table_data.append([Paragraph(cell, header_style) for cell in table_data[0]])
+        # Data Rows
         for row in table_data[1:]:
             styled_table_data.append([Paragraph(cell, body_style) for cell in row])
         
@@ -256,6 +265,7 @@ def generate_equipment_list_pdf(show_name: str, table_data: List[List[str]], sho
         ]))
         story.append(table)
 
+    # --- Footer and Build ---
     def footer(canvas, doc):
         if show_branding:
             canvas.saveState()
@@ -1027,28 +1037,168 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
     buffer.seek(0)
     return buffer
 
+def generate_power_report_pdf(payload: RackPDFPayload, show_branding: bool = True) -> io.BytesIO:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=portrait(letter),
+        rightMargin=0.5*inch, leftMargin=0.5*inch,
+        topMargin=0.5*inch, bottomMargin=0.5*inch,
+    )
+    story = []
+    styles = getSampleStyleSheet()
+    styles['Normal'].fontName = "SpaceMono"
+    styles['Title'].fontName = "SpaceMono-Bold"
+    styles['Title'].fontSize = 18
+    styles['Title'].spaceAfter = 16
+    
+    # Constants
+    VOLTAGE = payload.power_report_voltage
+    POWER_FACTOR = 0.7
+    UPS_CAPACITY_VA = 1500
 
-# --- METALLIC RENDERING LOGIC ---
+    # Calculations
+    total_watts = 0
+    rack_stats = []
+
+    for rack in payload.racks:
+        rack_watts = 0
+        for item in rack.equipment:
+            template = item.equipment_templates
+            if template and template.power_consumption_watts:
+                rack_watts += template.power_consumption_watts
+        
+        rack_amps = rack_watts / VOLTAGE
+        rack_va = rack_watts / POWER_FACTOR
+        
+        rack_stats.append({
+            "name": rack.rack_name,
+            "watts": rack_watts,
+            "amps": rack_amps,
+            "va": rack_va
+        })
+        total_watts += rack_watts
+
+    total_amps = total_watts / VOLTAGE
+    total_va = total_watts / POWER_FACTOR
+    suggested_ups = int(total_va / UPS_CAPACITY_VA) + (1 if total_va % UPS_CAPACITY_VA > 0 else 0)
+
+    # --- Title ---
+    story.append(Paragraph(f"{payload.show_name} - Power Report", styles["Title"]))
+    story.append(Paragraph(f"Basis: {VOLTAGE} Volts | Power Factor: {POWER_FACTOR}", styles["Normal"]))
+    story.append(Spacer(1, 12))
+
+    # --- Summary Box (Styled as a Table) ---
+    summary_data = [
+        # Added newline to prevent overflow
+        ["Total Power", "Total Current", "Est. Load (VA)", "Suggested UPS\n(1500VA)"],
+        [
+            f"{total_watts:,} W", 
+            f"{total_amps:.1f} A", 
+            f"{int(total_va):,} VA", 
+            f"{suggested_ups} Units"
+        ]
+    ]
+    
+    # ADJUSTED WIDTHS: 1.6, 1.6, 1.6, 2.4 (Total 7.2 inches)
+    summary_table = Table(summary_data, colWidths=[1.6*inch, 1.6*inch, 1.6*inch, 2.4*inch], hAlign='CENTER')
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkgrey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, -1), 'SpaceMono-Bold'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 1, colors.black),
+        ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 24))
+
+    # --- Breakdown Table ---
+    # Manually creating a Heading style since 'Heading3' might not be standard in getSampleStyleSheet
+    heading_style = ParagraphStyle(
+        'Heading3', 
+        parent=styles['Normal'], 
+        fontName='SpaceMono-Bold', 
+        fontSize=12, 
+        spaceAfter=6
+    )
+    story.append(Paragraph("Breakdown by Rack", heading_style))
+    story.append(Spacer(1, 6))
+
+    table_header = ["Rack Name", "Watts", "Amps", "VA"]
+    table_data = [table_header]
+    
+    for stat in rack_stats:
+        table_data.append([
+            stat["name"],
+            f"{stat['watts']:,} W",
+            f"{stat['amps']:.1f} A",
+            f"{int(stat['va']):,} VA"
+        ])
+
+    breakdown_table = Table(table_data, colWidths=[3.5*inch, 1.2*inch, 1.2*inch, 1.2*inch], hAlign='LEFT')
+    breakdown_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.gray),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'SpaceMono-Bold'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),   # Names Left
+        ('ALIGN', (1, 0), (-1, -1), 'RIGHT'), # Numbers Right
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LINEBELOW', (0, 0), (-1, 0), 1.5, colors.black),
+        ('LINEBELOW', (0, 1), (-1, -1), 0.5, colors.lightgrey),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(breakdown_table)
+
+    # Footer
+    def footer(canvas, doc):
+        if show_branding:
+            canvas.saveState()
+            canvas.setFont('SpaceMono', 8)
+            canvas.drawString(0.5 * inch, 0.5 * inch, "Created using ShowReady")
+            canvas.restoreState()
+
+    doc.build(story, onFirstPage=footer, onLaterPages=footer)
+    buffer.seek(0)
+    return buffer
+
+
+# --- ROBUST D-HOLE CHECKER ---
+def checkIsDHole(accepted_type: Optional[str], slot_name: Optional[str]) -> bool:
+    a = (accepted_type or "").strip().lower()
+    n = (slot_name or "").strip().lower()
+    return ('d-hole' in a or 'd_hole' in a or 'dhole' in a or 'd-series' in a or a == 'd' or
+            'd-hole' in n or 'd_hole' in n or 'd hole' in n)
+
+# --- METALLIC RENDERING LOGIC FOR PDF ---
 def draw_panel_visual(c, x, y, width, height, panel_data):
     """
     Renders a visual representation of a patch panel chassis.
     """
+    # Main Chassis Body
     c.setStrokeColor(colors.black)
     c.setFillColor(colors.HexColor("#111111"))
     c.rect(x, y, width, height, fill=1, stroke=1)
     
+    # Left Ear
     c.setFillColor(colors.HexColor("#222222"))
     c.rect(x, y, 30, height, fill=1, stroke=1)
     c.setFillColor(colors.HexColor("#050505"))
     c.circle(x + 15, y + 10, 4, fill=1)
     c.circle(x + 15, y + height - 10, 4, fill=1)
 
+    # Right Ear
     c.setFillColor(colors.HexColor("#222222"))
     c.rect(x + width - 30, y, 30, height, fill=1, stroke=1)
     c.setFillColor(colors.HexColor("#050505"))
     c.circle(x + width - 15, y + 10, 4, fill=1)
     c.circle(x + width - 15, y + height - 10, 4, fill=1)
 
+    # Top/Bottom Lips
     c.setFillColor(colors.HexColor("#1a1a1a"))
     c.rect(x + 30, y + height - 15, width - 60, 15, fill=1, stroke=1) 
     c.rect(x + 30, y, width - 60, 15, fill=1, stroke=1) 
@@ -1056,8 +1206,9 @@ def draw_panel_visual(c, x, y, width, height, panel_data):
     draw_width = width - 60
     slots_area_x = x + 30
     
-    infra_slots = panel_data['panel']['equipment_templates'].get('slots') or []
-    mounted_instances = panel_data['mounted_instances']
+    eq_templates = panel_data.get('panel', {}).get('equipment_templates') or {}
+    infra_slots = eq_templates.get('slots') or []
+    mounted_instances = panel_data.get('mounted_instances') or []
     
     if infra_slots:
         slot_width = draw_width / len(infra_slots)
@@ -1066,10 +1217,8 @@ def draw_panel_visual(c, x, y, width, height, panel_data):
             slot_y = y + 15
             slot_h = height - 30
             
-            accepted_type = str(slot.get('accepted_module_type') or '').strip().lower()
-            is_dhole = accepted_type in ['d-hole', 'dhole']
-            
-            instance = next((m for m in mounted_instances if m.get('slot_id') == slot['id']), None)
+            is_dhole = checkIsDHole(slot.get('accepted_module_type'), slot.get('name'))
+            instance = next((m for m in mounted_instances if m.get('slot_id') == slot.get('id')), None)
 
             if not is_dhole:
                 # Standard Steck Bay Divider
@@ -1081,22 +1230,300 @@ def draw_panel_visual(c, x, y, width, height, panel_data):
                 c.circle(slot_x + slot_width/2, slot_y + 5, 2, fill=1, stroke=1)
                 c.circle(slot_x + slot_width/2, slot_y + slot_h - 5, 2, fill=1, stroke=1)
             else:
-                # Direct Chassis D-Hole
+                # Direct Chassis D-Hole using uniform scaling
                 if not instance:
-                    cx = slot_x + slot_width/2
-                    cy = slot_y + slot_h/2
-                    r = min(slot_width, slot_h)/2 - 6
-                    if r > 14: r = 14
+                    c.saveState()
+                    
+                    target_w = 260.0
+                    target_h = 310.0
+                    scale = min(slot_width / target_w, slot_h / target_h) * 0.95
+                    drawn_w = target_w * scale
+                    drawn_h = target_h * scale
+                    
+                    cx = slot_x + (slot_width - drawn_w) / 2
+                    cy = slot_y + (slot_h - drawn_h) / 2
+                    
+                    c.translate(cx, cy + drawn_h)
+                    c.scale(scale, -scale)
+                    
+                    # Black Hole
                     c.setFillColor(colors.HexColor("#050505"))
                     c.setStrokeColor(colors.HexColor("#333333"))
-                    c.circle(cx, cy, r, fill=1, stroke=1)
+                    c.setLineWidth(4)
+                    c.circle(130, 155, 110, fill=1, stroke=1)
+                    
+                    # Flat Top Cover
+                    c.setFillColor(colors.HexColor("#2a2a2a")) 
+                    c.rect(40, 45, 180, 25, fill=1, stroke=0)
+                    
+                    # Taps
                     c.setFillColor(colors.HexColor("#111111"))
-                    c.rect(cx - r + 1, cy + r - 3, (r*2) - 2, 4, fill=1, stroke=0)
-                    c.circle(cx - r - 2, cy + r + 2, 1.5, fill=1, stroke=1)
-                    c.circle(cx + r + 2, cy - r - 2, 1.5, fill=1, stroke=1)
+                    c.setStrokeColor(colors.HexColor("#222222"))
+                    c.setLineWidth(2)
+                    c.circle(35, 35, 16, fill=1, stroke=1)
+                    c.circle(225, 275, 16, fill=1, stroke=1)
+                    c.setFillColor(colors.HexColor("#050505"))
+                    c.circle(35, 35, 6, fill=1, stroke=0)
+                    c.circle(225, 275, 6, fill=1, stroke=0)
+                    
+                    c.restoreState()
 
             if instance:
                 _draw_pe_recursive(c, slot_x, slot_y, slot_width, slot_h, instance)
+
+
+def draw_svg_face(c, x, y, w, h, visual_style):
+    c.saveState()
+    
+    target_w = 260.0
+    target_h = 310.0
+    
+    # Uniform scaling to preserve exact aspect ratio
+    scale = min(w / target_w, h / target_h) * 0.95
+    drawn_w = target_w * scale
+    drawn_h = target_h * scale
+    
+    cx = x + (w - drawn_w) / 2
+    cy = y + (h - drawn_h) / 2
+
+    c.translate(cx, cy + drawn_h)
+    c.scale(scale, -scale)
+
+    def draw_flange():
+        c.setLineWidth(3)
+        c.setFillColor(colors.HexColor("#e5e5e5"))
+        c.setStrokeColor(colors.HexColor("#888888"))
+        c.roundRect(0, 0, 260, 310, 20, fill=1, stroke=1)
+        
+        c.setLineWidth(2)
+        c.setFillColor(colors.HexColor("#111111"))
+        c.setStrokeColor(colors.HexColor("#555555"))
+        c.circle(35, 35, 16, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#050505"))
+        c.circle(35, 35, 6, fill=1, stroke=0)
+        
+        c.setFillColor(colors.HexColor("#111111"))
+        c.setStrokeColor(colors.HexColor("#555555"))
+        c.circle(225, 275, 16, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#050505"))
+        c.circle(225, 275, 6, fill=1, stroke=0)
+
+    if visual_style == 'ethercon':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        # Push Latch
+        p = c.beginPath()
+        p.moveTo(100, 50); p.lineTo(160, 50); p.lineTo(150, 90); p.lineTo(110, 90); p.close()
+        c.setFillColor(colors.HexColor("#cccccc"))
+        c.setStrokeColor(colors.HexColor("#666666"))
+        c.setLineWidth(2)
+        c.drawPath(p, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#888888"))
+        c.roundRect(110, 60, 40, 6, 2, fill=1, stroke=0)
+        
+        # RJ45
+        c.setFillColor(colors.HexColor("#000000"))
+        c.roundRect(85, 120, 90, 75, 5, fill=1, stroke=0)
+        p2 = c.beginPath()
+        p2.moveTo(115, 195); p2.lineTo(145, 195); p2.lineTo(145, 215); p2.lineTo(115, 215); p2.close()
+        c.drawPath(p2, fill=1, stroke=0)
+        
+        # Pins
+        c.setFillColor(colors.HexColor("#ffd700"))
+        for i in range(8):
+            c.rect(96 + (i * 9), 125, 4, 20, fill=1, stroke=0)
+
+    elif visual_style == 'xlr_f':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        p = c.beginPath()
+        p.moveTo(100, 50); p.lineTo(160, 50); p.lineTo(150, 90); p.lineTo(110, 90); p.close()
+        c.setFillColor(colors.HexColor("#cccccc"))
+        c.setStrokeColor(colors.HexColor("#666666"))
+        c.setLineWidth(2)
+        c.drawPath(p, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#888888"))
+        c.circle(130, 70, 10, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#555555"))
+        c.setFont("SpaceMono-Bold", 20)
+        c.drawCentredString(130, 40, "PUSH")
+        
+        c.setFillColor(colors.HexColor("#000000"))
+        c.circle(95, 130, 16, fill=1, stroke=0)
+        c.circle(165, 130, 16, fill=1, stroke=0)
+        c.circle(130, 200, 16, fill=1, stroke=0)
+
+    elif visual_style == 'xlr_m':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#050505"))
+        c.setStrokeColor(colors.HexColor("#222222"))
+        c.setLineWidth(2)
+        c.circle(130, 155, 70, fill=1, stroke=1)
+        c.rect(115, 60, 30, 30, fill=1, stroke=0)
+        
+        c.setFillColor(colors.HexColor("#e5e5e5"))
+        c.circle(95, 130, 12, fill=1, stroke=0)
+        c.circle(165, 130, 12, fill=1, stroke=0)
+        c.circle(130, 200, 12, fill=1, stroke=0)
+        
+    elif visual_style == 'bnc':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#111111"))
+        c.setStrokeColor(colors.HexColor("#222222"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#e5e5e5"))
+        c.setStrokeColor(colors.HexColor("#aaaaaa"))
+        c.circle(130, 155, 65, fill=1, stroke=1)
+        c.setLineWidth(2)
+        c.roundRect(45, 145, 170, 20, 5, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#ffffff"))
+        c.setStrokeColor(colors.HexColor("#dddddd"))
+        c.circle(130, 155, 45, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#ffd700"))
+        c.setStrokeColor(colors.HexColor("#b8860b"))
+        c.circle(130, 155, 10, fill=1, stroke=1)
+
+    elif visual_style in ['opticalcon_duo', 'opticalcon_quad']:
+        draw_flange()
+        c.setFillColor(colors.HexColor("#111111"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#00c853"))
+        c.setStrokeColor(colors.HexColor("#007a33"))
+        c.setLineWidth(3)
+        c.roundRect(55, 125, 150, 60, 10, fill=1, stroke=1)
+        
+        if visual_style == 'opticalcon_quad':
+            c.roundRect(100, 80, 60, 150, 10, fill=1, stroke=1)
+            
+        c.setFillColor(colors.HexColor("#ffffff"))
+        c.setStrokeColor(colors.HexColor("#666666"))
+        c.setLineWidth(2)
+        if visual_style == 'opticalcon_duo':
+            c.circle(100, 155, 12, fill=1, stroke=1)
+            c.circle(160, 155, 12, fill=1, stroke=1)
+        else:
+            c.circle(100, 125, 12, fill=1, stroke=1)
+            c.circle(160, 125, 12, fill=1, stroke=1)
+            c.circle(100, 185, 12, fill=1, stroke=1)
+            c.circle(160, 185, 12, fill=1, stroke=1)
+
+    elif visual_style in ['mtp12', 'mtp24', 'mtp48']:
+        draw_flange()
+        c.setFillColor(colors.HexColor("#111111"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#00c853"))
+        c.setStrokeColor(colors.HexColor("#007a33"))
+        c.setLineWidth(3)
+        c.roundRect(65, 135, 130, 40, 8, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#000000"))
+        c.roundRect(85, 150, 90, 10, 2, fill=1, stroke=0)
+        
+        num = visual_style.replace('mtp', '')
+        c.setFillColor(colors.HexColor("#ffffff"))
+        c.setFont("SpaceMono-Bold", 36) 
+        c.drawCentredString(130, 120, num)
+
+    elif visual_style == 'true1':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#FFD700"))
+        c.setStrokeColor(colors.HexColor("#cca100"))
+        c.circle(130, 155, 85, fill=1, stroke=1)
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.circle(130, 155, 60, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#FFD700"))
+        c.rect(115, 70, 30, 20, fill=1, stroke=0)
+
+    elif visual_style in ['powercon_blue', 'powercon_white']:
+        draw_flange()
+        base_col = "#0055FF" if visual_style == 'powercon_blue' else "#e5e5e5"
+        stroke_col = "#0033aa" if visual_style == 'powercon_blue' else "#cccccc"
+        c.setFillColor(colors.HexColor(base_col))
+        c.setStrokeColor(colors.HexColor(stroke_col))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#000000"))
+        c.circle(130, 155, 60, fill=1, stroke=1)
+        c.rect(120, 45, 20, 20, fill=1, stroke=0)
+
+    elif visual_style == 'speakon':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#111111"))
+        c.setStrokeColor(colors.HexColor("#444444"))
+        c.circle(130, 155, 65, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#444444"))
+        c.rect(120, 80, 20, 20, fill=1, stroke=0)
+        c.rect(60, 145, 20, 20, fill=1, stroke=0)
+        c.rect(180, 145, 20, 20, fill=1, stroke=0)
+        
+        c.setFillColor(colors.HexColor("#222222"))
+        c.circle(130, 155, 30, fill=1, stroke=0)
+        c.setFillColor(colors.HexColor("#111111"))
+        c.circle(130, 155, 15, fill=1, stroke=0)
+
+    elif visual_style == 'hdmi':
+        draw_flange()
+        c.setFillColor(colors.HexColor("#1a1a1a"))
+        c.setStrokeColor(colors.HexColor("#333333"))
+        c.setLineWidth(4)
+        c.circle(130, 155, 110, fill=1, stroke=1)
+        
+        p = c.beginPath()
+        p.moveTo(60, 135)
+        p.lineTo(200, 135)
+        p.lineTo(200, 155)
+        p.lineTo(180, 185)
+        p.lineTo(80, 185)
+        p.lineTo(60, 155)
+        p.close()
+        c.setFillColor(colors.HexColor("#000000"))
+        c.setStrokeColor(colors.HexColor("#555555"))
+        c.setLineWidth(3)
+        c.drawPath(p, fill=1, stroke=1)
+        
+        c.setFillColor(colors.HexColor("#333333"))
+        c.rect(75, 145, 110, 6, fill=1, stroke=0)
+        c.rect(85, 165, 90, 4, fill=1, stroke=0)
+
+    else:
+        draw_flange()
+
+    c.restoreState()
+
 
 def _draw_pe_recursive(c, x, y, w, h, instance):
     template = instance.get('template')
@@ -1109,283 +1536,200 @@ def _draw_pe_recursive(c, x, y, w, h, instance):
     visual_style = template.get('visual_style', 'standard')
 
     if is_connector:
-        # --- G-BLOCK LOGIC ---
+        # Handle Labels inside the flex flow
+        label_h_pts = 0
+        if instance.get('label'):
+            label_h_pts = 10
+            label_text = instance['label']
+            c.setFont("SpaceMono-Bold", 6)
+            
+            # Constrain width to slot size
+            max_label_w = w - 2
+            while c.stringWidth(label_text, "SpaceMono-Bold", 6) > max_label_w - 4 and len(label_text) > 0:
+                label_text = label_text[:-1]
+            
+            text_width = c.stringWidth(label_text, "SpaceMono-Bold", 6)
+            c.setFillColor(colors.white)
+            c.setStrokeColor(colors.lightgrey)
+            c.setLineWidth(0.5)
+            
+            # Reportlab Y is bottom up. Top of slot is y + h.
+            box_y = y + h - label_h_pts + 1
+            c.roundRect(x + (w/2) - (text_width/2) - 2, box_y, text_width + 4, 8, 1, fill=1, stroke=1)
+            c.setFillColor(colors.black)
+            c.drawCentredString(x + w/2, box_y + 2, label_text)
+
+        # Remaining area for drawing the SVG face
+        conn_h = h - label_h_pts
+        conn_y = y
+
         if visual_style.startswith('gblock'):
-            gb_w, gb_h = min(w-4, 40), min(h-4, 40)
-            fx = x + (w - gb_w)/2
-            fy = y + (h - gb_h)/2
+            gb_size = min(w-4, conn_h-4, 40)
+            fx = x + (w - gb_size)/2
+            fy = conn_y + (conn_h - gb_size)/2
             c.setFillColor(colors.HexColor("#111111"))
             c.setStrokeColor(colors.HexColor("#333333"))
             c.setLineWidth(1)
-            c.roundRect(fx, fy, gb_w, gb_h, 2, fill=1, stroke=1)
+            c.roundRect(fx, fy, gb_size, gb_size, 2, fill=1, stroke=1)
             
             c.setFillColor(colors.HexColor("#cccccc"))
             c.circle(fx + 4, fy + 4, 1.5, fill=1, stroke=0)
-            c.circle(fx + gb_w - 4, fy + gb_h - 4, 1.5, fill=1, stroke=0)
-            c.circle(fx + 4, fy + gb_h - 4, 1.5, fill=1, stroke=0)
-            c.circle(fx + gb_w - 4, fy + 4, 1.5, fill=1, stroke=0)
+            c.circle(fx + gb_size - 4, fy + gb_size - 4, 1.5, fill=1, stroke=0)
+            c.circle(fx + 4, fy + gb_size - 4, 1.5, fill=1, stroke=0)
+            c.circle(fx + gb_size - 4, fy + 4, 1.5, fill=1, stroke=0)
             
             c.setFillColor(colors.HexColor("#FFD700"))
             if visual_style == 'gblock_6pr':
                 for pr_x in [0.3, 0.5, 0.7]:
                     for pr_y in [0.35, 0.65]:
-                        c.circle(fx + gb_w * pr_x, fy + gb_h * pr_y, 2, fill=1, stroke=0)
+                        c.circle(fx + gb_size * pr_x, fy + gb_size * pr_y, 2, fill=1, stroke=0)
             else: # 12pr
                 for pr_x in [0.25, 0.42, 0.58, 0.75]:
                     for pr_y in [0.25, 0.5, 0.75]:
-                        c.circle(fx + gb_w * pr_x, fy + gb_h * pr_y, 1.5, fill=1, stroke=0)
-            
-            if instance.get('label'):
-                label_text = instance['label'][:15]
-                c.setFont("SpaceMono-Bold", 6)
-                text_width = c.stringWidth(label_text, "SpaceMono-Bold", 6)
-                c.setFillColor(colors.white)
-                c.setStrokeColor(colors.lightgrey)
-                c.setLineWidth(0.5)
-                c.rect(x + (w/2) - (text_width/2) - 2, y - 8, text_width + 4, 8, fill=1, stroke=1)
-                c.setFillColor(colors.black)
-                c.drawCentredString(x + w/2, y - 6, label_text)
-            
+                        c.circle(fx + gb_size * pr_x, fy + gb_size * pr_y, 1.5, fill=1, stroke=0)
             return
 
-        # --- DRAW D-SERIES CONNECTOR FLANGE ---
-        c.setFillColor(colors.HexColor("#d4d4d4"))
-        c.setStrokeColor(colors.HexColor("#555555"))
-        c.setLineWidth(1)
-        
-        flange_w, flange_h = min(w-4, 28), min(h-4, 34)
-        fx = x + (w - flange_w)/2
-        fy = y + (h - flange_h)/2
-        
-        c.roundRect(fx, fy, flange_w, flange_h, 2, fill=1, stroke=1)
-        
-        c.setFillColor(colors.HexColor("#222222"))
-        c.circle(fx + 4, fy + flange_h - 4, 1.5, fill=1, stroke=0)
-        c.circle(fx + flange_w - 4, fy + 4, 1.5, fill=1, stroke=0)
-        
-        # --- DRAW CONNECTOR FACES ---
-        center_x = fx + flange_w/2
-        center_y = fy + flange_h/2
-        
-        if visual_style in ['mtp12', 'mtp24', 'mtp48']:
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.HexColor("#00ff00"))
-            c.rect(center_x - 6, center_y - 3, 12, 6, fill=1, stroke=0)
-            c.setFillColor(colors.black)
-            c.rect(center_x - 4, center_y - 1, 8, 2, fill=1, stroke=0)
-            c.setFillColor(colors.white)
-            c.setFont("SpaceMono-Bold", 4)
-            c.drawCentredString(center_x, center_y - 8, visual_style.replace('mtp', ''))
-
-        elif visual_style == 'opticalcon_duo':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.HexColor("#00ff00"))
-            c.rect(center_x - 8, center_y - 2, 16, 4, fill=1, stroke=0)
-            c.setFillColor(colors.white)
-            c.circle(center_x - 4, center_y, 1.2, fill=1, stroke=0)
-            c.circle(center_x + 4, center_y, 1.2, fill=1, stroke=0)
-
-        elif visual_style == 'opticalcon_quad':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.HexColor("#00ff00"))
-            c.rect(center_x - 8, center_y - 2, 16, 4, fill=1, stroke=0)
-            c.rect(center_x - 2, center_y - 8, 4, 16, fill=1, stroke=0)
-            c.setFillColor(colors.white)
-            c.circle(center_x - 4, center_y - 4, 1.2, fill=1, stroke=0)
-            c.circle(center_x + 4, center_y - 4, 1.2, fill=1, stroke=0)
-            c.circle(center_x - 4, center_y + 4, 1.2, fill=1, stroke=0)
-            c.circle(center_x + 4, center_y + 4, 1.2, fill=1, stroke=0)
-
-        elif visual_style == 'true1':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.HexColor("#FFD700"))
-            c.circle(center_x, center_y, 9, fill=1, stroke=0)
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 7, fill=1, stroke=0)
-            c.setFillColor(colors.HexColor("#FFD700"))
-            c.rect(center_x - 1, center_y + 5, 2, 4, fill=1, stroke=0)
-
-        elif visual_style == 'powercon_blue':
-            c.setFillColor(colors.HexColor("#0055FF"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 7, fill=1, stroke=0)
-            c.setFillColor(colors.lightgrey)
-            c.rect(center_x - 1, center_y + 5, 2, 4, fill=1, stroke=0)
-
-        elif visual_style == 'powercon_white':
-            c.setFillColor(colors.HexColor("#DDDDDD"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 7, fill=1, stroke=0)
-            c.setFillColor(colors.lightgrey)
-            c.rect(center_x - 1, center_y + 5, 2, 4, fill=1, stroke=0)
-
-        elif visual_style == 'ethercon':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            c.rect(center_x - 4, center_y - 6, 8, 10, fill=1, stroke=0)
-            c.setFillColor(colors.lightgrey)
-            c.rect(center_x - 3, center_y + 4, 6, 2, fill=1, stroke=0)
-
-        elif visual_style == 'xlr_f':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.lightgrey)
-            c.rect(center_x - 3, center_y + 4, 6, 2, fill=1, stroke=0)
-            c.setFillColor(colors.black)
-            c.circle(center_x - 3, center_y + 1, 1.5, fill=1, stroke=0)
-            c.circle(center_x + 3, center_y + 1, 1.5, fill=1, stroke=0)
-            c.circle(center_x, center_y - 4, 1.5, fill=1, stroke=0)
-
-        elif visual_style == 'xlr_m':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            c.circle(center_x, center_y, 6, fill=1, stroke=0)
-            c.setFillColor(colors.lightgrey)
-            c.circle(center_x - 2, center_y + 2, 1, fill=1, stroke=0)
-            c.circle(center_x + 2, center_y + 2, 1, fill=1, stroke=0)
-            c.circle(center_x, center_y - 3, 1, fill=1, stroke=0)
-
-        elif visual_style == 'bnc':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.lightgrey)
-            c.circle(center_x, center_y, 5, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            c.circle(center_x, center_y, 1.5, fill=1, stroke=0)
-            c.circle(center_x - 5, center_y, 1, fill=1, stroke=0)
-            c.circle(center_x + 5, center_y, 1, fill=1, stroke=0)
-
-        elif visual_style == 'opticalcon':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.lightgrey)
-            c.circle(center_x - 3, center_y, 1.5, fill=1, stroke=0)
-            c.circle(center_x + 3, center_y, 1.5, fill=1, stroke=0)
-            c.setFillColor(colors.green)
-            c.rect(center_x - 4, center_y - 5, 8, 1.5, fill=1, stroke=0)
-
-        elif visual_style == 'speakon':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setStrokeColor(colors.HexColor("#333333"))
-            c.setLineWidth(2)
-            c.circle(center_x, center_y, 6, fill=0, stroke=1)
-            c.setLineWidth(1)
-            c.setFillColor(colors.HexColor("#333333"))
-            c.rect(center_x - 1, center_y + 4, 2, 4, fill=1, stroke=0)
-            
-        elif visual_style == 'hdmi':
-            c.setFillColor(colors.HexColor("#111111"))
-            c.circle(center_x, center_y, 10, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            c.rect(center_x - 5, center_y - 2, 10, 4, fill=1, stroke=0)
-
-        else:
-            # Blank or default generic barrel
-            c.setFillColor(colors.HexColor("#111111"))
-            c.setStrokeColor(colors.HexColor("#333333"))
-            c.circle(fx + flange_w/2, fy + flange_h/2, 10, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            c.circle(fx + flange_w/2, fy + flange_h/2, 4, fill=1, stroke=0)
-
-        # Label (P-Touch Style)
-        if instance.get('label'):
-            label_text = instance['label'][:15]
-            c.setFont("SpaceMono-Bold", 6)
-            text_width = c.stringWidth(label_text, "SpaceMono-Bold", 6)
-            c.setFillColor(colors.white)
-            c.setStrokeColor(colors.lightgrey)
-            c.setLineWidth(0.5)
-            c.rect(x + (w/2) - (text_width/2) - 2, y - 8, text_width + 4, 8, fill=1, stroke=1)
-            c.setFillColor(colors.black)
-            c.drawCentredString(x + w/2, y - 6, label_text)
+        draw_svg_face(c, x, conn_y, w, conn_h, visual_style)
 
     else:
-        # --- DRAW PLATE ---
+        # --- DRAW PLATE (STECK / UCP) ---
         c.setFillColor(colors.HexColor("#1e1e1e"))
         c.setStrokeColor(colors.HexColor("#111111"))
         c.setLineWidth(1)
         c.rect(x+0.5, y, w-1, h, fill=1, stroke=1)
 
+        slotCount = len(sub_slots)
+        
+        gridCols = 1
+        gridRows = slotCount
+        if slotCount == 4:
+            gridCols = 2
+            gridRows = 2
+        elif slotCount > 4:
+            gridCols = 2
+            gridRows = (slotCount + 1) // 2
+
         c.setFillColor(colors.HexColor("#0a0a0a"))
         c.setStrokeColor(colors.HexColor("#333333"))
         c.setLineWidth(0.5)
-        c.circle(x + w/2, y + 5, 2, fill=1, stroke=1)
-        c.circle(x + w/2, y + h - 5, 2, fill=1, stroke=1)
+        
+        if gridCols == 1:
+            c.circle(x + w/2, y + 5, 2, fill=1, stroke=1)
+            c.circle(x + w/2, y + h - 5, 2, fill=1, stroke=1)
+        else:
+            c.circle(x + 5, y + 5, 2, fill=1, stroke=1)
+            c.circle(x + w - 5, y + 5, 2, fill=1, stroke=1)
+            c.circle(x + 5, y + h - 5, 2, fill=1, stroke=1)
+            c.circle(x + w - 5, y + h - 5, 2, fill=1, stroke=1)
+
+        template_model = (template.get('model_number') or '').lower()
+        template_name = (template.get('name') or '').lower()
+        is_ucp = 'ucp' in template_model or 'ucp' in template_name
 
         c.setFillColor(colors.lightgrey)
         c.setFont("SpaceMono-Bold", 5)
-        model_name = (template.get('model_number') or template.get('name'))[:12]
-        c.drawCentredString(x + w/2, y + h - 15, model_name)
 
-        if instance.get('label'):
-            label_text = instance['label'][:12]
-            c.setFont("SpaceMono-Bold", 6)
-            text_width = c.stringWidth(label_text, "SpaceMono-Bold", 6)
-            c.setFillColor(colors.white)
-            c.rect(x + (w/2) - (text_width/2) - 2, y + h - 25, text_width + 4, 8, fill=1, stroke=0)
-            c.setFillColor(colors.black)
-            c.drawCentredString(x + w/2, y + h - 23, label_text)
+        label_h_pts = 0
 
-        # Draw inner D-Hole slots
+        if is_ucp:
+            plate_text = instance.get('label') or ''
+            max_w = w - 4
+            while c.stringWidth(plate_text, "SpaceMono-Bold", 5) > max_w and len(plate_text) > 0:
+                plate_text = plate_text[:-1]
+            c.drawCentredString(x + w/2, y + h - 15, plate_text)
+        else:
+            # Silkscreen Model Name at top
+            model_name = (template.get('model_number') or template.get('name') or '')[:12]
+            c.drawCentredString(x + w/2, y + h - 15, model_name)
+
+            if instance.get('label'):
+                label_h_pts = 10
+                label_text = instance['label']
+                c.setFont("SpaceMono-Bold", 6)
+                max_label_w = w - 2
+                while c.stringWidth(label_text, "SpaceMono-Bold", 6) > max_label_w - 4 and len(label_text) > 0:
+                    label_text = label_text[:-1]
+                text_width = c.stringWidth(label_text, "SpaceMono-Bold", 6)
+                c.setFillColor(colors.white)
+                c.setStrokeColor(colors.lightgrey)
+                c.setLineWidth(0.5)
+                box_y = y + h - label_h_pts + 1
+                c.roundRect(x + (w/2) - (text_width/2) - 2, box_y, text_width + 4, 7, 1, fill=1, stroke=1)
+                c.setFillColor(colors.black)
+                c.drawCentredString(x + w/2, box_y + 2.5, label_text)
+
         if sub_slots:
+            avail_h = h - 30 - label_h_pts
             avail_y = y + 15
-            avail_h = h - 30
             
-            cols = 2 if len(sub_slots) > 4 else 1
-            rows = (len(sub_slots) + cols - 1) // cols
-            
-            cell_w = w / cols
-            cell_h = avail_h / rows
+            cell_w = w / gridCols
+            cell_h = avail_h / gridRows
             
             for i, ss in enumerate(sub_slots):
-                col = i % cols
-                row = i // cols
+                col = i % gridCols
+                row = i // gridCols
                 
-                pdf_row = rows - 1 - row
+                pdf_row = gridRows - 1 - row
                 
                 cx = x + (col * cell_w) + (cell_w / 2)
                 cy = avail_y + (pdf_row * cell_h) + (cell_h / 2)
                 
-                child = next((c for c in children if c.get('slot_id') == ss['id']), None)
+                child = next((c_inst for c_inst in children if c_inst.get('slot_id') == ss.get('id')), None)
                 if child:
-                    cw, ch = min(cell_w, 28), min(cell_h, 34)
-                    cx_start = cx - cw/2
-                    cy_start = cy - ch/2
-                    _draw_pe_recursive(c, cx_start, cy_start, cw, ch, child)
+                    # Let the recursive function use the full cell bounds; it will scale uniformly
+                    cx_start = cx - cell_w/2
+                    cy_start = cy - cell_h/2
+                    _draw_pe_recursive(c, cx_start, cy_start, cell_w, cell_h, child)
                 else:
-                    # Draw empty D-Hole
-                    r = min(cell_w, cell_h) / 2 - 4
-                    if r > 14: r = 14
-                    c.setFillColor(colors.HexColor("#050505"))
-                    c.setStrokeColor(colors.HexColor("#333333"))
-                    c.circle(cx, cy, r, fill=1, stroke=1)
-                    c.setFillColor(colors.HexColor("#1e1e1e"))
-                    c.rect(cx - r + 1, cy + r - 2, (r*2) - 2, 3, fill=1, stroke=0)
-                    c.circle(cx - r - 2, cy + r + 2, 1.5, fill=1, stroke=1)
-                    c.circle(cx + r + 2, cy - r - 2, 1.5, fill=1, stroke=1)
+                    is_dhole = checkIsDHole(ss.get('accepted_module_type'), ss.get('name'))
+                    
+                    if is_dhole:
+                        # Empty D-Hole using perfectly mapped 260x310 coordinate space (uniform scale)
+                        c.saveState()
+                        target_w = 260.0
+                        target_h = 310.0
+                        scale = min(cell_w / target_w, cell_h / target_h) * 0.95
+                        drawn_w = target_w * scale
+                        drawn_h = target_h * scale
+                        
+                        cell_cx = cx - cell_w/2 
+                        cell_cy = cy - cell_h/2 
+                        
+                        offset_x = cell_cx + (cell_w - drawn_w) / 2
+                        offset_y = cell_cy + (cell_h - drawn_h) / 2
+                        
+                        c.translate(offset_x, offset_y + drawn_h)
+                        c.scale(scale, -scale)
+                        
+                        c.setFillColor(colors.HexColor("#050505"))
+                        c.setStrokeColor(colors.HexColor("#333333"))
+                        c.setLineWidth(4)
+                        c.circle(130, 155, 110, fill=1, stroke=1)
+                        
+                        c.setFillColor(colors.HexColor("#1e1e1e"))
+                        c.rect(40, 45, 180, 25, fill=1, stroke=0)
+                        
+                        c.setFillColor(colors.HexColor("#111111"))
+                        c.setStrokeColor(colors.HexColor("#222222"))
+                        c.setLineWidth(2)
+                        c.circle(35, 35, 16, fill=1, stroke=1)
+                        c.circle(225, 275, 16, fill=1, stroke=1)
+                        c.setFillColor(colors.HexColor("#050505"))
+                        c.circle(35, 35, 6, fill=1, stroke=0)
+                        c.circle(225, 275, 6, fill=1, stroke=0)
+                        
+                        c.restoreState()
+                    else:
+                        c.setFillColor(colors.HexColor("#050505"))
+                        c.setStrokeColor(colors.HexColor("#333333"))
+                        c.rect(cx - cell_w/2 + 2, cy - cell_h/2 + 2, cell_w - 4, cell_h - 4, fill=1, stroke=1)
 
 def generate_panel_export_pdf(show_name, export_data, show_branding=True):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=landscape(letter),
-        rightMargin=0.5*inch, leftMargin=0.5*inch,
-        topMargin=0.5*inch, bottomMargin=0.5*inch,
-    )
-    story = []
-    styles = getSampleStyleSheet()
-    styles['Normal'].fontName = "SpaceMono"
-    styles['Title'].fontName = "SpaceMono-Bold"
-    styles['Title'].fontSize = 18
+    
+    # We build the PDF completely manually using raw Canvas to prevent page overflow bugs.
+    c = canvas.Canvas(buffer, pagesize=landscape(letter))
+    width, height = landscape(letter)
 
     def count_pe(instances, counts):
         for inst in instances:
@@ -1397,51 +1741,65 @@ def generate_panel_export_pdf(show_name, export_data, show_branding=True):
                 count_pe(inst['children'], counts)
 
     for data in export_data:
-        panel_name = data['panel']['instance_name']
-        story.append(Paragraph(f"Panel Build Sheet: {panel_name}", styles['Title']))
-        story.append(Paragraph(f"Show: {show_name}", styles['Normal']))
-        story.append(Spacer(1, 20))
+        panel_name = data.get('panel', {}).get('instance_name') or 'Unnamed Panel'
         
-        ru_height = data['panel']['equipment_templates'].get('ru_height') or 1
-        visual_height_needed = (ru_height * 1.5) * inch 
-        story.append(Spacer(1, visual_height_needed))
+        # Branding
+        if show_branding:
+            c.setFont("SpaceMono", 8)
+            c.setFillColor(colors.grey)
+            c.drawString(0.5*inch, 0.25*inch, "Created using ShowReady")
+            
+        # Header Info
+        c.setFillColor(colors.black)
+        c.setFont("SpaceMono-Bold", 18)
+        c.drawString(0.5*inch, height - 0.75*inch, f"Panel Build Sheet: {panel_name}")
+        c.setFont("SpaceMono", 12)
+        c.drawString(0.5*inch, height - 1.0*inch, f"Show: {show_name}")
+
+        # Render Panel
+        eq_templates = data.get('panel', {}).get('equipment_templates') or {}
+        ru_height = eq_templates.get('ru_height') or 1
+        vis_h = ru_height * 1.2 * inch
+        vis_w = 10 * inch
         
-        story.append(Paragraph("Components Required:", styles['Normal']))
-        story.append(Spacer(1, 10))
+        # Move start point down so it renders immediately below the title block
+        y_start = height - 1.25*inch - vis_h
         
+        draw_panel_visual(c, 0.5 * inch, y_start, vis_w, vis_h, data)
+        
+        # Render Equipment Table manually below the panel
         pe_counts = {}
-        count_pe(data['mounted_instances'], pe_counts)
+        count_pe(data.get('mounted_instances') or [], pe_counts)
         
         tbl_data = [["Manufacturer", "Model/Part", "Qty"]]
         for (mfr, model), qty in sorted(pe_counts.items()):
             tbl_data.append([mfr, model, str(qty)])
             
-        t = Table(tbl_data, colWidths=[2.5*inch, 3.5*inch, 1*inch])
-        t.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,0), colors.grey),
-            ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
-            ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey)
-        ]))
-        story.append(t)
-        story.append(PageBreak())
+        if len(tbl_data) > 1:
+            t = Table(tbl_data, colWidths=[3.0*inch, 4.0*inch, 1*inch])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.grey),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.lightgrey),
+                ('FONTNAME', (0,0), (-1,0), 'SpaceMono-Bold'),
+                ('FONTNAME', (0,1), (-1,-1), 'SpaceMono'),
+                ('FONTSIZE', (0,0), (-1,-1), 10)
+            ]))
+            
+            # Wrap to get table dimensions, then draw
+            t_w, t_h = t.wrapOn(c, width, height)
+            
+            # Ensure it doesn't run off the bottom of the page
+            t_y = y_start - 0.5*inch - t_h
+            
+            c.setFillColor(colors.black)
+            c.setFont("SpaceMono-Bold", 12)
+            c.drawString(0.5*inch, y_start - 0.35*inch, "Components Required:")
+            t.drawOn(c, 0.5*inch, t_y)
 
-    def on_page(canvas, doc):
-        if show_branding:
-            canvas.setFont("SpaceMono", 8)
-            canvas.drawString(0.5*inch, 0.25*inch, "Created using ShowReady")
-            
-        page_idx = doc.page - 1
-        if page_idx < len(export_data):
-            panel_data = export_data[page_idx]
-            ru_height = panel_data['panel']['equipment_templates'].get('ru_height') or 1
-            vis_h = ru_height * 1.2 * inch
-            vis_w = 9.5 * inch
-            
-            y_start = 6.5 * inch - vis_h
-            
-            draw_panel_visual(canvas, 0.5 * inch, y_start, vis_w, vis_h, panel_data)
+        c.showPage() 
 
-    doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
+    c.save()
     buffer.seek(0)
     return buffer

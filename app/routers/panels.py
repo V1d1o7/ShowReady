@@ -42,7 +42,7 @@ async def delete_panel_folder(folder_id: uuid.UUID, user = Depends(get_user), su
     
     # Check for contents (templates)
     temp_res = supabase.table('panel_equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
-    if temp_res.count > 0:
+    if temp_res.count and temp_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete folder that contains templates")
         
     supabase.table('panel_folders').delete().eq('id', str(folder_id)).execute()
@@ -69,6 +69,30 @@ async def create_panel_template(template_data: PanelEquipmentTemplateCreate, use
 @router.put("/templates/{template_id}", response_model=PanelEquipmentTemplate)
 async def update_panel_template(template_id: uuid.UUID, template_data: PanelEquipmentTemplateUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     update_data = template_data.model_dump(mode='json', exclude_unset=True)
+    
+    # Backend Validation: Prevent Orphaning Instances
+    if 'panel_slots' in update_data:
+        current_res = supabase.table('panel_equipment_templates').select('panel_slots').eq('id', str(template_id)).eq('user_id', str(user.id)).single().execute()
+        if not current_res.data:
+            raise HTTPException(status_code=404, detail="Template not found or access denied")
+            
+        current_slots = current_res.data.get('panel_slots') or []
+        current_slot_ids = {str(slot.get('id')) for slot in current_slots if slot.get('id')}
+        
+        new_slots = update_data.get('panel_slots') or []
+        new_slot_ids = {str(slot.get('id')) for slot in new_slots if slot.get('id')}
+        
+        deleted_slot_ids = current_slot_ids - new_slot_ids
+        
+        if deleted_slot_ids:
+            # Check if any deleted slots have instances mounted in them
+            in_use_res = supabase.table('panel_equipment_instances').select('id', count='exact').in_('slot_id', list(deleted_slot_ids)).execute()
+            if in_use_res.count and in_use_res.count > 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Cannot delete one or more slots because they are currently in use by mounted equipment. Please remove the equipment first or create a new template."
+                )
+
     res = supabase.table('panel_equipment_templates').update(update_data).eq('id', str(template_id)).eq('user_id', str(user.id)).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Template not found or access denied")
@@ -99,7 +123,7 @@ async def admin_create_panel_folder(folder_data: PanelFolderCreate, user = Depen
 async def admin_delete_panel_folder(folder_id: uuid.UUID, user = Depends(get_user)):
     admin_client = get_service_client()
     temp_res = admin_client.table('panel_equipment_templates').select('id', count='exact').eq('folder_id', str(folder_id)).execute()
-    if temp_res.count > 0:
+    if temp_res.count and temp_res.count > 0:
         raise HTTPException(status_code=400, detail="Cannot delete folder that contains templates")
     admin_client.table('panel_folders').delete().eq('id', str(folder_id)).execute()
     return
@@ -118,6 +142,29 @@ async def admin_create_panel_template(template_data: PanelEquipmentTemplateCreat
 async def admin_update_panel_template(template_id: uuid.UUID, template_data: PanelEquipmentTemplateUpdate, user = Depends(get_user)):
     admin_client = get_service_client()
     update_data = template_data.model_dump(mode='json', exclude_unset=True)
+    
+    # Backend Validation: Prevent Orphaning Instances (Admin)
+    if 'panel_slots' in update_data:
+        current_res = admin_client.table('panel_equipment_templates').select('panel_slots').eq('id', str(template_id)).single().execute()
+        if not current_res.data:
+            raise HTTPException(status_code=404, detail="Template not found")
+            
+        current_slots = current_res.data.get('panel_slots') or []
+        current_slot_ids = {str(slot.get('id')) for slot in current_slots if slot.get('id')}
+        
+        new_slots = update_data.get('panel_slots') or []
+        new_slot_ids = {str(slot.get('id')) for slot in new_slots if slot.get('id')}
+        
+        deleted_slot_ids = current_slot_ids - new_slot_ids
+        
+        if deleted_slot_ids:
+            in_use_res = admin_client.table('panel_equipment_instances').select('id', count='exact').in_('slot_id', list(deleted_slot_ids)).execute()
+            if in_use_res.count and in_use_res.count > 0:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Cannot delete one or more slots because they are currently in use by mounted equipment across active shows. Please remove the equipment first or create a new template."
+                )
+
     res = admin_client.table('panel_equipment_templates').update(update_data).eq('id', str(template_id)).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Template not found")
@@ -181,7 +228,6 @@ async def delete_panel_instance(instance_id: uuid.UUID, user = Depends(get_user)
     supabase.table('panel_equipment_instances').delete().eq('id', str(instance_id)).execute()
     return
 
-
 @router.get("/shows/{show_id}/panel-instances", response_model=List[PanelEquipmentInstance])
 async def get_all_panel_instances_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves ALL panel equipment instances for a given show, primarily for depth rendering and export."""
@@ -221,21 +267,23 @@ async def export_panels_for_show(
     if not rack_ids:
         raise HTTPException(status_code=404, detail="No racks found for this show.")
 
-    # 3. Get all panel instances in those racks
-    panel_instances_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).eq('equipment_templates.is_patch_panel', True).execute()
-    panels = panel_instances_res.data or []
+    # 3. Get ALL equipment instances in those racks
+    equip_res = supabase.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).execute()
+    all_equip = equip_res.data or []
+    
+    # 4. FILTER specifically for patch panels in Python (Fixes the 39-page Outer Join Bug)
+    panels = [e for e in all_equip if e.get('equipment_templates') and e['equipment_templates'].get('is_patch_panel') is True]
+    
     if not panels:
         raise HTTPException(status_code=404, detail="No patch panels found in this show's racks.")
 
-    # 4. For each panel, fetch its mounted components (recursive)
+    # 5. For each panel, fetch its mounted components (recursive)
     export_payload = []
     
     for panel in panels:
-        # Fetch all PE instances for this panel
         pe_res = supabase.table('panel_equipment_instances').select('*, template:panel_equipment_templates(*)').eq('panel_instance_id', panel['id']).execute()
         all_pe = pe_res.data or []
         
-        # Build hierarchy for visual rendering and component list
         mounted_top_level = [i for i in all_pe if not i.get('parent_instance_id')]
         for item in mounted_top_level:
             item['children'] = get_panel_children_recursive(item['id'], all_pe)
@@ -245,7 +293,7 @@ async def export_panels_for_show(
             "mounted_instances": mounted_top_level
         })
 
-    # 5. Generate PDF
+    # 6. Generate PDF
     pdf_buffer = generate_panel_export_pdf(show_name, export_payload, show_branding)
     
     filename = f"{show_name.replace(' ', '_')}_Panels.pdf"
