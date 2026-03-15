@@ -21,6 +21,11 @@ const shortcuts = {
         { action: 'Export', keys: ['E'] },
         { action: 'Email', keys: ['M'] },
     ],
+    "Panel Builder": [
+        { action: 'Export Panels', keys: ['E'] },
+        { action: 'Label Selected Port', keys: ['L'] },
+        { action: 'Delete Selected', keys: ['Del', 'Backspace'] },
+    ],
     "Roster": [
         { action: 'Add new member', keys: ['N'] },
         { action: 'Email Roster', keys: ['M'] },
@@ -35,7 +40,8 @@ const shortcuts = {
 };
 
 const ShortcutsModal = ({ isOpen, onClose }) => {
-    const firstColumnKeys = ["General", "Hours Tracker"];
+    // Added Panel Builder to the first column
+    const firstColumnKeys = ["General", "Hours Tracker", "Panel Builder"];
     
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Keyboard Shortcuts">

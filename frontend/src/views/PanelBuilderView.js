@@ -13,6 +13,18 @@ import PanelFolderModal from '../components/panel/PanelFolderModal';
 import PanelTemplateModal from '../components/panel/PanelTemplateModal';
 import PanelTreeView from '../components/panel/PanelTreeView';
 import ConnectorFace from '../components/panel/ConnectorFace';
+import useHotkeys from '../hooks/useHotkeys';
+
+const findInstanceById = (instances, id) => {
+    for (const inst of instances) {
+        if (inst.id === id) return inst;
+        if (inst.children && inst.children.length > 0) {
+            const child = findInstanceById(inst.children, id);
+            if (child) return child;
+        }
+    }
+    return null;
+};
 
 const PanelBuilderView = () => {
     const { showId, isLoading: isShowLoading } = useShow();
@@ -22,6 +34,7 @@ const PanelBuilderView = () => {
     const [panelInstances, setPanelInstances] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeDragItem, setActiveDragItem] = useState(null);
+    const [selectedItemId, setSelectedItemId] = useState(null);
     
     const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
     const [editingInstance, setEditingInstance] = useState(null);
@@ -33,6 +46,43 @@ const PanelBuilderView = () => {
     const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
     const [editingTemplate, setEditingTemplate] = useState(null);
     const [itemToDelete, setItemToDelete] = useState(null);
+
+    const isAnyModalOpen = isLabelModalOpen || isFolderModalOpen || isTemplateModalOpen || pdfPreview.isOpen || itemToDelete !== null;
+
+    useHotkeys({
+        'e': () => {
+            if (!isAnyModalOpen) handleExport();
+        },
+        'backspace': () => {
+            if (!isAnyModalOpen && selectedItemId) handleRemoveInstance(selectedItemId);
+        },
+        'delete': () => {
+            if (!isAnyModalOpen && selectedItemId) handleRemoveInstance(selectedItemId);
+        },
+        'l': () => {
+            if (!isAnyModalOpen && selectedItemId) {
+                const inst = findInstanceById(panelInstances, selectedItemId);
+                if (inst) handleOpenLabelModal(inst);
+            }
+        },
+        'escape': () => {
+            // Close the top-most modal, or clear selection if no modals are open
+            if (itemToDelete) {
+                setItemToDelete(null);
+            } else if (isLabelModalOpen) {
+                setIsLabelModalOpen(false);
+            } else if (isTemplateModalOpen) {
+                setIsTemplateModalOpen(false);
+            } else if (isFolderModalOpen) {
+                setIsFolderModalOpen(false);
+            } else if (pdfPreview.isOpen) {
+                if (pdfPreview.url) window.URL.revokeObjectURL(pdfPreview.url);
+                setPdfPreview({ isOpen: false, url: '' });
+            } else if (selectedItemId) {
+                setSelectedItemId(null);
+            }
+        }
+    });
 
     const fetchData = useCallback(async () => {
         if (!showId) return;
@@ -58,6 +108,7 @@ const PanelBuilderView = () => {
     useEffect(() => {
         if (selectedPanel) {
             setZoomLevel(1);
+            setSelectedItemId(null);
             const loadInstances = async () => {
                 try {
                     const instances = await api.getPanelInstances(selectedPanel.id);
@@ -212,6 +263,7 @@ const PanelBuilderView = () => {
             await api.deletePanelInstance(instanceId);
             const instances = await api.getPanelInstances(selectedPanel.id);
             setPanelInstances(instances);
+            if (selectedItemId === instanceId) setSelectedItemId(null);
             toast.success("Removed from panel.");
         } catch (error) {
             toast.error("Failed to remove item.");
@@ -263,8 +315,12 @@ const PanelBuilderView = () => {
 
         if (isConnector) {
             const isTop = labelPlacement === 'top';
+            const isSelected = instance.id === selectedItemId;
             return (
-                <div className="absolute inset-0 z-10 flex items-center justify-center group pointer-events-auto">
+                <div 
+                    className={`absolute inset-0 z-10 flex items-center justify-center group pointer-events-auto cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 rounded z-50' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setSelectedItemId(instance.id); }}
+                >
                     <div className="relative flex items-center justify-center w-[34px] h-[41px]">
                         <ConnectorFace style={template.visual_style || 'standard'} />
                         
@@ -306,9 +362,13 @@ const PanelBuilderView = () => {
         }
 
         const templateModel = (template.model_number || "").trim().toLowerCase();
+        const isSelected = instance.id === selectedItemId;
 
         return (
-            <div className="absolute inset-0 z-10 bg-[#1e1e1e] border-x border-[#111] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] flex flex-col items-center group overflow-hidden">
+            <div 
+                className={`absolute inset-0 z-10 bg-[#1e1e1e] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] flex flex-col items-center group overflow-hidden cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 border-amber-500 z-50' : 'border-x border-[#111]'}`}
+                onClick={(e) => { e.stopPropagation(); setSelectedItemId(instance.id); }}
+            >
                 {/* Plate Screws */}
                 {gridCols === 1 ? (
                     <>
@@ -492,7 +552,7 @@ const PanelBuilderView = () => {
                                 </div>
                             </div>
                             
-                            <div className="flex-grow relative w-full bg-gray-950/20">
+                            <div className="flex-grow relative w-full bg-gray-950/20" onClick={() => setSelectedItemId(null)}>
                                 <div className="absolute inset-0 overflow-auto pt-8 pb-16 px-4">
                                     <div 
                                         style={{ 

@@ -11,6 +11,11 @@ const PanelLabelModal = ({ isOpen, onClose, instance, onSave }) => {
         }
     }, [isOpen, instance]);
 
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        onSave(label);
+    };
+
     if (!isOpen) return null;
 
     return (
@@ -19,7 +24,7 @@ const PanelLabelModal = ({ isOpen, onClose, instance, onSave }) => {
             onClose={onClose} 
             title={`Configure ${instance?.template?.name || 'Port'}`}
         >
-            <div className="p-6">
+            <form onSubmit={handleSubmit} className="p-6">
                 <InputField 
                     label="Port Label" 
                     value={label} 
@@ -27,15 +32,21 @@ const PanelLabelModal = ({ isOpen, onClose, instance, onSave }) => {
                     autoFocus
                 />
                 <div className="mt-6 flex justify-end gap-3">
-                    <button onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white font-bold">Cancel</button>
                     <button 
-                        onClick={() => onSave(label)} 
+                        type="button" 
+                        onClick={onClose} 
+                        className="px-4 py-2 text-gray-400 hover:text-white font-bold"
+                    >
+                        Cancel
+                    </button>
+                    <button 
+                        type="submit" 
                         className="px-6 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400"
                     >
                         Save Changes
                     </button>
                 </div>
-            </div>
+            </form>
         </Modal>
     );
 };

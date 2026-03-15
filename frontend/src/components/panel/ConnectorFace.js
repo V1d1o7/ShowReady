@@ -1,7 +1,6 @@
 import React from 'react';
 
 const DSeriesFlange = ({ children }) => (
-    // Scaled down to 34x41 for proper UI padding / negative space
     <svg viewBox="0 0 260 310" style={{ width: '34px', height: '41px' }} className="flex-shrink-0 drop-shadow-md mx-auto transition-transform group-hover:scale-105">
         <defs>
             <linearGradient id="metalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -23,8 +22,6 @@ const DSeriesFlange = ({ children }) => (
 );
 
 const ConnectorFace = ({ style }) => {
-    
-    // --- EXACT CAD REPRODUCTION OF EMPTY NEUTRIK D-HOLE ---
     if (style === 'empty') {
         return (
             <svg viewBox="0 0 260 310" style={{ width: '34px', height: '41px' }} className="flex-shrink-0 drop-shadow-sm mx-auto pointer-events-none">
@@ -33,7 +30,6 @@ const ConnectorFace = ({ style }) => {
                         <feDropShadow dx="0" dy="5" stdDeviation="4" floodColor="#000" floodOpacity="0.8" />
                     </filter>
                 </defs>
-                {/* Main D-Hole Void w/ Flat Top Chord */}
                 <path 
                     d="M 104 40 L 156 40 A 118 118 0 1 1 104 40 Z" 
                     fill="#050505" 
@@ -41,7 +37,6 @@ const ConnectorFace = ({ style }) => {
                     strokeWidth="3"
                     style={{ filter: 'url(#holeShadow)' }}
                 />
-                {/* M3 Screw Hole Voids */}
                 <circle cx="35" cy="35" r="16" fill="#050505" stroke="#222" strokeWidth="2" style={{ filter: 'url(#holeShadow)' }}/>
                 <circle cx="225" cy="275" r="16" fill="#050505" stroke="#222" strokeWidth="2" style={{ filter: 'url(#holeShadow)' }}/>
             </svg>
@@ -110,67 +105,87 @@ const ConnectorFace = ({ style }) => {
         ),
         'opticalcon_duo': (
             <DSeriesFlange>
-                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
-                <rect x="55" y="125" width="150" height="60" rx="10" fill="#00c853" stroke="#007a33" strokeWidth="3"/>
-                <circle cx="100" cy="155" r="12" fill="#fff" stroke="#666" strokeWidth="2"/>
-                <circle cx="160" cy="155" r="12" fill="#fff" stroke="#666" strokeWidth="2"/>
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#2a2a2a" strokeWidth="4"/>
+                <path d="M 80,75 L 180,75 L 210,155 L 180,235 L 80,235 L 50,155 Z" fill="#111" stroke="#222" strokeWidth="2"/>
+                <circle cx="130" cy="155" r="60" fill="url(#darkMetal)" stroke="#050505" strokeWidth="4"/>
+                {/* Closed Rubber Flap (Shutter) */}
+                <rect x="85" y="110" width="90" height="90" rx="10" fill="#222" stroke="#111" strokeWidth="2"/>
+                <line x1="85" y1="155" x2="175" y2="155" stroke="#050505" strokeWidth="4"/>
+                <circle cx="130" cy="155" r="40" fill="none" stroke="#00c853" strokeWidth="2" opacity="0.8"/>
             </DSeriesFlange>
         ),
         'opticalcon_quad': (
             <DSeriesFlange>
-                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
-                <rect x="55" y="125" width="150" height="60" rx="10" fill="#00c853" stroke="#007a33" strokeWidth="3"/>
-                <rect x="100" y="80" width="60" height="150" rx="10" fill="#00c853" stroke="#007a33" strokeWidth="3"/>
-                <circle cx="100" cy="125" r="12" fill="#fff" stroke="#666" strokeWidth="2"/>
-                <circle cx="160" cy="125" r="12" fill="#fff" stroke="#666" strokeWidth="2"/>
-                <circle cx="100" cy="185" r="12" fill="#fff" stroke="#666" strokeWidth="2"/>
-                <circle cx="160" cy="185" r="12" fill="#fff" stroke="#666" strokeWidth="2"/>
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#2a2a2a" strokeWidth="4"/>
+                <path d="M 80,75 L 180,75 L 210,155 L 180,235 L 80,235 L 50,155 Z" fill="#111" stroke="#222" strokeWidth="2"/>
+                <circle cx="130" cy="155" r="60" fill="url(#darkMetal)" stroke="#050505" strokeWidth="4"/>
+                {/* Closed Rubber Flap (Shutter) */}
+                <rect x="85" y="110" width="90" height="90" rx="10" fill="#222" stroke="#111" strokeWidth="2"/>
+                <line x1="85" y1="155" x2="175" y2="155" stroke="#050505" strokeWidth="4"/>
+                <circle cx="130" cy="155" r="40" fill="none" stroke="#ff3d00" strokeWidth="2" opacity="0.8"/>
             </DSeriesFlange>
         ),
         'mtp12': (
             <DSeriesFlange>
-                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
-                <rect x="65" y="135" width="130" height="40" rx="8" fill="#00c853" stroke="#007a33" strokeWidth="3"/>
-                <rect x="85" y="150" width="90" height="10" rx="2" fill="#000"/>
-                <text x="130" y="110" fill="#fff" fontSize="24" fontFamily="monospace" fontWeight="bold" textAnchor="middle">12</text>
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#2a2a2a" strokeWidth="4"/>
+                <rect x="90" y="130" width="80" height="50" fill="#bbb" stroke="#555" strokeWidth="2"/>
+                {/* Flap hinge line */}
+                <line x1="90" y1="135" x2="170" y2="135" stroke="#444" strokeWidth="2"/>
+                <text x="130" y="110" fill="#888" fontSize="20" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">12</text>
             </DSeriesFlange>
         ),
         'mtp24': (
             <DSeriesFlange>
-                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
-                <rect x="65" y="135" width="130" height="40" rx="8" fill="#00c853" stroke="#007a33" strokeWidth="3"/>
-                <rect x="85" y="150" width="90" height="10" rx="2" fill="#000"/>
-                <text x="130" y="110" fill="#fff" fontSize="24" fontFamily="monospace" fontWeight="bold" textAnchor="middle">24</text>
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#2a2a2a" strokeWidth="4"/>
+                <rect x="90" y="130" width="80" height="50" fill="#bbb" stroke="#555" strokeWidth="2"/>
+                <line x1="90" y1="135" x2="170" y2="135" stroke="#444" strokeWidth="2"/>
+                <text x="130" y="110" fill="#888" fontSize="20" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">24</text>
             </DSeriesFlange>
         ),
         'mtp48': (
             <DSeriesFlange>
-                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
-                <rect x="65" y="135" width="130" height="40" rx="8" fill="#00c853" stroke="#007a33" strokeWidth="3"/>
-                <rect x="85" y="150" width="90" height="10" rx="2" fill="#000"/>
-                <text x="130" y="110" fill="#fff" fontSize="24" fontFamily="monospace" fontWeight="bold" textAnchor="middle">48</text>
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#2a2a2a" strokeWidth="4"/>
+                <rect x="90" y="130" width="80" height="50" fill="#bbb" stroke="#555" strokeWidth="2"/>
+                <line x1="90" y1="135" x2="170" y2="135" stroke="#444" strokeWidth="2"/>
+                <text x="130" y="110" fill="#888" fontSize="20" fontFamily="sans-serif" fontWeight="bold" textAnchor="middle">48</text>
             </DSeriesFlange>
         ),
-        'true1': (
+        'true1_in': (
             <DSeriesFlange>
-                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
-                <circle cx="130" cy="155" r="85" fill="#FFD700" stroke="#cca100" strokeWidth="4"/>
-                <circle cx="130" cy="155" r="60" fill="#1a1a1a"/>
-                <rect x="115" y="70" width="30" height="20" fill="#FFD700"/>
+                {/* NAC3MPX-TOP (Male Blades, No chassis latch) */}
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#333" strokeWidth="3"/>
+                <circle cx="130" cy="155" r="75" fill="#050505" stroke="#222" strokeWidth="2"/>
+                <rect x="115" y="70" width="30" height="20" fill="#050505"/>
+                <rect x="110" y="135" width="8" height="35" fill="url(#metalGrad)" rx="2"/>
+                <rect x="140" y="135" width="8" height="35" fill="url(#metalGrad)" rx="2"/>
+                <rect x="120" y="175" width="20" height="8" fill="url(#metalGrad)" rx="2"/>
+                <circle cx="130" cy="155" r="65" fill="none" stroke="#FFD700" strokeWidth="3"/>
+            </DSeriesFlange>
+        ),
+        'true1_out': (
+            <DSeriesFlange>
+                {/* NAC3FPX-TOP (Female Receptacle, with Yellow Latch mechanism) */}
+                <circle cx="130" cy="155" r="110" fill="#1a1a1a" stroke="#333" strokeWidth="3"/>
+                {/* The yellow chassis latch mechanism at top */}
+                <path d="M 115,55 L 145,55 L 150,95 L 110,95 Z" fill="#FFD700" stroke="#b8860b" strokeWidth="2"/>
+                <circle cx="130" cy="155" r="75" fill="#222" stroke="#050505" strokeWidth="4"/>
+                <circle cx="130" cy="155" r="50" fill="#050505"/>
+                <rect x="110" y="145" width="10" height="25" fill="#111" rx="2"/>
+                <rect x="140" y="145" width="10" height="25" fill="#111" rx="2"/>
             </DSeriesFlange>
         ),
         'powercon_blue': (
             <DSeriesFlange>
                 <circle cx="130" cy="155" r="110" fill="#0055FF" stroke="#0033aa" strokeWidth="4"/>
-                <circle cx="130" cy="155" r="60" fill="#1a1a1a" stroke="#000" strokeWidth="4"/>
-                <rect x="120" y="45" width="20" height="20" fill="#1a1a1a"/>
+                <circle cx="130" cy="155" r="60" fill="#1a1a1a" stroke="#050505" strokeWidth="4"/>
+                <rect x="120" y="85" width="20" height="20" fill="#1a1a1a"/>
             </DSeriesFlange>
         ),
         'powercon_white': (
             <DSeriesFlange>
                 <circle cx="130" cy="155" r="110" fill="#e5e5e5" stroke="#ccc" strokeWidth="4"/>
-                <circle cx="130" cy="155" r="60" fill="#1a1a1a" stroke="#000" strokeWidth="4"/>
-                <rect x="120" y="45" width="20" height="20" fill="#1a1a1a"/>
+                <circle cx="130" cy="155" r="60" fill="#1a1a1a" stroke="#050505" strokeWidth="4"/>
+                <rect x="120" y="85" width="20" height="20" fill="#1a1a1a"/>
             </DSeriesFlange>
         ),
         'speakon': (
@@ -196,6 +211,8 @@ const ConnectorFace = ({ style }) => {
             <DSeriesFlange />
         )
     };
+
+    faces['true1'] = faces['true1_in'];
 
     return faces[style] || faces['blank'];
 };

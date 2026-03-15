@@ -29,7 +29,6 @@ const DeviceNode = ({ data, onDoubleClick }) => {
     const portSpacing = 32;
     const listPadding = 15;
 
-    // Calculate height dynamically based on whether it's a patch panel or standard device
     const maxStandardPorts = Math.max(inputPorts.length, outputPorts.length);
     const totalPortsHeight = isPatchPanel 
         ? ports.length * portSpacing 
@@ -66,6 +65,19 @@ const DeviceNode = ({ data, onDoubleClick }) => {
                 /* ========================================= */
                 ports.map((port, index) => {
                     const yPos = portsStartY + (index * portSpacing);
+                    
+                    if (port.isEmpty) {
+                        return (
+                            <div key={`empty-${index}`} className="absolute w-full h-8" style={{ top: `${yPos}px` }}>
+                                <div className="absolute w-full top-1/2 -translate-y-1/2 flex justify-center">
+                                    <p className="text-center text-[10px] font-mono text-gray-500 italic px-2 rounded border border-gray-700 bg-gray-800/30">
+                                        {port.full_label || 'Empty'}
+                                    </p>
+                                </div>
+                            </div>
+                        );
+                    }
+
                     return (
                         <div key={`pp-${port.pei_id}-${port.id}`} className="absolute w-full h-8" style={{ top: `${yPos}px` }}>
                             {/* Pass-through line */}

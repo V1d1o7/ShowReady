@@ -60,33 +60,26 @@ const edgeTypes = {
     custom: CustomEdge,
 };
 
-// Helper to flatten ports from modules into the main template ports
 const flattenNodePorts = (instance, libraryMap) => {
     if (!instance || !instance.equipment_templates) return [];
     
-    // Start with the chassis ports
     let allPorts = [...(instance.equipment_templates.ports || [])];
     const chassisTemplate = instance.equipment_templates;
     
-    // If no modules, return basic ports
     if (!instance.module_assignments || Object.keys(instance.module_assignments).length === 0) {
         return allPorts;
     }
 
-    // Recursive function to drill down into assignments, adding prefixId and prefixName tracking
     const processAssignments = (assignments, parentTemplate, prefixId = '', prefixName = '') => {
         if (!assignments || !parentTemplate) return;
 
-        // Create a map of slot IDs to names for this level
         const slotDefs = parentTemplate.slot_definitions || parentTemplate.slots || [];
         const slotMap = {};
         slotDefs.forEach(s => { slotMap[s.id] = s.name; });
 
         Object.entries(assignments).forEach(([slotId, assignmentData]) => {
-            // Guard against null or undefined assignments
             if (!assignmentData) return;
 
-            // Handle data structure variations
             const moduleId = typeof assignmentData === 'object' ? assignmentData.id : assignmentData;
             const subAssignments = typeof assignmentData === 'object' ? assignmentData.assignments : null;
 
@@ -95,18 +88,15 @@ const flattenNodePorts = (instance, libraryMap) => {
             const moduleTemplate = libraryMap.get(moduleId);
             if (!moduleTemplate) return;
 
-            // Determine a readable slot name
             let slotName = slotMap[slotId];
             if (!slotName) {
                 const foundSlot = slotDefs.find(s => s.name === slotId);
                 slotName = foundSlot ? foundSlot.name : `Slot ${slotId.substring(0, 4)}`;
             }
 
-            // Accumulate the prefix to show the full nesting path (e.g., "Slot 1 - SFP 1")
             const currentPrefixName = prefixName ? `${prefixName} - ${slotName}` : slotName;
             const currentPrefixId = prefixId ? `${prefixId}_${slotId}` : slotId;
 
-            // Create a deterministic 8-character hex hash from the physical slot path
             let hash = 0;
             for (let i = 0; i < currentPrefixId.length; i++) {
                 hash = (hash << 5) - hash + currentPrefixId.charCodeAt(i);
@@ -114,27 +104,23 @@ const flattenNodePorts = (instance, libraryMap) => {
             }
             const hexPrefix = Math.abs(hash).toString(16).padStart(8, '0');
 
-            // Add the module's ports to the list
             if (moduleTemplate.ports && Array.isArray(moduleTemplate.ports)) {
                 const modulePorts = moduleTemplate.ports.map(p => {
-                    // Backend requires a valid UUID. We merge our hash with the end of the original UUID 
-                    // to perfectly maintain the 8-4-4-4-12 UUID format.
                     const deterministicUUID = p.id && p.id.length >= 8 
                         ? `${hexPrefix}${p.id.substring(8)}`
-                        : `${hexPrefix}-0000-0000-0000-000000000000`; // safe fallback
+                        : `${hexPrefix}-0000-0000-0000-000000000000`;
 
                     return {
                         ...p,
                         id: deterministicUUID, 
                         original_id: p.id,
-                        label: `${currentPrefixName}: ${p.label}`, // Keeps the nice labeling
+                        label: `${currentPrefixName}: ${p.label}`, 
                         isModule: true
                     };
                 });
                 allPorts.push(...modulePorts);
             }
 
-            // Recurse if this module has its own slots/assignments
             if (subAssignments) {
                 processAssignments(subAssignments, moduleTemplate, currentPrefixId, currentPrefixName);
             }
@@ -145,52 +131,57 @@ const flattenNodePorts = (instance, libraryMap) => {
     return allPorts;
 };
 
-// Helper to harvest ports from Patch Panels (Recursive discovery of pei components)
-// FIX: Updated to cleanly handle labels, ignore the 'rogue 1', and drop part numbers
-const harvestPatchPanelPorts = (panelInstance, allPanelInstances) => {
-    const harvestedPorts = [];
+// FIX: Traverse the slot layout perfectly from left to right, inserting 'isEmpty' elements to represent unpopulated physical holes.
+const processPanelSlot = (slot, parentInstanceId, rootPanelLabel, allPanelInstances) => {
+    const instance = allPanelInstances.find(pi => 
+        (parentInstanceId ? pi.parent_instance_id === parentInstanceId : !pi.parent_instance_id) && 
+        String(pi.slot_id) === String(slot.id)
+    );
 
-    // 1. Grab the custom root panel label
-    const rootPanelLabel = panelInstance.label || '';
+    if (!instance) {
+        return [{
+            id: `empty-${slot.id}`,
+            pei_id: `empty-${slot.id}`,
+            full_label: `EMPTY`,
+            connector_type: 'Blank',
+            isEmpty: true
+        }];
+    }
 
-    const walk = (instance) => {
-        if (!instance || !instance.template) return;
+    const ports = [];
+    const instanceLabel = instance.label || '';
 
-        // 2. Capture the custom label given to this specific mounted connector/slot
-        // (But don't duplicate it if the instance IS the root panel)
-        const instanceLabel = instance.id !== panelInstance.id ? (instance.label || '') : '';
+    if (instance.template?.panel_slots && Array.isArray(instance.template.panel_slots) && instance.template.panel_slots.length > 0) {
+        instance.template.panel_slots.forEach((childSlot, idx) => {
+            const childSlotId = childSlot.id || childSlot.name || `${instance.id}-sub-${idx}`;
+            const normalizedChildSlot = { ...childSlot, id: childSlotId };
+            ports.push(...processPanelSlot(normalizedChildSlot, instance.id, rootPanelLabel, allPanelInstances));
+        });
+    } else if (instance.template?.ports && Array.isArray(instance.template.ports) && instance.template.ports.length > 0) {
+        const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
 
-        if (instance.template.ports && Array.isArray(instance.template.ports)) {
-            
-            // Heuristic to catch the "rogue 1": 
-            // If this template is a simple connector with exactly 1 port, 
-            // the database likely defaults its port label to "1". We want to hide that.
-            const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
+        instance.template.ports.forEach(port => {
+            const pLabel = isSingleGenericPort ? '' : port.label;
+            const labelParts = [rootPanelLabel, instanceLabel, pLabel]
+                .filter(val => val !== null && val !== undefined && val !== '' && String(val).trim() !== '');
 
-            instance.template.ports.forEach(port => {
-                
-                // Suppress the generic "1", otherwise keep the port's template label (like "L" or "R")
-                const pLabel = isSingleGenericPort ? '' : port.label;
-
-                // Combine the Root Panel Name, the Custom Connector Name, and the Port Template Name
-                const labelParts = [rootPanelLabel, instanceLabel, pLabel]
-                    .filter(val => val !== null && val !== undefined && val !== '' && String(val).trim() !== '');
-
-                harvestedPorts.push({
-                    ...port,
-                    pei_id: instance.id,
-                    full_label: labelParts.join(' ') 
-                });
+            ports.push({
+                ...port,
+                pei_id: instance.id,
+                full_label: labelParts.join(' ') || 'Unlabeled Port'
             });
-        }
+        });
+    } else {
+        ports.push({
+            id: `blank-${instance.id}`,
+            pei_id: instance.id,
+            full_label: instanceLabel || instance.template?.name || `Blank Plate`,
+            connector_type: 'Blank',
+            isEmpty: true
+        });
+    }
 
-        // Walk children to find more ports
-        const children = allPanelInstances.filter(child => child.parent_instance_id === instance.id);
-        children.forEach(child => walk(child));
-    };
-
-    walk(panelInstance);
-    return harvestedPorts;
+    return ports;
 };
 
 const createApiGraph = (nodes, edges, pageSize) => {
@@ -198,10 +189,11 @@ const createApiGraph = (nodes, edges, pageSize) => {
         const portsData = node.data?.equipment_templates?.ports || [];
         const isPatchPanel = node.data?.equipment_templates?.is_patch_panel;
         const portsDict = portsData.reduce((acc, port) => {
+            if (port.isEmpty) return acc; // Skip empty slots entirely in the API Export
+
             if (isPatchPanel) {
                 const backId = `pei_${port.pei_id}_port_${port.id}_back`;
                 const frontId = `pei_${port.pei_id}_port_${port.id}_front`;
-                // FIX: Optional: Trim the space in case full_label is completely empty
                 const fLabel = port.full_label ? `${port.full_label} ` : '';
                 acc[backId] = { name: `${fLabel}(Back)` };
                 acc[frontId] = { name: `${fLabel}(Front)` };
@@ -266,14 +258,11 @@ const WireDiagramView = () => {
     const onDragStart = (event, equipment) => {
         const { zoom } = getViewport();
         const equipmentWithZoom = { ...equipment, zoom };
-
         event.dataTransfer.setData('application/reactflow', JSON.stringify(equipment));
         event.dataTransfer.effectAllowed = 'move';
-        
         const img = new Image();
         img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         event.dataTransfer.setDragImage(img, 0, 0);
-
         setDraggingItem(equipmentWithZoom);
     };
 
@@ -282,7 +271,6 @@ const WireDiagramView = () => {
         setIsLoading(true);
         setError(null);
         try {
-            // 1. Fetch Show Data, Library Data, AND Panel Instances in parallel
             const [detailedRacks, connectionsData, libData, allPanelInstances] = await Promise.all([
                 api.getDetailedRacksForShow(showId),
                 api.getConnectionsForShow(showId),
@@ -292,7 +280,6 @@ const WireDiagramView = () => {
 
             setLibraryData(libData || { folders: [], equipment: [] });
 
-            // Create a quick lookup map for templates (ID -> Template Object)
             const templateMap = new Map();
             if (libData && libData.equipment) {
                 libData.equipment.forEach(eq => templateMap.set(eq.id, eq));
@@ -312,14 +299,25 @@ const WireDiagramView = () => {
                 let enrichedItem = { ...item };
 
                 if (item.equipment_templates?.is_patch_panel) {
-                    // Harvest ports from the panel hierarchy
                     const panelInstances = allPanelInstances.filter(pi => pi.panel_instance_id === item.id);
-                    // Find top-level instances (no parent) for this panel
-                    const topLevelPanelInstances = panelInstances.filter(pi => !pi.parent_instance_id);
-                    
+                    const rootPanelLabel = item.instance_name || '';
                     const panelPorts = [];
-                    topLevelPanelInstances.forEach(tpi => {
-                        panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances));
+                    
+                    if (item.equipment_templates.panel_slots && Array.isArray(item.equipment_templates.panel_slots)) {
+                        item.equipment_templates.panel_slots.forEach((slot, idx) => {
+                            const slotId = slot.id || `${item.id}-slot-${idx}`;
+                            const normalizedSlot = { ...slot, id: slotId };
+                            panelPorts.push(...processPanelSlot(normalizedSlot, null, rootPanelLabel, panelInstances));
+                        });
+                    }
+
+                    // Failsafe for highly corrupted/orphaned items in the DB
+                    const validSlotIds = new Set(item.equipment_templates.panel_slots?.map((s, idx) => String(s.id || `${item.id}-slot-${idx}`)) || []);
+                    const topLevelPanelInstances = panelInstances.filter(pi => !pi.parent_instance_id);
+                    topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
+                        panelPorts.push({
+                            id: `orphan-${tpi.id}`, pei_id: tpi.id, full_label: `[Orphan] ${tpi.template?.name || ''}`, connector_type: 'Error', isEmpty: true
+                        });
                     });
 
                     enrichedItem.equipment_templates = {
@@ -328,9 +326,7 @@ const WireDiagramView = () => {
                         is_patch_panel: true
                     };
                 } else {
-                    // FLATTEN PORTS: Merge module ports into the main template ports
                     const flattenedPorts = flattenNodePorts(item, templateMap);
-                    
                     enrichedItem.equipment_templates = {
                         ...item.equipment_templates,
                         ports: flattenedPorts
@@ -385,7 +381,6 @@ const WireDiagramView = () => {
         setTimeout(() => {
             if (fitView) fitView({ padding: 0.1 });
         }, 100);
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showId, setNodes, setEdges]); 
 
@@ -404,7 +399,7 @@ const WireDiagramView = () => {
             fetchData();
             fetchUnassignedEquipment();
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showId]);
 
     useEffect(() => {
@@ -422,7 +417,6 @@ const WireDiagramView = () => {
         );
     }, [activeTab, setNodes, setEdges]);
 
-    // EFFECT: Instantly enrich ports for a node that was just dropped on the canvas
     useEffect(() => {
         if (!justDroppedNode) return;
 
@@ -432,22 +426,22 @@ const WireDiagramView = () => {
 
                 if (justDroppedNode.data.equipment_templates?.is_patch_panel) {
                     const allPanelInstances = await api.getAllPanelInstancesForShow(showId);
-                    // Filter down to components belonging only to this specific panel instance
                     const relevantInstances = allPanelInstances.filter(pi => pi.panel_instance_id === justDroppedNode.id);
-                    const topLevelPanelInstances = relevantInstances.filter(pi => !pi.parent_instance_id);
+                    const rootPanelLabel = justDroppedNode.data.instance_name || '';
                     
                     const panelPorts = [];
-                    topLevelPanelInstances.forEach(tpi => {
-                        panelPorts.push(...harvestPatchPanelPorts(tpi, relevantInstances));
-                    });
+                    if (justDroppedNode.data.equipment_templates.panel_slots && Array.isArray(justDroppedNode.data.equipment_templates.panel_slots)) {
+                        justDroppedNode.data.equipment_templates.panel_slots.forEach((slot, idx) => {
+                            const slotId = slot.id || `${justDroppedNode.id}-slot-${idx}`;
+                            const normalizedSlot = { ...slot, id: slotId };
+                            panelPorts.push(...processPanelSlot(normalizedSlot, null, rootPanelLabel, relevantInstances));
+                        });
+                    }
 
                     enrichedNode.data.equipment_templates.ports = panelPorts;
-                    
-                    // Update state so handles render in the DOM
                     setNodes(nds => nds.map(n => n.id === enrichedNode.id ? enrichedNode : n));
                 }
 
-                // Check for existing connections for this specific node
                 const connections = await api.getConnectionsForDevice(justDroppedNode.id);
 
                 if (connections && connections.length > 0) {
@@ -502,12 +496,9 @@ const WireDiagramView = () => {
         finalizeDroppedNode();
     }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId]);
 
-const onConnect = useCallback(async (params) => {
+    const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
         
-        console.log("🔗 onConnect fired with params:", params);
-
-        // 1. Prevent silent failures if handles are dragged weirdly
         if (!sourceHandle || !targetHandle) {
             console.warn("⚠️ Missing handle IDs. Cannot connect.");
             return;
@@ -515,7 +506,7 @@ const onConnect = useCallback(async (params) => {
 
         const getPortIdFromHandle = (handleId) => {
             if (handleId.startsWith('pei_')) {
-                return handleId; // Return the full deterministic string ID
+                return handleId;
             }
             return handleId.split('-').slice(2).join('-');
         };
@@ -528,7 +519,6 @@ const onConnect = useCallback(async (params) => {
         const targetNode = allNodes.find(n => n.id === target);
 
         const findPort = (node, portId) => {
-            // Safely grab ports to avoid silent 'Cannot read properties of undefined' crashes
             const ports = node?.data?.equipment_templates?.ports;
             if (!ports || !Array.isArray(ports)) return null;
 
@@ -547,13 +537,8 @@ const onConnect = useCallback(async (params) => {
         const sourcePort = findPort(sourceNode, sourcePortId);
         const targetPort = findPort(targetNode, targetPortId);
 
-        console.log("🔎 Found Source Port:", sourcePort);
-        console.log("🔎 Found Target Port:", targetPort);
-
-        // 2. Actually throw a visible error if a port isn't found
         if (!sourcePort || !targetPort) {
             const missing = !sourcePort ? 'Source' : 'Target';
-            console.error(`❌ Could not find ${missing} port in node data!`, { sourcePortId, targetPortId });
             toast.error(`Error: Could not locate ${missing} port data. Check console.`);
             return;
         }
@@ -571,11 +556,8 @@ const onConnect = useCallback(async (params) => {
             cable_type: sourcePort.connector_type || 'Unknown',
         };
 
-        console.log("🚀 Sending connection to API:", newConnectionData);
-
         try {
             const newConnection = await api.createConnection(newConnectionData);
-            console.log("✅ API returned new connection:", newConnection);
 
             const sourcePage = sourceNode?.data?.page_number;
             const targetPage = targetNode?.data?.page_number;
@@ -593,7 +575,6 @@ const onConnect = useCallback(async (params) => {
                 data: { 
                     db_id: newConnection.id,
                     label: newConnection.cable_type || '',
-                    // 3. FIX: Add the missing page data so the edge doesn't turn invisible!
                     isCrossPage,
                     sourcePage,
                     targetPage,
@@ -603,7 +584,6 @@ const onConnect = useCallback(async (params) => {
             
             setEdges((eds) => eds.concat(newEdge));
         } catch (err) {
-            console.error("❌ Failed to create connection:", err);
             toast.error(`Error creating connection: ${err.message}`);
         }
     }, [getNodes, setEdges]);
@@ -635,13 +615,11 @@ const onConnect = useCallback(async (params) => {
         try {
             const updatedInstance = await api.updateEquipmentInstance(editingNode.id, updatedData);
             
-            // Re-build template map from current library data
             const templateMap = new Map();
             if (libraryData && libraryData.equipment) {
                 libraryData.equipment.forEach(eq => templateMap.set(eq.id, eq));
             }
 
-            // Flatten the ports again with the newly updated module assignments
             const flattenedPorts = flattenNodePorts(updatedInstance, templateMap);
             
             const enrichedItem = {
@@ -669,7 +647,6 @@ const onConnect = useCallback(async (params) => {
             );
             handleCloseEditModal();
         } catch (err) {
-            console.error('Failed to update equipment instance:', err);
             toast.error(`Error: ${err.message}`);
         }
     };
@@ -716,7 +693,6 @@ const onConnect = useCallback(async (params) => {
                 setNodes((nds) => nds.concat(newNode));
                 setJustDroppedNode(newNode);
             } catch (err) {
-                console.error("Failed to create new equipment instance:", err);
                 toast.error("Failed to create and place new equipment.");
             }
         } else {
@@ -737,7 +713,6 @@ const onConnect = useCallback(async (params) => {
                 y_pos: Math.round(position.y),
                 page_number: activeTab,
             }).catch(err => {
-                console.error("Failed to save placed equipment:", err);
                 setNodes((nds) => nds.filter(n => n.id !== newNode.id));
                 setUnassignedEquipment(current => [...current, equipmentData]);
                 toast.error("Failed to save equipment position. It has been returned to the library.");
@@ -828,7 +803,6 @@ const onConnect = useCallback(async (params) => {
             a.remove();
             toast.success("PDF exported successfully!");
         } catch (err) {
-            console.error("Failed to generate simplified PDF:", err);
             toast.error("Failed to generate simplified PDF. See console for details.");
         } finally {
             setIsPdfModalOpen(false);
