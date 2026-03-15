@@ -1,4 +1,3 @@
-#
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from supabase import Client
@@ -8,10 +7,11 @@ from app.models import (
     CrewMemberHours, TimesheetEmailPayload 
 ) 
 from app.user_email import send_email_with_user_smtp, SMTPSettings
+# NOTE: Make sure to import generate_crew_audit_pdf once it's created in pdf_utils.py!
 from app.pdf_utils import generate_hours_pdf 
 from fastapi.responses import Response 
 import uuid 
-from typing import List 
+from typing import List, Optional 
 from datetime import date, timedelta 
 
 router = APIRouter(prefix="/shows/{show_id}", tags=["Timesheets"]) 
@@ -201,6 +201,98 @@ async def get_timesheet_pdf(
         media_type="application/pdf", 
         headers={"Content-Disposition": f"attachment; filename={filename}"} 
     ) 
+
+# --- NEW ENDPOINT FOR CREW AUDIT ---
+@router.get("/timesheet/audit/pdf")
+async def get_crew_audit_pdf(
+    show_id: int,
+    show_crew_ids: List[str] = Query(..., description="List of show_crew_ids to audit"),
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+    user=Depends(get_user),
+    supabase: Client = Depends(get_supabase_client),
+    show_branding: bool = Depends(get_branding_visibility)
+):
+    """Generates a comprehensive historical audit PDF for specific crew members."""
+    
+    # 1. Fetch Show and OT Rules Info
+    show_res = supabase.table('shows').select('name, data').eq('id', show_id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found")
+        
+    show_info = show_res.data
+    ot_rules = show_info.get('data', {}).get('info', {})
+    
+    # Extract Branding Assets if needed
+    logo_path = ot_rules.get('logo_path')
+    show_logo_bytes = None 
+    if logo_path: 
+        try: show_logo_bytes = supabase.storage.from_('logos').download(logo_path) 
+        except Exception: pass 
+    
+    # Fetch User Info for Header/Footer
+    profile_res = supabase.table('profiles').select('*').eq('id', user.id).single().execute() 
+    user_profile = profile_res.data 
+    user_info = { 
+        "full_name": f"{user_profile.get('first_name', '')} {user_profile.get('last_name', '')}".strip(), 
+        "company": user_profile.get('company_name')
+    } 
+    
+    # 2. Fetch Crew Info
+    crew_res = supabase.table('show_crew').select('*, roster(*)').in_('id', show_crew_ids).execute()
+    crew_data = crew_res.data
+
+    if not crew_data:
+        raise HTTPException(status_code=404, detail="Selected crew members not found")
+
+    # 3. Fetch Timesheet Entries
+    query = supabase.table('timesheet_entries').select('*').in_('show_crew_id', show_crew_ids)
+    if start_date:
+        query = query.gte('date', str(start_date))
+    if end_date:
+        query = query.lte('date', str(end_date))
+        
+    entries_res = query.order('date').execute()
+    
+    # Prepare data payload for PDF utility
+    audit_data = {
+        "crew": crew_data,
+        "entries": entries_res.data,
+        "ot_rules": {
+            "daily_threshold": ot_rules.get('ot_daily_threshold', 10),
+            "weekly_threshold": ot_rules.get('ot_weekly_threshold', 40),
+            "start_day": ot_rules.get('pay_period_start_day', 0)
+        }
+    }
+
+    # 4. Generate PDF (Requires `generate_crew_audit_pdf` in pdf_utils.py)
+    # Using generate_hours_pdf as fallback if new func isn't created yet in your utils
+    from app.pdf_utils import generate_crew_audit_pdf 
+    
+    pdf_bytes_io = await run_in_threadpool(
+        generate_crew_audit_pdf, 
+        user=user_info,
+        show={"name": show_info['name']},
+        audit_data=audit_data,
+        show_logo_bytes=show_logo_bytes,
+        show_branding=show_branding
+    )
+    
+    # Dynamic Filename
+    if len(show_crew_ids) > 1:
+        filename_prefix = "Multi_Crew_Audit"
+    else:
+        last_name = (crew_data[0].get('roster') or {}).get('last_name', 'Crew')
+        filename_prefix = f"{last_name}_Audit"
+        
+    safe_show_name = show_info['name'].replace(' ', '_')
+    filename = f"{filename_prefix}_{safe_show_name}.pdf"
+
+    return Response(
+        content=pdf_bytes_io.getvalue(), 
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @router.post("/timesheet/email") 
 async def email_weekly_timesheet( 

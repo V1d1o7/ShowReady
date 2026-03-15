@@ -9,6 +9,7 @@ import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
 import CalculationInfoModal from '../components/CalculationInfoModal';
+import ExportHoursModal from '../components/ExportHoursModal';
 import { calculateWeeklyTotals } from '../utils/hoursCalculations';
 
 const HoursTrackingView = () => {
@@ -47,6 +48,7 @@ const HoursTrackingView = () => {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false); // NEW STATE
 
     const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -79,39 +81,48 @@ const HoursTrackingView = () => {
     const handleSaveChanges = async () => {
         try {
             await api.updateWeeklyTimesheet(showId, timesheet);
-            // Removed fetchTimesheet() here to prevent the table from reloading/blinking
-            // The local state is already up to date.
         } catch (error) { console.error("Failed to save timesheet:", error); }
     };
     
     const handleSaveSettings = async (newSettings) => {
-        // 1. Save settings to backend/context
         await onSave({ info: { ...showData.info, ...newSettings } });
         
-        // 2. If start day changed, update the view immediately without reload
         if (newSettings.pay_period_start_day !== undefined) {
             const newStartDay = parseInt(newSettings.pay_period_start_day, 10);
             const current = new Date(weekStartDate);
             const currentDay = current.getDay();
             
-            // Shift current view to align with new start day
             const distance = (currentDay - newStartDay + 7) % 7;
             const newDate = new Date(current);
             newDate.setDate(current.getDate() - distance);
             
-            setWeekStartDate(newDate); // Triggers fetchTimesheet via useEffect with new dates
+            setWeekStartDate(newDate); 
         } else {
             fetchTimesheet();
         }
     };
 
+    // GENERATE WEEKLY PDF (Moved logic from direct button to be callable from modal)
     const handleGeneratePdf = async () => {
         try {
             const blob = await api.getTimesheetPdf(showId, formatDate(weekStartDate));
             const url = URL.createObjectURL(blob);
             setPdfUrl(url);
+            setIsExportModalOpen(false);
             setIsPdfModalOpen(true);
         } catch (error) { console.error("Failed to generate PDF:", error.message); }
+    };
+
+    // GENERATE CREW AUDIT PDF (New Feature)
+    const handleGenerateCrewAudit = async (crewIds) => {
+        try {
+            // Convert array to comma-separated string for query params
+            const blob = await api.getCrewAuditPdf(showId, crewIds);
+            const url = URL.createObjectURL(blob);
+            setPdfUrl(url);
+            setIsExportModalOpen(false);
+            setIsPdfModalOpen(true);
+        } catch (error) { console.error("Failed to generate audit PDF:", error.message); }
     };
     
     const changeWeek = (direction) => {
@@ -149,13 +160,12 @@ const HoursTrackingView = () => {
                 </div>
                 <div className="flex items-center gap-4">
                     <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-md hover:bg-gray-700"><Settings size={20} /></button>
-                    <div className="relative group">
-                        <button onClick={() => setIsEmailModalOpen(true)} className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-500 flex items-center gap-2">
-                            <Mail size={16} /> Email Report
-                        </button>
-                    </div>
-                    <button onClick={handleGeneratePdf} className="px-4 py-2 text-sm font-medium rounded-md bg-gray-700 hover:bg-gray-600 flex items-center gap-2">
-                        <Download size={16} /> Export PDF
+                    <button onClick={() => setIsEmailModalOpen(true)} className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-500 flex items-center gap-2">
+                        <Mail size={16} /> Email Report
+                    </button>
+                    {/* CHANGED TO EXPORT REPORTS MODAL TRIGGER */}
+                    <button onClick={() => setIsExportModalOpen(true)} className="px-4 py-2 text-sm font-medium rounded-md bg-gray-700 hover:bg-gray-600 flex items-center gap-2">
+                        <Download size={16} /> Export Reports
                     </button>
                     <button onClick={handleSaveChanges} className="px-4 py-2 text-sm font-medium rounded-md bg-amber-500 text-black hover:bg-amber-400">Save Changes</button>
                     <button onClick={() => setIsInfoModalOpen(true)} className="p-2 rounded-md hover:bg-gray-700"><Info size={20} /></button>
@@ -180,8 +190,23 @@ const HoursTrackingView = () => {
                     </thead>
                     <tbody className="bg-gray-900 divide-y divide-gray-700">
                         {(calculatedTimesheet?.crew_hours || []).map(member => (
-                            <tr key={member.show_crew_id}>
-                                <td className="px-3 py-2 whitespace-nowrap"><p className="font-medium text-white">{member.first_name} {member.last_name}</p><p className="text-sm text-gray-400">{member.position}</p></td>
+                            <tr key={member.show_crew_id} className="group hover:bg-gray-800 transition-colors">
+                                {/* UPDATED CREW MEMBER CELL WITH QUICK ACTION AUDIT */}
+                                <td className="px-3 py-2 whitespace-nowrap">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="font-medium text-white">{member.first_name} {member.last_name}</p>
+                                            <p className="text-sm text-gray-400">{member.position}</p>
+                                        </div>
+                                        <button 
+                                            onClick={() => handleGenerateCrewAudit([member.show_crew_id])}
+                                            className="opacity-0 group-hover:opacity-100 p-1.5 rounded bg-gray-700 hover:bg-blue-600 text-white transition-opacity duration-200"
+                                            title={`Download Full Audit for ${member.first_name}`}
+                                        >
+                                            <Download size={14} />
+                                        </button>
+                                    </div>
+                                </td>
                                 <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-400">{member.rate_type === 'daily' ? `$${member.daily_rate}/day` : `$${member.hourly_rate}/hr`}</td>
                                 {dates.map(date => {
                                     const dateString = formatDate(date);
@@ -223,6 +248,15 @@ const HoursTrackingView = () => {
 
             <PayPeriodSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={showData?.info || {}} onSave={handleSaveSettings} />
             <CalculationInfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} dailyThreshold={timesheet?.ot_daily_threshold || 10} />
+            
+            {/* NEW EXPORT MODAL */}
+            <ExportHoursModal 
+                isOpen={isExportModalOpen} 
+                onClose={() => setIsExportModalOpen(false)} 
+                crewMembers={calculatedTimesheet?.crew_hours || []}
+                onExportWeekly={handleGeneratePdf}
+                onExportAudit={handleGenerateCrewAudit}
+            />
         </div>
     );
 };

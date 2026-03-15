@@ -26,6 +26,16 @@ const findInstanceById = (instances, id) => {
     return null;
 };
 
+// Robust Matcher for healing database updates
+const isSlotMatch = (instanceSlotId, slot, index) => {
+    if (!instanceSlotId) return false;
+    if (String(instanceSlotId) === String(slot.id)) return true;
+    if (String(instanceSlotId) === `slot-${index + 1}`) return true;
+    if (String(instanceSlotId).endsWith(`-slot-${index}`)) return true;
+    if (String(instanceSlotId).endsWith(`-sub-${index}`)) return true;
+    return false;
+};
+
 const PanelBuilderView = () => {
     const { showId, isLoading: isShowLoading } = useShow();
     const [racks, setRacks] = useState([]);
@@ -66,7 +76,6 @@ const PanelBuilderView = () => {
             }
         },
         'escape': () => {
-            // Close the top-most modal, or clear selection if no modals are open
             if (itemToDelete) {
                 setItemToDelete(null);
             } else if (isLabelModalOpen) {
@@ -96,7 +105,6 @@ const PanelBuilderView = () => {
             setPeLibrary({ folders, templates });
             setRacks(detailedRacks || []);
         } catch (error) {
-            console.error("Failed to load Panel Builder data:", error);
             toast.error("Failed to load Panel Builder data.");
         } finally {
             setIsLoading(false);
@@ -361,7 +369,6 @@ const PanelBuilderView = () => {
             }
         }
 
-        const templateModel = (template.model_number || "").trim().toLowerCase();
         const isSelected = instance.id === selectedItemId;
 
         return (
@@ -369,7 +376,6 @@ const PanelBuilderView = () => {
                 className={`absolute inset-0 z-10 bg-[#1e1e1e] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] flex flex-col items-center group overflow-hidden cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 border-amber-500 z-50' : 'border-x border-[#111]'}`}
                 onClick={(e) => { e.stopPropagation(); setSelectedItemId(instance.id); }}
             >
-                {/* Plate Screws */}
                 {gridCols === 1 ? (
                     <>
                         <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
@@ -384,7 +390,6 @@ const PanelBuilderView = () => {
                     </>
                 )}
 
-                {/* Upgraded Plate Label */}
                 {instance.label && (
                     <div className="absolute top-1 w-full flex justify-center z-50 pointer-events-none">
                         <div className="bg-white text-black font-bold px-2 py-[2px] rounded shadow-sm text-[8px] truncate max-w-[90%] border border-gray-400 leading-none">
@@ -393,7 +398,6 @@ const PanelBuilderView = () => {
                     </div>
                 )}
 
-                {/* Grid Pad adjusts dynamically if a plate label is present so components do not overlap */}
                 <div 
                     className={`flex-grow w-full grid place-items-center gap-y-1 ${!isModule ? (instance.label ? 'px-8 pt-7 pb-4' : 'px-8 pt-2 pb-4') : (instance.label ? 'px-1 pt-7 pb-2' : 'px-1 py-1')} min-h-0`} 
                     style={{
@@ -404,14 +408,15 @@ const PanelBuilderView = () => {
                     {template.panel_slots.map((subSlot, idx) => {
                         const subSlotId = subSlot.id || subSlot.name || `${instance.id}-sub-${idx}`;
                         const normalizedSubSlot = { ...subSlot, id: subSlotId };
-                        const child = (instance.children || []).find(c => c.slot_id === subSlotId);
+                        
+                        // Robust match for children
+                        const child = (instance.children || []).find(c => isSlotMatch(c.slot_id, normalizedSubSlot, idx));
                         
                         const isDHoleSubSlot = checkIsDHole(subSlot.accepted_module_type, subSlot.name);
 
                         const row = Math.floor(idx / gridCols);
                         let subLabelPlacement = 'top';
 
-                        // Fixed collision logic: Single-hole plates ALWAYS put port labels at the bottom
                         if (slotCount === 1) {
                             subLabelPlacement = 'bottom';
                         } else if (isModule) {
@@ -427,12 +432,10 @@ const PanelBuilderView = () => {
                         }
 
                         const isTopSub = subLabelPlacement === 'top';
-                        // FIX: Corrected ternary output so top labels are at the top and bottom labels at the bottom
                         const emptyLabelPlacementClass = isTopSub ? '-top-4' : '-bottom-4';
 
                         return (
                             <div key={subSlotId} className="relative w-full h-full flex items-center justify-center min-h-0 min-w-0">
-                                
                                 <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
                                     {!child && (
                                         isDHoleSubSlot ? (
@@ -581,10 +584,12 @@ const PanelBuilderView = () => {
                                                     <div className="h-3 w-full bg-gradient-to-b from-[#444] to-[#2a2a2a] border-b border-[#1a1a1a]"></div>
                                                     
                                                     <div className="flex-grow flex flex-row items-center justify-evenly px-1 w-full h-full overflow-visible">
-                                                        {(selectedPanel.equipment_templates?.slots || []).map((slot, idx) => {
+                                                        {(selectedPanel.equipment_templates?.slots || selectedPanel.equipment_templates?.panel_slots || []).map((slot, idx) => {
                                                             const slotId = slot.id || `${selectedPanel.id}-slot-${idx}`;
                                                             const normalizedSlot = { ...slot, id: slotId };
-                                                            const instance = panelInstances.find(i => i.slot_id === slotId);
+                                                            
+                                                            // Robust match for root slots
+                                                            const instance = panelInstances.find(i => isSlotMatch(i.slot_id, normalizedSlot, idx));
 
                                                             const isDHoleSlot = checkIsDHole(slot.accepted_module_type, slot.name);
 
@@ -596,7 +601,6 @@ const PanelBuilderView = () => {
                                                                             isDHoleSlot ? (
                                                                                 <div className="relative flex items-center justify-center w-[34px] h-[41px]">
                                                                                     <ConnectorFace style="empty" />
-                                                                                    {/* Root panel empty labels placed at bottom so they aren't clipped */}
                                                                                     <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[5px] font-bold text-gray-500 px-1 text-center leading-tight truncate w-[150%]">{slot.name || 'Empty'}</span>
                                                                                 </div>
                                                                             ) : (

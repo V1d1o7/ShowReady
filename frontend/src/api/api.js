@@ -627,6 +627,12 @@ export const api = {
     }).then(handleResponse),
     
     getTimesheetPdf: async (showId, weekStartDate) => fetch(`/api/shows/${showId}/timesheet/pdf?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
+
+    getCrewAuditPdf: async (showId, crewIds) => {
+        const params = new URLSearchParams();
+        crewIds.forEach(id => params.append('show_crew_ids', id));
+        return fetch(`/api/shows/${showId}/timesheet/audit/pdf?${params.toString()}`, { headers: await getAuthHeader() }).then(handleResponse);
+    },
     
     emailTimesheet: async (showId, weekStartDate, emailPayload) => fetch(`/api/shows/${showId}/timesheet/email?week_start_date=${weekStartDate}`, { 
         method: 'POST', 
