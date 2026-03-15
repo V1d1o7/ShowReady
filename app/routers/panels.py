@@ -57,6 +57,7 @@ async def list_panel_templates(user = Depends(get_user), supabase: Client = Depe
 
 @router.post("/templates", response_model=PanelEquipmentTemplate)
 async def create_panel_template(template_data: PanelEquipmentTemplateCreate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Creates a new panel equipment template, including port/circuit definitions."""
     insert_data = template_data.model_dump(mode='json')
     insert_data['user_id'] = str(user.id)
     insert_data['is_default'] = False
@@ -68,6 +69,7 @@ async def create_panel_template(template_data: PanelEquipmentTemplateCreate, use
 
 @router.put("/templates/{template_id}", response_model=PanelEquipmentTemplate)
 async def update_panel_template(template_id: uuid.UUID, template_data: PanelEquipmentTemplateUpdate, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Updates a panel equipment template, allowing modification of ports/circuits."""
     update_data = template_data.model_dump(mode='json', exclude_unset=True)
     
     # Backend Validation: Prevent Orphaning Instances

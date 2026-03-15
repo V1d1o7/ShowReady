@@ -476,27 +476,27 @@ class Connection(BaseModel):
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     show_id: uuid.UUID
     source_device_id: uuid.UUID
-    source_port_id: uuid.UUID
+    source_port_id: str
     destination_device_id: uuid.UUID
-    destination_port_id: uuid.UUID
+    destination_port_id: str
     cable_type: str
     label: Optional[str] = None
     length_ft: Optional[int] = None
 
 class ConnectionCreate(BaseModel):
     source_device_id: uuid.UUID
-    source_port_id: uuid.UUID
+    source_port_id: str
     destination_device_id: uuid.UUID
-    destination_port_id: uuid.UUID
+    destination_port_id: str
     cable_type: str
     label: Optional[str] = None
     length_ft: Optional[int] = None
 
 class ConnectionUpdate(BaseModel):
     source_device_id: Optional[uuid.UUID] = None
-    source_port_id: Optional[uuid.UUID] = None
+    source_port_id: Optional[str] = None
     destination_device_id: Optional[uuid.UUID] = None
-    destination_port_id: Optional[uuid.UUID] = None
+    destination_port_id: Optional[str] = None
     cable_type: Optional[str] = None
     label: Optional[str] = None
     length_ft: Optional[int] = None
@@ -882,6 +882,11 @@ class DynamicLabelPdfPayload(BaseModel):
 
 # --- Panel Builder Models ---
 
+class PanelPortTemplate(BaseModel):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4)
+    label: str
+    connector_type: str
+
 class PanelFolderBase(BaseModel):
     name: str
     parent_id: Optional[uuid.UUID] = None
@@ -905,6 +910,7 @@ class PanelEquipmentTemplateBase(BaseModel):
     slot_type: Optional[str] = None
     visual_style: Optional[str] = 'standard'
     panel_slots: List[PanelSlot] = Field(default_factory=list)
+    ports: List[PanelPortTemplate] = Field(default_factory=list)
     folder_id: Optional[uuid.UUID] = None
 
 class PanelEquipmentTemplateCreate(PanelEquipmentTemplateBase):
@@ -920,6 +926,7 @@ class PanelEquipmentTemplateUpdate(BaseModel):
     slot_type: Optional[str] = None
     visual_style: Optional[str] = None
     panel_slots: Optional[List[PanelSlot]] = None
+    ports: Optional[List[PanelPortTemplate]] = None
     folder_id: Optional[uuid.UUID] = None
 
 class PanelEquipmentTemplate(PanelEquipmentTemplateBase):

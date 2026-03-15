@@ -4,6 +4,7 @@ import { Handle, Position } from 'reactflow';
 const DeviceNode = ({ data, onDoubleClick }) => {
     const { label, ip_address, rack_name, ru_position, equipment_templates } = data;
     const ports = equipment_templates?.ports || [];
+    const isPatchPanel = equipment_templates?.is_patch_panel;
 
     const naturalSort = (a, b) => {
         const labelA = a.label || '';
@@ -11,6 +12,7 @@ const DeviceNode = ({ data, onDoubleClick }) => {
         return labelA.localeCompare(labelB, undefined, { numeric: true, sensitivity: 'base' });
     };
 
+    // Standard equipment sorting (Ignored for Patch Panels)
     const inputPorts = ports.filter(p => p.type === 'input').sort(naturalSort);
     const outputPorts = ports.filter(p => p.type === 'output').sort(naturalSort);
     const ioPorts = ports.filter(p => p.type === 'io').sort(naturalSort);
@@ -27,8 +29,12 @@ const DeviceNode = ({ data, onDoubleClick }) => {
     const portSpacing = 32;
     const listPadding = 15;
 
+    // Calculate height dynamically based on whether it's a patch panel or standard device
     const maxStandardPorts = Math.max(inputPorts.length, outputPorts.length);
-    const totalPortsHeight = (maxStandardPorts + ioPorts.length) * portSpacing;
+    const totalPortsHeight = isPatchPanel 
+        ? ports.length * portSpacing 
+        : (maxStandardPorts + ioPorts.length) * portSpacing;
+        
     const nodeHeight = topContentHeight + listPadding + totalPortsHeight + listPadding;
     const portsStartY = topContentHeight + listPadding;
 
@@ -54,75 +60,123 @@ const DeviceNode = ({ data, onDoubleClick }) => {
                 </div>
             </div>
 
-            {/* Input Ports */}
-            {inputPorts.map((port, index) => (
-                <div 
-                    key={`in-${port.id}`} 
-                    className="absolute left-0 flex items-center h-8" 
-                    style={{ top: `${portsStartY + (index * portSpacing)}px` }}
-                >
-                    <Handle
-                        type="target"
-                        position={Position.Left}
-                        id={`port-in-${port.id}`}
-                        className={'!bg-teal-400 !w-3 !h-3'}
-                    />
-                    <p className="ml-5 text-xs font-mono">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
-                </div>
-            ))}
-
-            {/* Output Ports */}
-            {outputPorts.map((port, index) => (
-                <div 
-                    key={`out-${port.id}`} 
-                    className="absolute right-0 flex items-center justify-end h-8" 
-                    style={{ top: `${portsStartY + (index * portSpacing)}px` }}
-                >
-                    <p className="mr-5 text-xs font-mono text-right">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
-                    <Handle
-                        type="source"
-                        position={Position.Right}
-                        id={`port-out-${port.id}`}
-                        className={'!bg-amber-400 !w-3 !h-3'}
-                    />
-                </div>
-            ))}
-
-            {/* Aligned IO Ports */}
-            {ioPorts.map((port, index) => {
-                const yPos = portsStartY + (maxStandardPorts + index) * portSpacing;
-                return (
-                    <div key={`io-${port.id}`} className="absolute w-full h-8" style={{ top: `${yPos}px` }}>
-                        {/* Pass-through line */}
-                        <div 
-                            className="absolute top-1/2 left-4 right-4 h-px bg-blue-300 opacity-50"
-                            style={{ transform: 'translateY(-50%)' }}
-                        ></div>
-                        {/* Input Handle */}
-                        <Handle
-                            type="target"
-                            position={Position.Left}
-                            id={`port-in-${port.id}`}
-                            className={'!bg-blue-400 !w-3 !h-3'}
-                            style={{ top: '50%', transform: 'translateY(-50%)' }}
-                        />
-                        {/* Centered Label */}
-                        <div className="absolute w-full top-1/2 -translate-y-1/2 flex justify-center">
-                            <p className="text-center text-xs font-mono bg-gray-700 px-2 rounded">
-                                {port.label} <span className="text-gray-400">({port.connector_type})</span>
-                            </p>
+            {isPatchPanel ? (
+                /* ========================================= */
+                /* PATCH PANEL RENDERING                     */
+                /* ========================================= */
+                ports.map((port, index) => {
+                    const yPos = portsStartY + (index * portSpacing);
+                    return (
+                        <div key={`pp-${port.pei_id}-${port.id}`} className="absolute w-full h-8" style={{ top: `${yPos}px` }}>
+                            {/* Pass-through line */}
+                            <div 
+                                className="absolute top-1/2 left-4 right-4 h-px bg-gray-500 opacity-50"
+                                style={{ transform: 'translateY(-50%)' }}
+                            ></div>
+                            
+                            {/* Back Handle (Left) */}
+                            <Handle
+                                type="target"
+                                position={Position.Left}
+                                id={`pei_${port.pei_id}_port_${port.id}_back`}
+                                className={'!bg-purple-400 !w-3 !h-3'}
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                            />
+                            
+                            {/* Centered Label */}
+                            <div className="absolute w-full top-1/2 -translate-y-1/2 flex justify-center">
+                                <p className="text-center text-xs font-mono bg-gray-700 px-2 rounded border border-gray-600">
+                                    {port.full_label} <span className="text-gray-400">({port.connector_type})</span>
+                                </p>
+                            </div>
+                            
+                            {/* Front Handle (Right) */}
+                            <Handle
+                                type="source"
+                                position={Position.Right}
+                                id={`pei_${port.pei_id}_port_${port.id}_front`}
+                                className={'!bg-pink-400 !w-3 !h-3'}
+                                style={{ top: '50%', transform: 'translateY(-50%)' }}
+                            />
                         </div>
-                        {/* Output Handle */}
-                        <Handle
-                            type="source"
-                            position={Position.Right}
-                            id={`port-out-${port.id}`}
-                            className={'!bg-blue-400 !w-3 !h-3'}
-                            style={{ top: '50%', transform: 'translateY(-50%)' }}
-                        />
-                    </div>
-                );
-            })}
+                    );
+                })
+            ) : (
+                /* ========================================= */
+                /* STANDARD DEVICE RENDERING                 */
+                /* ========================================= */
+                <>
+                    {/* Input Ports */}
+                    {inputPorts.map((port, index) => (
+                        <div 
+                            key={`in-${port.id}`} 
+                            className="absolute left-0 flex items-center h-8" 
+                            style={{ top: `${portsStartY + (index * portSpacing)}px` }}
+                        >
+                            <Handle
+                                type="target"
+                                position={Position.Left}
+                                id={`port-in-${port.id}`}
+                                className={'!bg-teal-400 !w-3 !h-3'}
+                            />
+                            <p className="ml-5 text-xs font-mono">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
+                        </div>
+                    ))}
+
+                    {/* Output Ports */}
+                    {outputPorts.map((port, index) => (
+                        <div 
+                            key={`out-${port.id}`} 
+                            className="absolute right-0 flex items-center justify-end h-8" 
+                            style={{ top: `${portsStartY + (index * portSpacing)}px` }}
+                        >
+                            <p className="mr-5 text-xs font-mono text-right">{port.label} <span className="text-gray-400">({port.connector_type})</span></p>
+                            <Handle
+                                type="source"
+                                position={Position.Right}
+                                id={`port-out-${port.id}`}
+                                className={'!bg-amber-400 !w-3 !h-3'}
+                            />
+                        </div>
+                    ))}
+
+                    {/* Aligned IO Ports */}
+                    {ioPorts.map((port, index) => {
+                        const yPos = portsStartY + (maxStandardPorts + index) * portSpacing;
+                        return (
+                            <div key={`io-${port.id}`} className="absolute w-full h-8" style={{ top: `${yPos}px` }}>
+                                {/* Pass-through line */}
+                                <div 
+                                    className="absolute top-1/2 left-4 right-4 h-px bg-blue-300 opacity-50"
+                                    style={{ transform: 'translateY(-50%)' }}
+                                ></div>
+                                {/* Input Handle */}
+                                <Handle
+                                    type="target"
+                                    position={Position.Left}
+                                    id={`port-in-${port.id}`}
+                                    className={'!bg-blue-400 !w-3 !h-3'}
+                                    style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                />
+                                {/* Centered Label */}
+                                <div className="absolute w-full top-1/2 -translate-y-1/2 flex justify-center">
+                                    <p className="text-center text-xs font-mono bg-gray-700 px-2 rounded">
+                                        {port.label} <span className="text-gray-400">({port.connector_type})</span>
+                                    </p>
+                                </div>
+                                {/* Output Handle */}
+                                <Handle
+                                    type="source"
+                                    position={Position.Right}
+                                    id={`port-out-${port.id}`}
+                                    className={'!bg-blue-400 !w-3 !h-3'}
+                                    style={{ top: '50%', transform: 'translateY(-50%)' }}
+                                />
+                            </div>
+                        );
+                    })}
+                </>
+            )}
         </div>
     );
 };

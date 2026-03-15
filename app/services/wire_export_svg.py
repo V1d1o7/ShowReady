@@ -108,6 +108,10 @@ def _get_connection_label(edge: Edge, is_for_source: bool, graph: Graph) -> str:
         elif isinstance(p_data, dict):
             port_name = p_data.get('name') or port_name
 
+    # Strip (Back)/(Front) text if it appears in the connection label
+    if isinstance(port_name, str):
+        port_name = port_name.replace(' (Back)', '').replace('(Back)', '').replace(' (Front)', '').replace('(Front)', '')
+
     return f"{escape(remote_node.deviceNomenclature)}:{escape(port_name)}"
 
 def _estimate_text_width(text: str, font_size: float) -> float:
@@ -134,15 +138,28 @@ def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: fl
     # --- Port Grouping ---
     ports_by_id = {}
     for handle_id, port_data in node.ports.items():
-        port_id = handle_id.split('-')[-1]
+        # FIX: Handle 'pei_' panel ports differently to group front/back correctly
+        if handle_id.startswith('pei_'):
+            port_id = handle_id.rsplit('_', 1)[0] # Strip _back or _front
+        else:
+            port_id = handle_id.split('-')[-1]
+            
         p_name = port_data.name if hasattr(port_data, 'name') else port_data.get('name')
+        
+        # FIX: Clean out the (Back) and (Front) tags so the IO center label looks nice
+        if p_name:
+            p_name = p_name.replace(' (Back)', '').replace('(Back)', '').replace(' (Front)', '').replace('(Front)', '')
+            
         p_adapter = port_data.adapter_model if hasattr(port_data, 'adapter_model') else port_data.get('adapter_model')
 
         if port_id not in ports_by_id:
             ports_by_id[port_id] = {'name': p_name, 'adapter': p_adapter, 'in': None, 'out': None}
 
-        if 'in' in handle_id: ports_by_id[port_id]['in'] = handle_id
-        if 'out' in handle_id: ports_by_id[port_id]['out'] = handle_id
+        # FIX: Interpret 'back' as input and 'front' as output
+        if 'in' in handle_id or handle_id.endswith('_back'): 
+            ports_by_id[port_id]['in'] = handle_id
+        if 'out' in handle_id or handle_id.endswith('_front'): 
+            ports_by_id[port_id]['out'] = handle_id
 
     def natural_keys(text):
         return [int(c) if c.isdigit() else c.lower() for c in re.split(r'(\d+)', text or '')]
@@ -244,10 +261,6 @@ def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: fl
     return svg
 
 def _generate_title_block_svg(title_block_data: TitleBlock, page_num: int, total_pages: int, print_w_px: float) -> str:
-    """
-    Generates the Title Block SVG, scaled to fit the PRINT width (inside margins),
-    not the full PAGE width.
-    """
     try:
         with open("app/title_block.svg", "r") as f:
             svg_template = f.read()
@@ -270,16 +283,12 @@ def _generate_title_block_svg(title_block_data: TitleBlock, page_num: int, total
         for k, v in replacements.items(): svg_template = svg_template.replace(k, escape(str(v)))
         if not title_block_data.show_branding: svg_template = svg_template.replace("Created using ShowReady", "")
         
-        # CHANGED: Scale based on print_w_px (content width), not page_w_px
         return f'<g transform="scale({print_w_px / 1916})">{svg_template}</g>'
     except Exception:
         return ""
 
 def _generate_svg_page(content: str, page_w_px: float, page_h_px: float, title_block_svg: str) -> str:
-    # CHANGED: Calculate margin pixels here to ensure alignment
     margin_px = mm_to_px(MARGIN_MM)
-    
-    # Calculate the print width to determine the correct scaled height of the title block
     print_w_px = page_w_px - (2 * margin_px)
     tb_h = 135 * (print_w_px / 1916)
 
@@ -316,13 +325,26 @@ def _get_node_specs(graph: Graph, label_clamp_px: float) -> List[Dict]:
         ports_data = node.ports
         ports_by_id = {}
         for handle_id, port_data in ports_data.items():
-            port_id = handle_id.split('-')[-1]
+            # FIX: Parse pei IDs properly here too
+            if handle_id.startswith('pei_'):
+                port_id = handle_id.rsplit('_', 1)[0]
+            else:
+                port_id = handle_id.split('-')[-1]
+                
             p_name = port_data.name if hasattr(port_data, 'name') else port_data.get('name')
+            if p_name:
+                p_name = p_name.replace(' (Back)', '').replace('(Back)', '').replace(' (Front)', '').replace('(Front)', '')
+                
             p_adapter = port_data.adapter_model if hasattr(port_data, 'adapter_model') else port_data.get('adapter_model')
+            
             if port_id not in ports_by_id:
                 ports_by_id[port_id] = {'name': p_name, 'adapter': p_adapter, 'in': None, 'out': None}
-            if 'in' in handle_id: ports_by_id[port_id]['in'] = handle_id
-            if 'out' in handle_id: ports_by_id[port_id]['out'] = handle_id
+                
+            # FIX: Interpret _back as in, _front as out
+            if 'in' in handle_id or handle_id.endswith('_back'): 
+                ports_by_id[port_id]['in'] = handle_id
+            if 'out' in handle_id or handle_id.endswith('_front'): 
+                ports_by_id[port_id]['out'] = handle_id
 
         input_ports = [p for p in ports_by_id.values() if p['in'] and not p['out']]
         output_ports = [p for p in ports_by_id.values() if p['out'] and not p['in']]
@@ -388,13 +410,8 @@ def build_pdf_bytes(graph: Graph, page_size: str = "Letter", title_block_data: T
     page_w_px = mm_to_px(page_dims["w"])
     page_h_px = mm_to_px(page_dims["h"])
     
-    # Recalculate print area dimensions
     print_w_px = page_w_px - (2 * mm_to_px(MARGIN_MM))
-    
-    # Calculate title block height based on the NEW print width scale
     title_block_height = 135 * (print_w_px / 1916)
-    
-    # Subtract margins AND title block height from available print height
     print_h_px = page_h_px - (2 * mm_to_px(MARGIN_MM)) - title_block_height
 
     label_clamp_px = _compute_label_clamp_px(print_w_px)
@@ -452,7 +469,6 @@ def build_pdf_bytes(graph: Graph, page_size: str = "Letter", title_block_data: T
     pdf_writer = PdfWriter()
     total_pages = len(pages_content)
     for i, svg_content in enumerate(pages_content):
-        # CHANGED: Pass print_w_px to ensure title block scales correctly
         title_block_svg = _generate_title_block_svg(title_block_data, i + 1, total_pages, print_w_px)
         full_svg = _generate_svg_page(svg_content, page_w_px, page_h_px, title_block_svg)
         pdf_page_bytes = cairosvg.svg2pdf(bytestring=full_svg.encode('utf-8'))

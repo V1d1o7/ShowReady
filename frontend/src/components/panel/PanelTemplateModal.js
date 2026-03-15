@@ -4,7 +4,7 @@ import InputField from '../InputField';
 import { Trash2 } from 'lucide-react';
 
 const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave }) => {
-    const defaultFormData = { name: '', manufacturer: '', model_number: '', width_units: 1.0, depth_in: 0.0, slot_type: '', visual_style: 'standard', panel_slots: [], folder_id: '' };
+    const defaultFormData = { name: '', manufacturer: '', model_number: '', width_units: 1.0, depth_in: 0.0, slot_type: '', visual_style: 'standard', panel_slots: [], ports: [], folder_id: '' };
     const [formData, setFormData] = useState(defaultFormData);
 
     useEffect(() => {
@@ -35,6 +35,12 @@ const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave 
         const newSlots = [...(formData.panel_slots || [])];
         newSlots[index][field] = value;
         setFormData({ ...formData, panel_slots: newSlots });
+    };
+
+    const handlePortChange = (index, field, value) => {
+        const newPorts = [...(formData.ports || [])];
+        newPorts[index] = { ...newPorts[index], [field]: value };
+        setFormData({ ...formData, ports: newPorts });
     };
 
     const handleSubmit = (e) => {
@@ -176,6 +182,62 @@ const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave 
                         </div>
                     </div>
                 )}
+
+                {/* Ports/Circuits Configuration */}
+                <div className="border-t border-gray-700 pt-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Ports/Circuits Configuration</h3>
+                                <button 
+                                    type="button" 
+                                    onClick={() => {
+                                        const newIndex = (formData.ports || []).length + 1;
+                                        const newId = crypto.randomUUID();
+                                        setFormData({...formData, ports: [...(formData.ports || []), { id: newId, label: `${newIndex}`, connector_type: '' }]});
+                                    }} 
+                                    className="text-xs bg-gray-700 px-2 py-1 rounded hover:bg-gray-600 text-gray-300"
+                                >
+                                    + Add Port
+                                </button>
+                            </div>
+                            <div className="space-y-2">
+                                {(formData.ports || []).map((port, idx) => (
+                                    <div key={port.id || idx} className="flex gap-2 items-center">
+                                        <input 
+                                            className="w-20 bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-white outline-none focus:border-amber-500" 
+                                            placeholder="Label" 
+                                            value={port.label || ''} 
+                                            onChange={(e) => handlePortChange(idx, 'label', e.target.value)} 
+                                        />
+                                        <select 
+                                            className="flex-grow bg-gray-800 border border-gray-700 rounded p-1.5 text-xs text-white outline-none focus:border-amber-500"
+                                            value={port.connector_type || ''} 
+                                            onChange={(e) => handlePortChange(idx, 'connector_type', e.target.value)}
+                                        >
+                                            <option value="">Connector Type...</option>
+                                            <option value="XLR-F">XLR-F</option>
+                                            <option value="XLR-M">XLR-M</option>
+                                            <option value="BNC">BNC</option>
+                                            <option value="RJ45">RJ45</option>
+                                            <option value="LC">LC</option>
+                                            <option value="ST">ST</option>
+                                            <option value="SC">SC</option>
+                                            <option value="HDMI">HDMI</option>
+                                            <option value="TRUE1">TRUE1</option>
+                                            <option value="SPEAKON">SPEAKON</option>
+                                        </select>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => {
+                                                setFormData({...formData, ports: formData.ports.filter((_, i) => i !== idx)})
+                                            }} 
+                                            className="text-red-500 hover:text-red-400 p-1"
+                                        >
+                                            <Trash2 size={14} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                 <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
                     <button type="button" onClick={onClose} className="px-4 py-2 text-gray-400 hover:text-white font-bold">Cancel</button>
                     <button type="submit" className="px-6 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400">
