@@ -107,15 +107,8 @@ def apply_smart_layout(nodes, edges, page_width=1000, start_x=50, start_y=50):
             node = node_map[node_id]
             
             # Simple Column Layout
-            # To make it "fancy" (tree view), you'd need depth calculation, 
-            # but a sorted vertical list guarantees short wires flow downward.
-            
             node.position.x = start_x 
             node.position.y = current_y
-            
-            # If you have specific attributes for x/y on the root object, use those:
-            # node.x = start_x
-            # node.y = current_y
             
             current_y += NODE_HEIGHT + PADDING_Y
 
@@ -284,12 +277,9 @@ async def export_wire_pdf(
             payload.graph.edges = edges_to_keep + new_edges
 
         # --- Step 3.5: Layout Optimization (NEW) ---
-        # This forces the graph into a logical order before generating the PDF.
-        # It ensures connected items are grouped and ordered Top -> Down.
         try:
             apply_smart_layout(payload.graph.nodes, payload.graph.edges)
         except Exception as layout_error:
-            # Fallback: If layout fails, proceed with original coordinates rather than crashing
             print(f"Layout optimization failed: {layout_error}")
 
         # --- Step 4: Logos & Branding ---

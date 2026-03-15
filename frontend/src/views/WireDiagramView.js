@@ -60,6 +60,9 @@ const edgeTypes = {
     custom: CustomEdge,
 };
 
+// ---------------------------------------------------------
+// 1. SWITCH MODULE HARVESTER
+// ---------------------------------------------------------
 const flattenNodePorts = (instance, libraryMap) => {
     if (!instance || !instance.equipment_templates) return [];
     
@@ -131,69 +134,143 @@ const flattenNodePorts = (instance, libraryMap) => {
     return allPorts;
 };
 
-/**
- * RECURSIVE PATCH PANEL PORT HARVESTER
- * Walks the physical structure of a patch panel to collect ports in order.
- * Ensures that empty slots generate placeholders to maintain handle spacing.
- */
-const harvestPatchPanelPorts = (instance, allPanelInstances, rootPanelLabel = '') => {
+// ---------------------------------------------------------
+// 2. PATCH PANEL HARVESTERS (1RU & STECK)
+// ---------------------------------------------------------
+const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '') => {
     const harvestedPorts = [];
-    if (!instance || !instance.template) return [];
+    if (!instance || !instance.template) {
+        console.warn(`[PNLBLD-DEBUG] Missing instance or template for child PEI`, instance);
+        return [];
+    }
 
-    const instanceLabel = instance.label || '';
+    const instanceLabel = instance.label || instance.template.name || '';
+    const labelParts = [parentLabelPath, instanceLabel].filter(Boolean);
+    const baseLabel = labelParts.join(' - ');
 
-    // If this specific instance has ports (it's a connector/module), capture them
+    console.log(`[PNLBLD-DEBUG] Processing PEI [${instance.id}] -> Base Label: "${baseLabel}"`);
+
+    // If this PEI has native ports (e.g., it is a Connector)
     if (instance.template.ports && instance.template.ports.length > 0) {
         const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
 
         instance.template.ports.forEach(port => {
             const pLabel = isSingleGenericPort ? '' : port.label;
-            const labelParts = [rootPanelLabel, instanceLabel, pLabel]
-                .filter(val => val !== null && val !== undefined && val !== '' && String(val).trim() !== '');
+            const finalLabel = [baseLabel, pLabel].filter(Boolean).join(' ');
 
             harvestedPorts.push({
                 ...port,
                 pei_id: instance.id,
-                full_label: labelParts.join(' ') 
+                full_label: finalLabel || 'Port' 
             });
         });
     } 
     
-    // If it's a plate or chassis, walk its holes/slots in physical order
-    const templateSlots = instance.template.panel_slots || instance.template.slots || [];
-    if (templateSlots.length > 0) {
+    // If it's a plate/chassis with nested PEIs, walk its slots
+    let templateSlots = instance.template.panel_slots || instance.template.slots || [];
+    if (typeof templateSlots === 'string') {
+        try { templateSlots = JSON.parse(templateSlots); } catch (e) { templateSlots = []; }
+    }
+
+    if (Array.isArray(templateSlots) && templateSlots.length > 0) {
         templateSlots.forEach((slot, idx) => {
             const robustSlotId = slot.id || `${instance.id}-sub-${idx}`;
             
-            // Look for a child mounted here. Match by ID first, then by Name.
-            const child = allPanelInstances.find(c => 
-                c.parent_instance_id === instance.id && 
-                (String(c.slot_id) === String(robustSlotId) || (slot.name && String(c.slot_id) === String(slot.name)))
-            );
+            const child = allPanelInstances.find(c => {
+                if (String(c.parent_instance_id) !== String(instance.id)) return false;
+                if (slot.id && String(c.slot_id) === String(slot.id)) return true;
+                if (slot.name && String(c.slot_id) === String(slot.name)) return true;
+                if (String(c.slot_id) === String(robustSlotId)) return true;
+                return false;
+            });
 
             if (child) {
-                harvestedPorts.push(...harvestPatchPanelPorts(child, allPanelInstances, rootPanelLabel));
+                harvestedPorts.push(...harvestPatchPanelPorts(child, allPanelInstances, baseLabel));
             } else {
-                // IMPORTANT: Generate an empty placeholder for unoccupied holes.
-                // This ensures "Hole 10" stays at handle index 10 even if 1-9 are empty.
+                const emptyLabel = [baseLabel, slot.name || `Hole ${idx + 1}`].filter(Boolean).join(' - ');
                 harvestedPorts.push({
                     id: `empty-${robustSlotId}`,
                     isEmpty: true,
-                    full_label: slot.name || `Hole ${idx + 1}`
+                    full_label: emptyLabel
                 });
             }
         });
 
-        // Safety: Collect any items that didn't match a defined template slot (orphans)
-        const validSlotIds = new Set(templateSlots.flatMap((s, idx) => [String(s.id || `${instance.id}-sub-${idx}`), String(s.name)]));
-        const orphanedChildren = allPanelInstances.filter(c => c.parent_instance_id === instance.id && (!c.slot_id || !validSlotIds.has(String(c.slot_id))));
+        // Orphans safety net
+        const validSlotIds = new Set(templateSlots.flatMap((s, idx) => [String(s.id), String(s.name), String(`${instance.id}-sub-${idx}`)]));
+        const orphanedChildren = allPanelInstances.filter(c => 
+            String(c.parent_instance_id) === String(instance.id) && 
+            (!c.slot_id || !validSlotIds.has(String(c.slot_id)))
+        );
         orphanedChildren.forEach(child => {
-            harvestedPorts.push(...harvestPatchPanelPorts(child, allPanelInstances, rootPanelLabel));
+            harvestedPorts.push(...harvestPatchPanelPorts(child, allPanelInstances, baseLabel));
         });
     }
 
     return harvestedPorts;
 };
+
+const generatePatchPanelPorts = (item, allPanelInstances) => {
+    const panelInstances = allPanelInstances.filter(pi => String(pi.panel_instance_id) === String(item.id));
+    const topLevelPanelInstances = panelInstances.filter(pi => !pi.parent_instance_id);
+    
+    let rootSlots = item.equipment_templates.panel_slots || item.equipment_templates.slots || [];
+    if (typeof rootSlots === 'string') {
+        try { rootSlots = JSON.parse(rootSlots); } catch(e) { rootSlots = []; }
+    }
+    
+    const panelPorts = [];
+    
+    console.log(`\n[PNLBLD-DEBUG] ====== Building Patch Panel: ${item.instance_name} ======`);
+    console.log(`[PNLBLD-DEBUG] Root Slots Defined: ${rootSlots.length}`);
+    console.log(`[PNLBLD-DEBUG] Top Level Modules Found: ${topLevelPanelInstances.length}`);
+
+    // Add chassis native ports if it has any natively
+    if (item.equipment_templates.ports && item.equipment_templates.ports.length > 0) {
+        item.equipment_templates.ports.forEach(p => {
+            panelPorts.push({
+                ...p,
+                pei_id: item.id,
+                full_label: p.label ? String(p.label).trim() : 'Port'
+            });
+        });
+    }
+
+    if (Array.isArray(rootSlots)) {
+        rootSlots.forEach((slot, idx) => {
+            const robustSlotId = slot.id || `${item.id}-slot-${idx}`;
+            const rootInstance = topLevelPanelInstances.find(tpi => 
+                (slot.id && String(tpi.slot_id) === String(slot.id)) ||
+                (slot.name && String(tpi.slot_id) === String(slot.name)) ||
+                String(tpi.slot_id) === String(robustSlotId)
+            );
+            
+            if (rootInstance) {
+                // Pass an empty string '' as the 3rd argument to prevent the chassis name 
+                // from prepending to the child labels.
+                panelPorts.push(...harvestPatchPanelPorts(rootInstance, panelInstances, ''));
+            } else {
+                // Do not include item.instance_name on empty slots to keep it clean
+                panelPorts.push({
+                    id: `empty-${robustSlotId}`,
+                    isEmpty: true,
+                    full_label: slot.name || `Bay ${idx + 1}`
+                });
+            }
+        });
+    }
+    
+    // Orphans safety net
+    const validSlotIds = new Set(rootSlots.flatMap((s, idx) => [String(s.id), String(s.name), String(`${item.id}-slot-${idx}`)]));
+    topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
+        panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, '')); // Empty string here too
+    });
+
+    console.log(`[PNLBLD-DEBUG] ====== Finished Building Patch Panel ======`);
+    return panelPorts;
+};
+
+// ---------------------------------------------------------
 
 const createApiGraph = (nodes, edges, pageSize) => {
     const apiNodes = nodes.map(node => {
@@ -311,42 +388,9 @@ const WireDiagramView = () => {
                 let enrichedItem = { ...item };
 
                 if (item.equipment_templates?.is_patch_panel) {
-                    const panelInstances = allPanelInstances.filter(pi => pi.panel_instance_id === item.id);
-                    const topLevelPanelInstances = panelInstances.filter(pi => !pi.parent_instance_id);
-                    const rootSlots = item.equipment_templates.slots || item.equipment_templates.panel_slots || [];
-                    
-                    const panelPorts = [];
-                    
-                    // WALK ROOT SLOTS IN PHYSICAL ORDER
-                    if (Array.isArray(rootSlots)) {
-                         rootSlots.forEach((slot, idx) => {
-                             const robustSlotId = slot.id || `${item.id}-slot-${idx}`;
-                             const rootInstance = topLevelPanelInstances.find(tpi => 
-                                String(tpi.slot_id) === String(robustSlotId) || (slot.name && String(tpi.slot_id) === String(slot.name))
-                             );
-                             
-                             if (rootInstance) {
-                                 panelPorts.push(...harvestPatchPanelPorts(rootInstance, panelInstances, item.instance_name));
-                             } else {
-                                 // Add placeholder to keep indices aligned
-                                 panelPorts.push({
-                                     id: `empty-${robustSlotId}`,
-                                     isEmpty: true,
-                                     full_label: slot.name || `Hole ${idx + 1}`
-                                 });
-                             }
-                         });
-                    }
-                    
-                    // Safety: Catch any top-level items that weren't assigned to a physical template slot
-                    const validSlotIds = new Set(rootSlots.flatMap((s, idx) => [String(s.id || `${item.id}-slot-${idx}`), String(s.name)]));
-                    topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
-                         panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, item.instance_name));
-                    });
-
                     enrichedItem.equipment_templates = {
                         ...item.equipment_templates,
-                        ports: panelPorts,
+                        ports: generatePatchPanelPorts(item, allPanelInstances),
                         is_patch_panel: true
                     };
                 } else {
@@ -450,37 +494,7 @@ const WireDiagramView = () => {
 
                 if (justDroppedNode.data.equipment_templates?.is_patch_panel) {
                     const allPanelInstances = await api.getAllPanelInstancesForShow(showId);
-                    const relevantInstances = allPanelInstances.filter(pi => pi.panel_instance_id === justDroppedNode.id);
-                    const topLevelPanelInstances = relevantInstances.filter(pi => !pi.parent_instance_id);
-                    const rootSlots = justDroppedNode.data.equipment_templates.slots || justDroppedNode.data.equipment_templates.panel_slots || [];
-                    
-                    const panelPorts = [];
-                    
-                    if (Array.isArray(rootSlots)) {
-                        rootSlots.forEach((slot, idx) => {
-                            const robustSlotId = slot.id || `${justDroppedNode.id}-slot-${idx}`;
-                            const rootInstance = topLevelPanelInstances.find(tpi => 
-                                String(tpi.slot_id) === String(robustSlotId) || (slot.name && String(tpi.slot_id) === String(slot.name))
-                            );
-                            
-                            if (rootInstance) {
-                                panelPorts.push(...harvestPatchPanelPorts(rootInstance, relevantInstances, justDroppedNode.data.instance_name));
-                            } else {
-                                panelPorts.push({
-                                    id: `empty-${robustSlotId}`,
-                                    isEmpty: true,
-                                    full_label: slot.name || `Hole ${idx + 1}`
-                                });
-                            }
-                        });
-                    }
-                    
-                    const validSlotIds = new Set(rootSlots.flatMap((s, idx) => [String(s.id || `${justDroppedNode.id}-slot-${idx}`), String(s.name)]));
-                    topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
-                        panelPorts.push(...harvestPatchPanelPorts(tpi, relevantInstances, justDroppedNode.data.instance_name));
-                    });
-
-                    enrichedNode.data.equipment_templates.ports = panelPorts;
+                    enrichedNode.data.equipment_templates.ports = generatePatchPanelPorts(justDroppedNode.data, allPanelInstances);
                     setNodes(nds => nds.map(n => n.id === enrichedNode.id ? enrichedNode : n));
                 }
 
@@ -536,7 +550,7 @@ const WireDiagramView = () => {
         };
 
         finalizeDroppedNode();
-    }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId]);
+    }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId, libraryData.equipment]);
 
 const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
@@ -662,7 +676,13 @@ const onConnect = useCallback(async (params) => {
                 libraryData.equipment.forEach(eq => templateMap.set(eq.id, eq));
             }
 
-            const flattenedPorts = flattenNodePorts(updatedInstance, templateMap);
+            let flattenedPorts = [];
+            if (updatedInstance.equipment_templates?.is_patch_panel) {
+                const allPanelInstances = await api.getAllPanelInstancesForShow(showId);
+                flattenedPorts = generatePatchPanelPorts(updatedInstance, allPanelInstances);
+            } else {
+                flattenedPorts = flattenNodePorts(updatedInstance, templateMap);
+            }
             
             const enrichedItem = {
                 ...updatedInstance,

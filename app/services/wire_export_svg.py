@@ -87,6 +87,35 @@ CORNER_RADIUS = 8 * SCALE_FACTOR
 GROUP_HEADER_HEIGHT = 40
 
 # --- Helper Functions ---
+def _parse_port_handle(handle_id: str) -> Tuple[str, str]:
+    """
+    Parses a port handle ID to determine its base grouping ID and signal direction.
+    Supports standard suffixes for robust grouping of front/back and in/out pairs.
+    This replaces hacky string splitting which breaks on Steck module UUIDs.
+    """
+    lower_handle = handle_id.lower()
+    
+    # Check standard suffixes used for pairing
+    suffixes = [
+        ('_front', 'out'), ('-front', 'out'),
+        ('_out', 'out'), ('-out', 'out'),
+        ('_back', 'in'), ('-back', 'in'),
+        ('_in', 'in'), ('-in', 'in')
+    ]
+    
+    for suffix, direction in suffixes:
+        if lower_handle.endswith(suffix):
+            return handle_id[:-len(suffix)], direction
+            
+    # Legacy fallback if no strict suffix is found
+    if 'out' in lower_handle:
+        return handle_id, 'out'
+    if 'in' in lower_handle:
+        return handle_id, 'in'
+        
+    # Default fallback
+    return handle_id, 'in'
+
 def _get_connection_label(edge: Edge, is_for_source: bool, graph: Graph) -> str:
     nodes_by_id = {node.id: node for node in graph.nodes}
     if is_for_source:
@@ -110,7 +139,7 @@ def _get_connection_label(edge: Edge, is_for_source: bool, graph: Graph) -> str:
 
     # Strip (Back)/(Front) text if it appears in the connection label
     if isinstance(port_name, str):
-        port_name = port_name.replace(' (Back)', '').replace('(Back)', '').replace(' (Front)', '').replace('(Front)', '')
+        port_name = re.sub(r'(?i)\s*\((Back|Front)\)', '', port_name).strip()
 
     return f"{escape(remote_node.deviceNomenclature)}:{escape(port_name)}"
 
@@ -138,27 +167,21 @@ def _generate_device_svg(node: Node, graph: Graph, x_offset: float, y_offset: fl
     # --- Port Grouping ---
     ports_by_id = {}
     for handle_id, port_data in node.ports.items():
-        # FIX: Handle 'pei_' panel ports differently to group front/back correctly
-        if handle_id.startswith('pei_'):
-            port_id = handle_id.rsplit('_', 1)[0] # Strip _back or _front
-        else:
-            port_id = handle_id.split('-')[-1]
-            
+        port_id, direction = _parse_port_handle(handle_id)
         p_name = port_data.name if hasattr(port_data, 'name') else port_data.get('name')
         
-        # FIX: Clean out the (Back) and (Front) tags so the IO center label looks nice
+        # Clean out the (Back) and (Front) tags so the IO center label looks nice
         if p_name:
-            p_name = p_name.replace(' (Back)', '').replace('(Back)', '').replace(' (Front)', '').replace('(Front)', '')
+            p_name = re.sub(r'(?i)\s*\((Back|Front)\)', '', p_name).strip()
             
         p_adapter = port_data.adapter_model if hasattr(port_data, 'adapter_model') else port_data.get('adapter_model')
 
         if port_id not in ports_by_id:
             ports_by_id[port_id] = {'name': p_name, 'adapter': p_adapter, 'in': None, 'out': None}
 
-        # FIX: Interpret 'back' as input and 'front' as output
-        if 'in' in handle_id or handle_id.endswith('_back'): 
+        if direction == 'in':
             ports_by_id[port_id]['in'] = handle_id
-        if 'out' in handle_id or handle_id.endswith('_front'): 
+        elif direction == 'out':
             ports_by_id[port_id]['out'] = handle_id
 
     def natural_keys(text):
@@ -324,26 +347,22 @@ def _get_node_specs(graph: Graph, label_clamp_px: float) -> List[Dict]:
     for node in graph.nodes:
         ports_data = node.ports
         ports_by_id = {}
+        
         for handle_id, port_data in ports_data.items():
-            # FIX: Parse pei IDs properly here too
-            if handle_id.startswith('pei_'):
-                port_id = handle_id.rsplit('_', 1)[0]
-            else:
-                port_id = handle_id.split('-')[-1]
+            port_id, direction = _parse_port_handle(handle_id)
                 
             p_name = port_data.name if hasattr(port_data, 'name') else port_data.get('name')
             if p_name:
-                p_name = p_name.replace(' (Back)', '').replace('(Back)', '').replace(' (Front)', '').replace('(Front)', '')
+                p_name = re.sub(r'(?i)\s*\((Back|Front)\)', '', p_name).strip()
                 
             p_adapter = port_data.adapter_model if hasattr(port_data, 'adapter_model') else port_data.get('adapter_model')
             
             if port_id not in ports_by_id:
                 ports_by_id[port_id] = {'name': p_name, 'adapter': p_adapter, 'in': None, 'out': None}
                 
-            # FIX: Interpret _back as in, _front as out
-            if 'in' in handle_id or handle_id.endswith('_back'): 
+            if direction == 'in': 
                 ports_by_id[port_id]['in'] = handle_id
-            if 'out' in handle_id or handle_id.endswith('_front'): 
+            elif direction == 'out': 
                 ports_by_id[port_id]['out'] = handle_id
 
         input_ports = [p for p in ports_by_id.values() if p['in'] and not p['out']]
