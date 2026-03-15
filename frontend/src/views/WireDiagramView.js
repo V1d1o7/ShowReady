@@ -131,57 +131,51 @@ const flattenNodePorts = (instance, libraryMap) => {
     return allPorts;
 };
 
-// FIX: Traverse the slot layout perfectly from left to right, inserting 'isEmpty' elements to represent unpopulated physical holes.
-const processPanelSlot = (slot, parentInstanceId, rootPanelLabel, allPanelInstances) => {
-    const instance = allPanelInstances.find(pi => 
-        (parentInstanceId ? pi.parent_instance_id === parentInstanceId : !pi.parent_instance_id) && 
-        String(pi.slot_id) === String(slot.id)
-    );
+// FIX: Robust Slot ID Matching for Left-To-Right Panel Sorting
+const harvestPatchPanelPorts = (panelInstance, allPanelInstances) => {
+    const harvestedPorts = [];
+    const rootPanelLabel = panelInstance.label || '';
 
-    if (!instance) {
-        return [{
-            id: `empty-${slot.id}`,
-            pei_id: `empty-${slot.id}`,
-            full_label: `EMPTY`,
-            connector_type: 'Blank',
-            isEmpty: true
-        }];
-    }
+    const walk = (instance) => {
+        if (!instance || !instance.template) return;
 
-    const ports = [];
-    const instanceLabel = instance.label || '';
+        const instanceLabel = instance.id !== panelInstance.id ? (instance.label || '') : '';
 
-    if (instance.template?.panel_slots && Array.isArray(instance.template.panel_slots) && instance.template.panel_slots.length > 0) {
-        instance.template.panel_slots.forEach((childSlot, idx) => {
-            const childSlotId = childSlot.id || childSlot.name || `${instance.id}-sub-${idx}`;
-            const normalizedChildSlot = { ...childSlot, id: childSlotId };
-            ports.push(...processPanelSlot(normalizedChildSlot, instance.id, rootPanelLabel, allPanelInstances));
-        });
-    } else if (instance.template?.ports && Array.isArray(instance.template.ports) && instance.template.ports.length > 0) {
-        const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
+        if (instance.template.ports && Array.isArray(instance.template.ports)) {
+            const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
 
-        instance.template.ports.forEach(port => {
-            const pLabel = isSingleGenericPort ? '' : port.label;
-            const labelParts = [rootPanelLabel, instanceLabel, pLabel]
-                .filter(val => val !== null && val !== undefined && val !== '' && String(val).trim() !== '');
+            instance.template.ports.forEach(port => {
+                const pLabel = isSingleGenericPort ? '' : port.label;
+                const labelParts = [rootPanelLabel, instanceLabel, pLabel]
+                    .filter(val => val !== null && val !== undefined && val !== '' && String(val).trim() !== '');
 
-            ports.push({
-                ...port,
-                pei_id: instance.id,
-                full_label: labelParts.join(' ') || 'Unlabeled Port'
+                harvestedPorts.push({
+                    ...port,
+                    pei_id: instance.id,
+                    full_label: labelParts.join(' ') 
+                });
             });
-        });
-    } else {
-        ports.push({
-            id: `blank-${instance.id}`,
-            pei_id: instance.id,
-            full_label: instanceLabel || instance.template?.name || `Blank Plate`,
-            connector_type: 'Blank',
-            isEmpty: true
-        });
-    }
+        }
 
-    return ports;
+        // Walk children in the EXACT physical order defined by the template's panel_slots
+        if (instance.template.panel_slots && Array.isArray(instance.template.panel_slots)) {
+            instance.template.panel_slots.forEach((slot, idx) => {
+                const robustSlotId = slot.id || slot.name || `${instance.id}-sub-${idx}`;
+                const child = allPanelInstances.find(c => c.parent_instance_id === instance.id && String(c.slot_id) === String(robustSlotId));
+                if (child) {
+                    walk(child);
+                }
+            });
+        }
+
+        // Safety fallback for orphaned instances
+        const validSlotIds = new Set(instance.template.panel_slots?.map((s, idx) => String(s.id || s.name || `${instance.id}-sub-${idx}`)) || []);
+        const orphanedChildren = allPanelInstances.filter(c => c.parent_instance_id === instance.id && (!c.slot_id || !validSlotIds.has(String(c.slot_id))));
+        orphanedChildren.forEach(child => walk(child));
+    };
+
+    walk(panelInstance);
+    return harvestedPorts;
 };
 
 const createApiGraph = (nodes, edges, pageSize) => {
@@ -189,8 +183,6 @@ const createApiGraph = (nodes, edges, pageSize) => {
         const portsData = node.data?.equipment_templates?.ports || [];
         const isPatchPanel = node.data?.equipment_templates?.is_patch_panel;
         const portsDict = portsData.reduce((acc, port) => {
-            if (port.isEmpty) return acc; // Skip empty slots entirely in the API Export
-
             if (isPatchPanel) {
                 const backId = `pei_${port.pei_id}_port_${port.id}_back`;
                 const frontId = `pei_${port.pei_id}_port_${port.id}_front`;
@@ -300,24 +292,23 @@ const WireDiagramView = () => {
 
                 if (item.equipment_templates?.is_patch_panel) {
                     const panelInstances = allPanelInstances.filter(pi => pi.panel_instance_id === item.id);
-                    const rootPanelLabel = item.instance_name || '';
-                    const panelPorts = [];
-                    
-                    if (item.equipment_templates.panel_slots && Array.isArray(item.equipment_templates.panel_slots)) {
-                        item.equipment_templates.panel_slots.forEach((slot, idx) => {
-                            const slotId = slot.id || `${item.id}-slot-${idx}`;
-                            const normalizedSlot = { ...slot, id: slotId };
-                            panelPorts.push(...processPanelSlot(normalizedSlot, null, rootPanelLabel, panelInstances));
-                        });
-                    }
-
-                    // Failsafe for highly corrupted/orphaned items in the DB
-                    const validSlotIds = new Set(item.equipment_templates.panel_slots?.map((s, idx) => String(s.id || `${item.id}-slot-${idx}`)) || []);
                     const topLevelPanelInstances = panelInstances.filter(pi => !pi.parent_instance_id);
+                    
+                    const panelPorts = [];
+                    // Force the root panels to be walked in the exact physical left-to-right slot order
+                    if (item.equipment_templates.panel_slots && Array.isArray(item.equipment_templates.panel_slots)) {
+                         item.equipment_templates.panel_slots.forEach((slot, idx) => {
+                             const robustSlotId = slot.id || slot.name || `${item.id}-slot-${idx}`;
+                             const rootInstance = topLevelPanelInstances.find(tpi => String(tpi.slot_id) === String(robustSlotId));
+                             if (rootInstance) {
+                                 panelPorts.push(...harvestPatchPanelPorts(rootInstance, panelInstances));
+                             }
+                         });
+                    }
+                    
+                    const validSlotIds = new Set(item.equipment_templates.panel_slots?.map((s, idx) => String(s.id || s.name || `${item.id}-slot-${idx}`)) || []);
                     topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
-                        panelPorts.push({
-                            id: `orphan-${tpi.id}`, pei_id: tpi.id, full_label: `[Orphan] ${tpi.template?.name || ''}`, connector_type: 'Error', isEmpty: true
-                        });
+                         panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances));
                     });
 
                     enrichedItem.equipment_templates = {
@@ -427,16 +418,23 @@ const WireDiagramView = () => {
                 if (justDroppedNode.data.equipment_templates?.is_patch_panel) {
                     const allPanelInstances = await api.getAllPanelInstancesForShow(showId);
                     const relevantInstances = allPanelInstances.filter(pi => pi.panel_instance_id === justDroppedNode.id);
-                    const rootPanelLabel = justDroppedNode.data.instance_name || '';
+                    const topLevelPanelInstances = relevantInstances.filter(pi => !pi.parent_instance_id);
                     
                     const panelPorts = [];
                     if (justDroppedNode.data.equipment_templates.panel_slots && Array.isArray(justDroppedNode.data.equipment_templates.panel_slots)) {
                         justDroppedNode.data.equipment_templates.panel_slots.forEach((slot, idx) => {
-                            const slotId = slot.id || `${justDroppedNode.id}-slot-${idx}`;
-                            const normalizedSlot = { ...slot, id: slotId };
-                            panelPorts.push(...processPanelSlot(normalizedSlot, null, rootPanelLabel, relevantInstances));
+                            const robustSlotId = slot.id || slot.name || `${justDroppedNode.id}-slot-${idx}`;
+                            const rootInstance = topLevelPanelInstances.find(tpi => String(tpi.slot_id) === String(robustSlotId));
+                            if (rootInstance) {
+                                panelPorts.push(...harvestPatchPanelPorts(rootInstance, relevantInstances));
+                            }
                         });
                     }
+                    
+                    const validSlotIds = new Set(justDroppedNode.data.equipment_templates.panel_slots?.map((s, idx) => String(s.id || s.name || `${justDroppedNode.id}-slot-${idx}`)) || []);
+                    topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
+                        panelPorts.push(...harvestPatchPanelPorts(tpi, relevantInstances));
+                    });
 
                     enrichedNode.data.equipment_templates.ports = panelPorts;
                     setNodes(nds => nds.map(n => n.id === enrichedNode.id ? enrichedNode : n));
@@ -496,7 +494,7 @@ const WireDiagramView = () => {
         finalizeDroppedNode();
     }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId]);
 
-    const onConnect = useCallback(async (params) => {
+const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
         
         if (!sourceHandle || !targetHandle) {
