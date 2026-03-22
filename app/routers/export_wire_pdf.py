@@ -58,26 +58,20 @@ def apply_smart_layout(nodes, edges, page_width=1000, start_x=50, start_y=50):
                 if neighbor not in visited:
                     visited.add(neighbor)
                     queue.append(neighbor)
-            # Incoming (Scan edges - slow but necessary for full grouping, 
-            # or pre-build undirected graph. Simple iteration for now)
-            # Optimization: Pre-build undirected map if performance is an issue.
             pass 
 
         clusters.append(cluster_nodes)
 
     # 3. Sort & Position Layout
-    # Constants for spacing
-    NODE_HEIGHT = 200 # Approx height of a node card
+    NODE_HEIGHT = 200 
     NODE_WIDTH = 300
     PADDING_Y = 50
     PADDING_X = 50
     
     current_y = start_y
     
-    # Process each isolated cluster
     for cluster in clusters:
-        # Organize cluster by dependency (Topological-ish sort)
-        # Find local sources (in-degree 0 within the cluster)
+        # Organize cluster by dependency
         local_in_degree = {n: in_degree[n] for n in cluster}
         zero_in = deque([n for n in cluster if local_in_degree[n] == 0])
         sorted_cluster = []
@@ -97,16 +91,10 @@ def apply_smart_layout(nodes, edges, page_width=1000, start_x=50, start_y=50):
                 sorted_cluster.append(n)
 
         # 4. Assign Coordinates
-        # We verify if this cluster fits on current page (conceptually), 
-        # otherwise we might want to add extra padding.
-        # For PDF exports, continuous Y usually works fine unless pages are hard-cut.
-        
-        # We layout this cluster Top-to-Bottom
         cluster_start_y = current_y
         for i, node_id in enumerate(sorted_cluster):
             node = node_map[node_id]
             
-            # Simple Column Layout
             node.position.x = start_x 
             node.position.y = current_y
             
@@ -139,7 +127,7 @@ async def export_wire_pdf(
                         id_set.add(val['id'])
                     if val.get('assignments'):
                         collect_ids(val['assignments'], id_set)
-                elif isinstance(val, str): # Raw UUID string
+                elif isinstance(val, str): 
                     id_set.add(val)
 
         # --- Helper: Recursive Port Flattening ---
@@ -147,7 +135,6 @@ async def export_wire_pdf(
             if not assignments or not parent_template:
                 return
 
-            # Create map of slot_id -> slot_name for the CURRENT parent
             slot_defs = parent_template.get('slot_definitions') or parent_template.get('slots') or []
             slot_names_by_id = {
                 str(s.get('id', '')): s.get('name', 'Unknown Slot') 
@@ -155,7 +142,6 @@ async def export_wire_pdf(
             }
 
             for slot_id, assignment_data in assignments.items():
-                # Normalize data (Handle raw UUID vs Dict)
                 if isinstance(assignment_data, dict):
                     module_id = assignment_data.get('id')
                     sub_assignments = assignment_data.get('assignments')
@@ -170,23 +156,19 @@ async def export_wire_pdf(
                 if not module_template: 
                     continue
 
-                # Determine legible slot name
                 slot_name = slot_names_by_id.get(str(slot_id))
                 if not slot_name:
                     found = next((s['name'] for s in slot_defs if s.get('name') == slot_id), None)
                     slot_name = found if found else f"Slot {slot_id[:4]}"
 
-                # Flatten Ports for THIS module
                 if module_template.get('ports'):
                     for port in module_template['ports']:
                         new_port_id = f"mod_{slot_id}_{port['id']}"
                         new_port_name = f"{slot_name}: {port.get('label', 'Port')}"
                         node.ports[new_port_id] = PortDef(name=new_port_name)
 
-                # RECURSE
                 if sub_assignments:
                     flatten_assignments(sub_assignments, module_template, node, templates_map)
-
 
         # --- Step 1: Fetch Data ---
         instance_ids = [node.id for node in payload.graph.nodes]
@@ -272,22 +254,50 @@ async def export_wire_pdf(
                         new_edges.append(new_edge)
 
             payload.graph.nodes = [n for n in payload.graph.nodes if n.id not in adapter_node_ids]
-            
             edges_to_keep = [e for e in payload.graph.edges if e not in edges_to_remove]
             payload.graph.edges = edges_to_keep + new_edges
 
-        # --- Step 3.5: Layout Optimization (NEW) ---
+        # --- Step 3.5: Layout Optimization ---
         try:
             apply_smart_layout(payload.graph.nodes, payload.graph.edges)
         except Exception as layout_error:
             print(f"Layout optimization failed: {layout_error}")
 
-        # --- Step 4: Logos & Branding ---
-        show_res = supabase.table('shows').select('data, name').eq('id', show_id).eq('user_id', str(user.id)).single().execute()
+        # --- Step 4: Logos & Branding (Explicitly parsing names from DB) ---
+        show_res = supabase.table('shows').select('data, name, show_pm_name, show_td_name, show_designer_name').eq('id', show_id).eq('user_id', str(user.id)).single().execute()
+        
         if show_res.data:
             show_name = show_res.data.get('name', 'export')
-            if 'data' in show_res.data and 'info' in show_res.data['data']:
-                show_logo_path = show_res.data['data']['info'].get('logo_path')
+            show_data = show_res.data.get('data') or {}
+            show_info = show_data.get('info') or {}
+
+            def get_full_name(role_prefix, legacy_name, payload_fallback):
+                first = show_info.get(f"{role_prefix}_first_name")
+                last = show_info.get(f"{role_prefix}_last_name")
+                
+                # Filter out None and empty strings
+                name_parts = [str(p).strip() for p in (first, last) if p and str(p).strip()]
+                combined = " ".join(name_parts)
+                
+                if combined:
+                    return combined
+                
+                legacy_info_name = show_info.get(f"{role_prefix}_name")
+                if legacy_info_name and str(legacy_info_name).strip():
+                    return str(legacy_info_name).strip()
+                
+                if legacy_name and str(legacy_name).strip():
+                    return str(legacy_name).strip()
+                
+                return payload_fallback or ''
+
+            payload.title_block.show_name = show_name
+            payload.title_block.show_pm = get_full_name('show_pm', show_res.data.get('show_pm_name'), payload.title_block.show_pm)
+            payload.title_block.show_td = get_full_name('show_td', show_res.data.get('show_td_name'), payload.title_block.show_td)
+            payload.title_block.show_designer = get_full_name('show_designer', show_res.data.get('show_designer_name'), payload.title_block.show_designer)
+
+            show_logo_path = show_info.get('logo_path')
+                
             if show_logo_path:
                 try:
                     show_logo_bytes = supabase.storage.from_('logos').download(show_logo_path)
@@ -311,7 +321,7 @@ async def export_wire_pdf(
         if not pdf_bytes:
             raise HTTPException(status_code=500, detail="Failed to generate PDF: result was empty.")
 
-        filename = f"{show_name}-wire-export.pdf"
+        filename = f"{show_name.replace(' ', '_')}-wire-export.pdf"
         return Response(content=pdf_bytes, media_type="application/pdf", headers={
             "Content-Disposition": f"attachment; filename=\"{filename}\""
         })

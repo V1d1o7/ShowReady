@@ -121,6 +121,20 @@ async def admin_create_panel_folder(folder_data: PanelFolderCreate, user = Depen
     res = admin_client.table('panel_folders').insert(insert_data).execute()
     return res.data[0]
 
+@router.put("/admin/folders/{folder_id}", response_model=PanelFolder, tags=["Admin"])
+async def admin_update_panel_folder(folder_id: uuid.UUID, folder_data: dict, user = Depends(get_user)):
+    admin_client = get_service_client()
+    update_data = {}
+    if 'name' in folder_data:
+        update_data['name'] = folder_data['name']
+    if 'parent_id' in folder_data:
+        update_data['parent_id'] = folder_data['parent_id']
+
+    res = admin_client.table('panel_folders').update(update_data).eq('id', str(folder_id)).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    return res.data[0]
+
 @router.delete("/admin/folders/{folder_id}", status_code=204, tags=["Admin"])
 async def admin_delete_panel_folder(folder_id: uuid.UUID, user = Depends(get_user)):
     admin_client = get_service_client()

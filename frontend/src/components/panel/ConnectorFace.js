@@ -207,6 +207,28 @@ const ConnectorFace = ({ style }) => {
                 <rect x="85" y="165" width="90" height="4" fill="#333"/>
             </DSeriesFlange>
         ),
+        'usb': (
+            <DSeriesFlange>
+                <circle cx="130" cy="155" r="110" fill="url(#darkMetal)" stroke="#333" strokeWidth="4"/>
+                <circle cx="130" cy="155" r="70" fill="#1a1a1a" stroke="#050505" strokeWidth="4"/>
+                
+                {/* Outer USB shield */}
+                <rect x="75" y="130" width="110" height="50" fill="#111" stroke="#e5e5e5" strokeWidth="4" rx="3"/>
+                
+                {/* Shield cutouts */}
+                <rect x="100" y="130" width="15" height="8" fill="#1a1a1a" />
+                <rect x="145" y="130" width="15" height="8" fill="#1a1a1a" />
+                
+                {/* Inner plastic block */}
+                <rect x="79" y="150" width="102" height="26" fill="#050505" />
+                
+                {/* 4 Gold Pins */}
+                <rect x="95" y="152" width="10" height="20" fill="#ffd700"/>
+                <rect x="120" y="152" width="10" height="20" fill="#ffd700"/>
+                <rect x="145" y="152" width="10" height="20" fill="#ffd700"/>
+                <rect x="170" y="152" width="10" height="20" fill="#ffd700"/>
+            </DSeriesFlange>
+        ),
         'blank': (
             <DSeriesFlange />
         )

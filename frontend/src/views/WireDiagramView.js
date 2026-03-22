@@ -150,7 +150,6 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
 
     console.log(`[PNLBLD-DEBUG] Processing PEI [${instance.id}] -> Base Label: "${baseLabel}"`);
 
-    // If this PEI has native ports (e.g., it is a Connector)
     if (instance.template.ports && instance.template.ports.length > 0) {
         const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
 
@@ -166,7 +165,6 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
         });
     } 
     
-    // If it's a plate/chassis with nested PEIs, walk its slots
     let templateSlots = instance.template.panel_slots || instance.template.slots || [];
     if (typeof templateSlots === 'string') {
         try { templateSlots = JSON.parse(templateSlots); } catch (e) { templateSlots = []; }
@@ -196,7 +194,6 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
             }
         });
 
-        // Orphans safety net
         const validSlotIds = new Set(templateSlots.flatMap((s, idx) => [String(s.id), String(s.name), String(`${instance.id}-sub-${idx}`)]));
         const orphanedChildren = allPanelInstances.filter(c => 
             String(c.parent_instance_id) === String(instance.id) && 
@@ -225,7 +222,6 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
     console.log(`[PNLBLD-DEBUG] Root Slots Defined: ${rootSlots.length}`);
     console.log(`[PNLBLD-DEBUG] Top Level Modules Found: ${topLevelPanelInstances.length}`);
 
-    // Add chassis native ports if it has any natively
     if (item.equipment_templates.ports && item.equipment_templates.ports.length > 0) {
         item.equipment_templates.ports.forEach(p => {
             panelPorts.push({
@@ -246,11 +242,8 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
             );
             
             if (rootInstance) {
-                // Pass an empty string '' as the 3rd argument to prevent the chassis name 
-                // from prepending to the child labels.
                 panelPorts.push(...harvestPatchPanelPorts(rootInstance, panelInstances, ''));
             } else {
-                // Do not include item.instance_name on empty slots to keep it clean
                 panelPorts.push({
                     id: `empty-${robustSlotId}`,
                     isEmpty: true,
@@ -260,10 +253,9 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
         });
     }
     
-    // Orphans safety net
     const validSlotIds = new Set(rootSlots.flatMap((s, idx) => [String(s.id), String(s.name), String(`${item.id}-slot-${idx}`)]));
     topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
-        panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, '')); // Empty string here too
+        panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, '')); 
     });
 
     console.log(`[PNLBLD-DEBUG] ====== Finished Building Patch Panel ======`);
@@ -278,7 +270,6 @@ const createApiGraph = (nodes, edges, pageSize) => {
         const isPatchPanel = node.data?.equipment_templates?.is_patch_panel;
         const portsDict = portsData.reduce((acc, port) => {
             if (isPatchPanel) {
-                // Skip placeholders in PDF export to keep the tables clean
                 if (port.isEmpty) return acc;
 
                 const backId = `pei_${port.pei_id}_port_${port.id}_back`;
@@ -550,7 +541,7 @@ const WireDiagramView = () => {
         };
 
         finalizeDroppedNode();
-    }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId, libraryData.equipment]);
+    }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId]);
 
 const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
@@ -844,12 +835,20 @@ const onConnect = useCallback(async (params) => {
             const edges = getEdges();
             const apiGraph = createApiGraph(nodes, edges, pageSize);
 
+            // Format names natively from JSON data
+            const formatName = (prefix) => {
+                const first = showData.info?.[`${prefix}_first_name`] || '';
+                const last = showData.info?.[`${prefix}_last_name`] || '';
+                const combined = `${first} ${last}`.trim();
+                return combined || showData[`${prefix}_name`] || showData.info?.[`${prefix}_name`] || '';
+            };
+
             const titleBlockData = {
                 show_name: showName,
-                show_pm: showData.info.show_pm_name,
-                show_td: showData.info.show_td_name,
-                show_designer: showData.info.show_designer_name,
-                users_full_name: profile ? `${profile.first_name} ${profile.last_name}` : '',
+                show_pm: formatName('show_pm'),
+                show_td: formatName('show_td'),
+                show_designer: formatName('show_designer'),
+                users_full_name: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : '',
                 users_production_role: profile ? profile.production_role : '',
                 sheet_title: 'Wire Diagram',
             };

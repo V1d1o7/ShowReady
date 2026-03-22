@@ -2,21 +2,35 @@ import React, { useState, useEffect } from 'react';
 import Modal from '../Modal';
 import InputField from '../InputField';
 import { Trash2 } from 'lucide-react';
+import FolderOptions from '../FolderOptions';
+
+const defaultFormData = { 
+    name: '', 
+    manufacturer: '', 
+    model_number: '', 
+    width_units: 1.0, 
+    depth_in: 0.0, 
+    slot_type: '', 
+    visual_style: 'standard', 
+    panel_slots: [], 
+    ports: [], 
+    folder_id: '' 
+};
 
 const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave }) => {
-    const defaultFormData = { name: '', manufacturer: '', model_number: '', width_units: 1.0, depth_in: 0.0, slot_type: '', visual_style: 'standard', panel_slots: [], ports: [], folder_id: '' };
     const [formData, setFormData] = useState(defaultFormData);
+    const [isPlateMode, setIsPlateMode] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
-            setFormData(editingTemplate || defaultFormData);
+            const dataToSet = editingTemplate || defaultFormData;
+            setFormData(dataToSet);
+            setIsPlateMode(dataToSet.panel_slots && dataToSet.panel_slots.length > 0);
         } else {
             setFormData(defaultFormData);
+            setIsPlateMode(false);
         }
     }, [isOpen, editingTemplate]);
-
-    const isPlate = formData.panel_slots && formData.panel_slots.length > 0;
-    const userFolders = folders.filter(f => !f.is_default);
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
@@ -25,9 +39,23 @@ const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave 
 
     const handleTypeToggle = (type) => {
         if (type === 'connector') {
-            setFormData(prev => ({ ...prev, panel_slots: [], visual_style: prev.visual_style || 'standard' }));
+            setIsPlateMode(false);
+            setFormData(prev => ({ 
+                ...prev, 
+                panel_slots: [], 
+                visual_style: prev.visual_style === 'blank' ? 'standard' : (prev.visual_style || 'standard') 
+            }));
         } else {
-            setFormData(prev => ({ ...prev, visual_style: 'blank' }));
+            setIsPlateMode(true);
+            setFormData(prev => ({ 
+                ...prev, 
+                visual_style: 'blank',
+                panel_slots: prev.panel_slots?.length > 0 ? prev.panel_slots : [{
+                    id: crypto.randomUUID(),
+                    name: 'Hole 1',
+                    accepted_module_type: ''
+                }]
+            }));
         }
     };
 
@@ -57,14 +85,14 @@ const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave 
                     <button 
                         type="button"
                         onClick={() => handleTypeToggle('connector')}
-                        className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${!isPlate ? 'bg-amber-500 text-black shadow' : 'text-gray-400 hover:text-white'}`}
+                        className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${!isPlateMode ? 'bg-amber-500 text-black shadow' : 'text-gray-400 hover:text-white'}`}
                     >
                         Connector / Barrel
                     </button>
                     <button 
                         type="button"
                         onClick={() => handleTypeToggle('plate')}
-                        className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${isPlate ? 'bg-amber-500 text-black shadow' : 'text-gray-400 hover:text-white'}`}
+                        className={`flex-1 py-2 text-sm font-bold rounded-md transition-colors ${isPlateMode ? 'bg-amber-500 text-black shadow' : 'text-gray-400 hover:text-white'}`}
                     >
                         Plate / Chassis
                     </button>
@@ -104,17 +132,18 @@ const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave 
                         <label className="block text-sm font-medium text-gray-300 mb-1.5">Folder</label>
                         <select name="folder_id" value={formData.folder_id || ''} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white outline-none">
                             <option value="">Root</option>
-                            {userFolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                            {folders && <FolderOptions folders={folders} />}
                         </select>
                     </div>
                 </div>
 
-                {!isPlate ? (
+                {!isPlateMode ? (
                     <div>
                         <label className="block text-sm font-medium text-gray-300 mb-1.5">Visual Style (Connector Face)</label>
                         <select name="visual_style" value={formData.visual_style || 'standard'} onChange={handleChange} className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white outline-none">
                             <option value="standard">Standard (Generic)</option>
                             <option value="ethercon">EtherCON / RJ45</option>
+                            <option value="usb">USB (Type-A)</option>
                             <option value="xlr_f">XLR (Female)</option>
                             <option value="xlr_m">XLR (Male)</option>
                             <option value="bnc">BNC / SDI</option>
@@ -142,7 +171,7 @@ const PanelTemplateModal = ({ isOpen, onClose, editingTemplate, folders, onSave 
                                 type="button" 
                                 onClick={() => {
                                     const newIndex = (formData.panel_slots || []).length + 1;
-                                    const newId = `${formData.id || 'new'}-slot-${Date.now().toString().slice(-5)}`;
+                                    const newId = crypto.randomUUID();
                                     setFormData({...formData, panel_slots: [...(formData.panel_slots || []), { id: newId, name: `Hole ${newIndex}`, accepted_module_type: '' }]});
                                 }} 
                                 className="text-xs bg-gray-700 px-2 py-1 rounded hover:bg-gray-600 text-gray-300"
