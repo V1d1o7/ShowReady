@@ -28,7 +28,13 @@ const handleResponse = async (res) => {
         try {
             // Try to parse the error as JSON to get the "detail" field
             const errorJson = JSON.parse(errorText);
-            errorMessage = errorJson.detail || 'An unknown error occurred';
+            
+            // Check if it's a FastAPI validation array (422 Unprocessable Entity)
+            if (Array.isArray(errorJson.detail)) {
+                errorMessage = errorJson.detail.map(err => `${err.loc.join('.')} - ${err.msg}`).join(', ');
+            } else {
+                errorMessage = errorJson.detail || 'An unknown error occurred';
+            }
         } catch (e) {
             // If parsing fails, fallback to the raw text or status
             errorMessage = errorText || res.statusText;

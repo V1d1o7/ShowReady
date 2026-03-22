@@ -4,7 +4,7 @@ import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { LayoutContext } from '../contexts/LayoutContext';
 import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
@@ -72,16 +72,37 @@ const HoursTrackingView = () => {
     }, [timesheet]);
 
     const handleHoursChange = (showCrewId, date, hours) => {
-        const updatedCrewHours = timesheet.crew_hours.map(member => 
-            member.show_crew_id === showCrewId ? { ...member, hours_by_date: { ...member.hours_by_date, [date]: hours } } : member
-        );
-        setTimesheet(prev => ({ ...prev, crew_hours: updatedCrewHours }));
+        // Use prev state inside the callback to prevent race conditions from fast typing
+        setTimesheet(prev => {
+            const updatedCrewHours = prev.crew_hours.map(member => 
+                member.show_crew_id === showCrewId 
+                    ? { ...member, hours_by_date: { ...member.hours_by_date, [date]: hours } } 
+                    : member
+            );
+            return { ...prev, crew_hours: updatedCrewHours };
+        });
     };
 
     const handleSaveChanges = async () => {
         try {
-            await api.updateWeeklyTimesheet(showId, timesheet);
-        } catch (error) { console.error("Failed to save timesheet:", error); }
+            // Scrub the timesheet to ensure hours are floats and empty strings become 0
+            const cleanTimesheet = {
+                ...timesheet,
+                crew_hours: timesheet.crew_hours.map(member => {
+                    const cleanHours = {};
+                    for (const [date, hours] of Object.entries(member.hours_by_date)) {
+                        cleanHours[date] = hours === '' ? 0 : parseFloat(hours);
+                    }
+                    return { ...member, hours_by_date: cleanHours };
+                })
+            };
+
+            await api.updateWeeklyTimesheet(showId, cleanTimesheet);
+            toast.success('Timesheet saved successfully.');
+        } catch (error) { 
+            console.error("Failed to save timesheet:", error); 
+            toast.error(`Failed to save timesheet: ${error.message}`);
+        }
     };
     
     const handleSaveSettings = async (newSettings) => {
@@ -212,7 +233,7 @@ const HoursTrackingView = () => {
                                     const dateString = formatDate(date);
                                     return (
                                         <td key={dateString} className="px-3 py-2 whitespace-nowrap">
-                                            <input type="number" value={member.hours_by_date[dateString] || ''} onChange={(e) => handleHoursChange(member.show_crew_id, dateString, e.target.value)} className="w-16 bg-gray-800 border border-gray-700 rounded-md p-1 text-center" placeholder="0" />
+                                            <input type="number" value={member.hours_by_date[dateString] ?? ''} onChange={(e) => handleHoursChange(member.show_crew_id, dateString, e.target.value)} className="w-16 bg-gray-800 border border-gray-700 rounded-md p-1 text-center" placeholder="0" />
                                         </td>
                                     );
                                 })}
