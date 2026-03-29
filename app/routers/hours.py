@@ -187,7 +187,7 @@ async def get_timesheet_pdf(
         generate_hours_pdf, 
         user=user_info, 
         show=show_info_dict, 
-        timesheet_data=timesheet_data.model_dump(), 
+        timesheet_data=timesheet_data.model_dump(mode='json'), 
         show_logo_bytes=show_logo_bytes, 
         company_logo_bytes=company_logo_bytes, 
         show_branding=show_branding 
@@ -351,7 +351,7 @@ async def email_weekly_timesheet(
         generate_hours_pdf, 
         user=user_info, 
         show=show_info_dict, 
-        timesheet_data=timesheet_data.model_dump(),
+        timesheet_data=timesheet_data.model_dump(mode='json'),
         show_logo_bytes=show_logo_bytes, 
         company_logo_bytes=company_logo_bytes, 
         show_branding=payload.show_branding 

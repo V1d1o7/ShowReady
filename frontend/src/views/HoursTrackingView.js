@@ -9,7 +9,6 @@ import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
 import CalculationInfoModal from '../components/CalculationInfoModal';
-import ExportHoursModal from '../components/ExportHoursModal';
 import { calculateWeeklyTotals } from '../utils/hoursCalculations';
 
 const HoursTrackingView = () => {
@@ -48,7 +47,6 @@ const HoursTrackingView = () => {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false); // NEW STATE
 
     const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -123,27 +121,28 @@ const HoursTrackingView = () => {
         }
     };
 
-    // GENERATE WEEKLY PDF (Moved logic from direct button to be callable from modal)
+    // GENERATE WEEKLY PDF 
     const handleGeneratePdf = async () => {
+        await handleSaveChanges(); // Auto-save to ensure the PDF has the latest data
         try {
             const blob = await api.getTimesheetPdf(showId, formatDate(weekStartDate));
             const url = URL.createObjectURL(blob);
             setPdfUrl(url);
-            setIsExportModalOpen(false);
             setIsPdfModalOpen(true);
         } catch (error) { console.error("Failed to generate PDF:", error.message); }
     };
 
-    // GENERATE CREW AUDIT PDF (New Feature)
+    // GENERATE CREW AUDIT PDF
     const handleGenerateCrewAudit = async (crewIds) => {
+        await handleSaveChanges(); // Auto-save to ensure the PDF has the latest data
         try {
-            // Convert array to comma-separated string for query params
             const blob = await api.getCrewAuditPdf(showId, crewIds);
             const url = URL.createObjectURL(blob);
             setPdfUrl(url);
-            setIsExportModalOpen(false);
             setIsPdfModalOpen(true);
-        } catch (error) { console.error("Failed to generate audit PDF:", error.message); }
+        } catch (error) { 
+            console.error("Failed to generate audit PDF:", error.message); 
+        }
     };
     
     const changeWeek = (direction) => {
@@ -181,12 +180,18 @@ const HoursTrackingView = () => {
                 </div>
                 <div className="flex items-center gap-4">
                     <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-md hover:bg-gray-700"><Settings size={20} /></button>
-                    <button onClick={() => setIsEmailModalOpen(true)} className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-500 flex items-center gap-2">
+                    <button 
+                        onClick={async () => { 
+                            await handleSaveChanges(); 
+                            setIsEmailModalOpen(true); 
+                        }} 
+                        className="px-4 py-2 text-sm font-medium rounded-md bg-blue-600 hover:bg-blue-500 flex items-center gap-2"
+                    >
                         <Mail size={16} /> Email Report
                     </button>
-                    {/* CHANGED TO EXPORT REPORTS MODAL TRIGGER */}
-                    <button onClick={() => setIsExportModalOpen(true)} className="px-4 py-2 text-sm font-medium rounded-md bg-gray-700 hover:bg-gray-600 flex items-center gap-2">
-                        <Download size={16} /> Export Reports
+                    {/* BUTTON WIRED DIRECTLY TO THE WEEKLY PDF */}
+                    <button onClick={handleGeneratePdf} className="px-4 py-2 text-sm font-medium rounded-md bg-gray-700 hover:bg-gray-600 flex items-center gap-2">
+                        <Download size={16} /> Export Weekly
                     </button>
                     <button onClick={handleSaveChanges} className="px-4 py-2 text-sm font-medium rounded-md bg-amber-500 text-black hover:bg-amber-400">Save Changes</button>
                     <button onClick={() => setIsInfoModalOpen(true)} className="p-2 rounded-md hover:bg-gray-700"><Info size={20} /></button>
@@ -212,7 +217,6 @@ const HoursTrackingView = () => {
                     <tbody className="bg-gray-900 divide-y divide-gray-700">
                         {(calculatedTimesheet?.crew_hours || []).map(member => (
                             <tr key={member.show_crew_id} className="group hover:bg-gray-800 transition-colors">
-                                {/* UPDATED CREW MEMBER CELL WITH QUICK ACTION AUDIT */}
                                 <td className="px-3 py-2 whitespace-nowrap">
                                     <div className="flex items-center justify-between">
                                         <div>
@@ -270,14 +274,7 @@ const HoursTrackingView = () => {
             <PayPeriodSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={showData?.info || {}} onSave={handleSaveSettings} />
             <CalculationInfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} dailyThreshold={timesheet?.ot_daily_threshold || 10} />
             
-            {/* NEW EXPORT MODAL */}
-            <ExportHoursModal 
-                isOpen={isExportModalOpen} 
-                onClose={() => setIsExportModalOpen(false)} 
-                crewMembers={calculatedTimesheet?.crew_hours || []}
-                onExportWeekly={handleGeneratePdf}
-                onExportAudit={handleGenerateCrewAudit}
-            />
+            {/* ExportHoursModal has been completely removed! */}
         </div>
     );
 };
