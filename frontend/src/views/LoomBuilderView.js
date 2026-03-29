@@ -31,7 +31,7 @@ const LoomBuilderView = () => {
     const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
     const [notesContext, setNotesContext] = useState({ entityType: null, entityId: null });
 
-    // New state for selection and pro label modal
+    // Pro Label Modal State
     const [selectedLoomIds, setSelectedLoomIds] = useState([]);
     const [isLoomPrintModalOpen, setIsLoomPrintModalOpen] = useState(false);
     const hasProAccess = profile?.permitted_features?.includes('label_engine');
@@ -188,9 +188,9 @@ const LoomBuilderView = () => {
                     <div className="flex items-center gap-4">
                         {hasProAccess && (
                             <button
-                                onClick={() => setIsLoomPrintModalOpen(true)}
-                                disabled={selectedLoomIds.length === 0}
-                                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm font-bold rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-50"
+                                disabled={true}
+                                title="Temporarily disabled for maintenance"
+                                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm font-bold rounded-lg opacity-50 cursor-not-allowed"
                             >
                                 <Printer size={16}/> Print Labels (Pro)
                             </button>
@@ -280,6 +280,10 @@ const LoomBuilderView = () => {
                 isOpen={isLoomPrintModalOpen}
                 onClose={() => setIsLoomPrintModalOpen(false)}
                 selectedLooms={looms.filter(loom => selectedLoomIds.includes(loom.id))}
+                onPreview={(url) => {
+                    setIsLoomPrintModalOpen(false);
+                    setPdfPreviewUrl(url);
+                }}
             />
 
             {isNewLoomModalOpen && (
@@ -317,6 +321,7 @@ const LoomBuilderView = () => {
                     initialValue={`${loomToCopy.name} (Copy)`}
                 />
             )}
+            
             <PdfPreviewModal 
                 isOpen={!!pdfPreviewUrl} 
                 url={pdfPreviewUrl} 
@@ -325,6 +330,7 @@ const LoomBuilderView = () => {
                     setPdfPreviewUrl(null);
                 }} 
             />
+            
             <ContextualNotesDrawer
                 entityType={notesContext.entityType}
                 entityId={notesContext.entityId}

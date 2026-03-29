@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ReactFlow, {
     useNodesState,
     useEdgesState,
@@ -8,7 +8,7 @@ import ReactFlow, {
     ReactFlowProvider
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Download, Plus } from 'lucide-react';
+import { Download, Plus, Search } from 'lucide-react';
 import dagre from 'dagre';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -140,7 +140,6 @@ const flattenNodePorts = (instance, libraryMap) => {
 const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '') => {
     const harvestedPorts = [];
     if (!instance || !instance.template) {
-        console.warn(`[PNLBLD-DEBUG] Missing instance or template for child PEI`, instance);
         return [];
     }
 
@@ -148,7 +147,6 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
     const labelParts = [parentLabelPath, instanceLabel].filter(Boolean);
     const baseLabel = labelParts.join(' - ');
 
-    console.log(`[PNLBLD-DEBUG] Processing PEI [${instance.id}] -> Base Label: "${baseLabel}"`);
 
     if (instance.template.ports && instance.template.ports.length > 0) {
         const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
@@ -218,10 +216,6 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
     
     const panelPorts = [];
     
-    console.log(`\n[PNLBLD-DEBUG] ====== Building Patch Panel: ${item.instance_name} ======`);
-    console.log(`[PNLBLD-DEBUG] Root Slots Defined: ${rootSlots.length}`);
-    console.log(`[PNLBLD-DEBUG] Top Level Modules Found: ${topLevelPanelInstances.length}`);
-
     if (item.equipment_templates.ports && item.equipment_templates.ports.length > 0) {
         item.equipment_templates.ports.forEach(p => {
             panelPorts.push({
@@ -258,7 +252,6 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
         panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, '')); 
     });
 
-    console.log(`[PNLBLD-DEBUG] ====== Finished Building Patch Panel ======`);
     return panelPorts;
 };
 
@@ -320,12 +313,17 @@ const WireDiagramView = () => {
     const showName = showData?.info?.show_name;
     const { profile } = useAuth();
     const reactFlowWrapper = useRef(null);
+    const searchContainerRef = useRef(null);
+
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
-    const { getNodes, getEdges, screenToFlowPosition, getViewport, fitView } = useReactFlow();
+    
+    // Extracted setCenter from useReactFlow to handle camera panning
+    const { getNodes, getEdges, screenToFlowPosition, getViewport, fitView, setCenter } = useReactFlow();
+    
     const [activeTab, setActiveTab] = useState(1);
     const [numTabs, setNumTabs] = useState(1);
     const [unassignedEquipment, setUnassignedEquipment] = useState([]);
@@ -334,6 +332,29 @@ const WireDiagramView = () => {
     const [draggingItem, setDraggingItem] = useState(null);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingNode, setEditingNode] = useState(null);
+
+    // Search State
+    const [diagramSearchTerm, setDiagramSearchTerm] = useState('');
+    const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+
+    // Filter nodes for the search dropdown
+    const filteredDiagramNodes = useMemo(() => {
+        if (!diagramSearchTerm) return [];
+        const term = diagramSearchTerm.toLowerCase();
+        // Only search through nodes that have actually been placed on a page
+        return getNodes().filter(n => n.data?.page_number && n.data?.label?.toLowerCase().includes(term));
+    }, [diagramSearchTerm, getNodes]);
+
+    // Handle clicking outside of the search dropdown to close it
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+                setShowSearchDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const onDragStart = (event, equipment) => {
         const { zoom } = getViewport();
@@ -543,7 +564,7 @@ const WireDiagramView = () => {
         finalizeDroppedNode();
     }, [justDroppedNode, getNodes, setEdges, setNodes, activeTab, showId]);
 
-const onConnect = useCallback(async (params) => {
+    const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
         
         if (!sourceHandle || !targetHandle) {
@@ -870,6 +891,45 @@ const onConnect = useCallback(async (params) => {
         }
     };
 
+    // --- Search & Pan Logic ---
+    const handleSearchSelect = (node) => {
+        setDiagramSearchTerm('');
+        setShowSearchDropdown(false);
+
+        const targetPage = node.data.page_number;
+        
+        // 1. Switch Tabs if needed
+        if (activeTab !== targetPage) {
+            setActiveTab(targetPage);
+        }
+
+        // 2. Mark this node as highlighted, and turn off highlights for everything else
+        setNodes(nds => nds.map(n => ({
+            ...n,
+            data: { ...n.data, highlighted: n.id === node.id }
+        })));
+
+        // 3. Pan Camera (Wait slightly for the DOM/nodes to render if a tab switch happened)
+        setTimeout(() => {
+            const width = node.width || 384;
+            const height = node.height || 150;
+            const x = node.position.x + width / 2;
+            const y = node.position.y + height / 2;
+            
+            setCenter(x, y, { zoom: 1.2, duration: 800 });
+        }, 150); 
+    };
+
+    // Clear highlight when clicking the background canvas
+    const handlePaneClick = useCallback(() => {
+        setNodes(nds => nds.map(n => {
+            if (n.data.highlighted) {
+                return { ...n, data: { ...n.data, highlighted: false } };
+            }
+            return n;
+        }));
+    }, [setNodes]);
+
     if (isLoading) return <div className="flex items-center justify-center h-full"><div className="text-xl text-gray-400">Loading...</div></div>;
     if (error) return <div className="p-8 text-center text-red-400">Error: {error}</div>;
 
@@ -883,7 +943,7 @@ const onConnect = useCallback(async (params) => {
                 onDragStart={onDragStart}
                 setDraggingItem={setDraggingItem}
             />
-            <div className="flex-grow flex flex-col">
+            <div className="flex-grow flex flex-col relative">
                 <div className="flex-shrink-0 flex items-center justify-between p-2 border-b border-gray-700">
                     <div className="flex items-center gap-1">
                         {Array.from({ length: numTabs }, (_, i) => i + 1).map(page => (
@@ -907,11 +967,50 @@ const onConnect = useCallback(async (params) => {
                             <Plus size={16} />
                         </button>
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={onLayout} className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg">
+                    <div className="flex gap-2 items-center" ref={searchContainerRef}>
+                        
+                        {/* Search Bar for Diagram */}
+                        <div className="relative mr-2">
+                            <div className="flex items-center bg-gray-900 rounded-lg px-3 py-1.5 border border-gray-600 focus-within:border-amber-500 transition-colors">
+                                <Search size={16} className="text-gray-400 mr-2" />
+                                <input
+                                    type="text"
+                                    placeholder="Find device in diagram..."
+                                    value={diagramSearchTerm}
+                                    onChange={(e) => {
+                                        setDiagramSearchTerm(e.target.value);
+                                        setShowSearchDropdown(true);
+                                    }}
+                                    onFocus={() => setShowSearchDropdown(true)}
+                                    className="bg-transparent text-sm text-white focus:outline-none w-48"
+                                />
+                            </div>
+                            
+                            {/* Search Dropdown */}
+                            {showSearchDropdown && diagramSearchTerm && (
+                                <div className="absolute top-full mt-2 right-0 w-64 max-h-60 overflow-y-auto bg-gray-800 border border-gray-600 rounded-lg shadow-2xl z-50">
+                                    {filteredDiagramNodes.length > 0 ? (
+                                        filteredDiagramNodes.map(node => (
+                                            <button
+                                                key={node.id}
+                                                onClick={() => handleSearchSelect(node)}
+                                                className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 hover:text-amber-400 border-b border-gray-700/50 last:border-b-0"
+                                            >
+                                                <div className="font-bold truncate">{node.data.label}</div>
+                                                <div className="text-xs text-gray-400">Page {node.data.page_number}</div>
+                                            </button>
+                                        ))
+                                    ) : (
+                                        <div className="px-4 py-3 text-sm text-gray-500 text-center">No devices found.</div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        <button onClick={onLayout} className="flex items-center gap-2 px-4 py-1.5 text-sm bg-gray-600 hover:bg-gray-500 rounded-lg font-bold text-white shadow-lg transition-colors">
                             Auto-Arrange
                         </button>
-                        <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black shadow-lg">
+                        <button onClick={() => setIsPdfModalOpen(true)} className="flex items-center gap-2 px-4 py-1.5 text-sm bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black shadow-lg transition-colors">
                             <Download size={16} />
                             Export PDF
                         </button>
@@ -936,6 +1035,7 @@ const onConnect = useCallback(async (params) => {
                         onNodeDoubleClick={handleNodeDoubleClick}
                         onDrop={onDrop}
                         onDragOver={onDragOver}
+                        onPaneClick={handlePaneClick} // Clear highlight on click
                         nodeTypes={nodeTypes}
                         edgeTypes={edgeTypes}
                         deleteKeyCode={['Backspace', 'Delete']}

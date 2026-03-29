@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 import { Printer } from 'lucide-react';
 
-const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
+const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms, onPreview }) => {
   const { showId, showData } = useShow();
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -45,17 +45,31 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
 
   useEffect(() => {
     if (selectedTemplate) {
-      // Discover variables from the template
+      // Discover variables from the template safely
       const variables = new Set();
-      const regex = /{{\s*([\w.-]+)\s*}}/g;
-      let match;
-      const templateString = JSON.stringify(selectedTemplate.template_json);
-      while ((match = regex.exec(templateString)) !== null) {
-        variables.add(match[1]);
-      }
-      
-      // Also discover dynamic color variables from elements
-      (selectedTemplate.elements || []).forEach(el => {
+      const regex = /{{\s*(.*?)\s*}}/g; // FIXED REGEX: Now safely captures spaces!
+
+      const elements = selectedTemplate.elements || selectedTemplate.template_json?.elements || [];
+
+      elements.forEach(el => {
+          if (el.text_content) {
+              let match;
+              regex.lastIndex = 0; 
+              while ((match = regex.exec(el.text_content)) !== null) {
+                  variables.add(match[1]);
+              }
+          }
+          if (el.qr_content) {
+              let match;
+              regex.lastIndex = 0;
+              while ((match = regex.exec(el.qr_content)) !== null) {
+                  variables.add(match[1]);
+              }
+          }
+          if (el.variable_field && el.content_mode === 'variable' && !['__SHOW_LOGO__', '__COMPANY_LOGO__'].includes(el.variable_field)) {
+              variables.add(el.variable_field);
+          }
+          // Dynamic Colors
           if (el.text_color_variable) variables.add(el.text_color_variable);
           if (el.stroke_color_variable) variables.add(el.stroke_color_variable);
           if (el.fill_color_variable) variables.add(el.fill_color_variable);
@@ -84,6 +98,7 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
     } else {
       setColumns([]);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTemplate]);
 
   const handleTemplateChange = (e) => {
@@ -121,27 +136,27 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
                     value = loom.name || '';
                     break;
                 case 'source_loc':
-                    value = loom.source_loc || '';
+                    value = loom.source_loc || loom.source || '';
                     break;
                 case 'dest_loc':
-                    value = loom.dest_loc || '';
+                    value = loom.dest_loc || loom.destination || '';
                     break;
                 case 'cable_count':
                     value = (loom.cables?.length || 0).toString();
                     break;
                 case 'origin_color':
-                    value = getFirstCableColor('origin_color');
+                    value = loom.origin_color || getFirstCableColor('origin_color');
                     break;
                 case 'dest_color':
-                    value = getFirstCableColor('destination_color');
+                    value = loom.destination_color || getFirstCableColor('destination_color');
                     break;
                 case 'show_name':
-                    value = showData?.name || '';
+                    value = showData?.info?.show_name || showData?.name || '';
                     break;
                 default:
                     value = '';
             }
-            row[col] = value;
+            row[col] = String(value); // Ensure it sends as a string
         });
         return row;
     });
@@ -153,17 +168,24 @@ const LoomLabelPrintModal = ({ isOpen, onClose, selectedLooms }) => {
             data_rows: payloadData,
         });
 
-        const blob = new Blob([response], { type: 'application/pdf' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Loom_Labels_${selectedTemplate.name}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const url = URL.createObjectURL(response);
         
         toast.success("Labels generated successfully!", { id: toastId });
+
+        // Pass to the preview modal, or fallback to download
+        if (onPreview) {
+            onPreview(url);
+        } else {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Loom_Labels_${selectedTemplate.name}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            onClose();
+        }
+        
     } catch (error) {
         toast.error("Failed to print labels.", { id: toastId });
         console.error(error);

@@ -2,7 +2,8 @@ import React, { memo, useState, useLayoutEffect, useRef } from 'react';
 import { Handle, Position } from 'reactflow';
 
 const DeviceNode = ({ data, onDoubleClick }) => {
-    const { label, ip_address, rack_name, ru_position, equipment_templates } = data;
+    // Extract the new 'highlighted' prop
+    const { label, ip_address, rack_name, ru_position, equipment_templates, highlighted } = data;
     const ports = equipment_templates?.ports || [];
     const isPatchPanel = equipment_templates?.is_patch_panel;
 
@@ -39,12 +40,16 @@ const DeviceNode = ({ data, onDoubleClick }) => {
 
     return (
         <div 
-            className="bg-gray-700/80 backdrop-blur-sm border-2 border-gray-600 rounded-lg shadow-lg text-white w-96 relative"
+            className={`backdrop-blur-sm border-2 rounded-lg shadow-lg text-white w-96 relative transition-all duration-500 ${
+                highlighted 
+                    ? 'bg-gray-700/95 border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.6)] scale-[1.02] z-50 ring-4 ring-amber-500/20' 
+                    : 'bg-gray-700/80 border-gray-600 hover:border-gray-500'
+            }`}
             style={{ height: `${nodeHeight}px` }}
             onDoubleClick={onDoubleClick}
         >
             <div ref={topContentRef}>
-                <div className="bg-gray-800 px-4 py-2 rounded-t-lg border-b-2 border-gray-600">
+                <div className={`px-4 py-2 rounded-t-lg border-b-2 transition-colors duration-500 ${highlighted ? 'bg-gray-900 border-amber-400' : 'bg-gray-800 border-gray-600'}`}>
                     <p className="font-bold text-base truncate" title={label}>{label}</p>
                 </div>
                 <div className="p-3 text-xs">

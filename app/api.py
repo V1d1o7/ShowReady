@@ -2771,8 +2771,16 @@ async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), sh
         if payload.include_panels:
             admin_client = get_service_client()
             rack_ids = [str(r.id) for r in payload.racks]
-            panel_instances_res = admin_client.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).eq('equipment_templates.is_patch_panel', True).execute()
-            panels = panel_instances_res.data or []
+            
+            # Fetch all equipment instances for these racks
+            panel_instances_res = admin_client.table('rack_equipment_instances').select('*, equipment_templates(*)').in_('rack_id', rack_ids).execute()
+            
+            # Filter safely in Python to guarantee we ONLY grab actual patch panels
+            all_instances = panel_instances_res.data or []
+            panels = [
+                p for p in all_instances 
+                if p.get('equipment_templates') and p['equipment_templates'].get('is_patch_panel') == True
+            ]
             
             if panels:
                 panel_export_data = []

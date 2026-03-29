@@ -60,7 +60,7 @@ const RackBuilderView = () => {
 
     // --- Data Fetching ---
 
-    // Fetch initial library and rack list on mount
+    // 1. Fetch initial library and rack list on mount
     useEffect(() => {
         const fetchInitialData = async () => {
             if (!showId) return;
@@ -90,9 +90,12 @@ const RackBuilderView = () => {
                     equipment: Array.from(equipmentMap.values())
                 });
 
-                setRacks(racksData);
-                if (racksData.length > 0 && !selectedRackId) {
-                    setSelectedRackId(racksData[0].id);
+                // Filter out the [Unracked] holding rack so it doesn't show in the UI
+                const visibleRacks = racksData.filter(r => r.rack_name !== '[Unracked]');
+                setRacks(visibleRacks);
+                
+                if (visibleRacks.length > 0 && !selectedRackId) {
+                    setSelectedRackId(visibleRacks[0].id);
                 }
             } catch (error) {
                 console.error("Failed to fetch initial data:", error);
@@ -104,7 +107,7 @@ const RackBuilderView = () => {
         fetchInitialData();
     }, [showId]);
 
-    // Fetch details for the selected rack when it changes
+    // 2. Fetch details for the selected rack when it changes
     useEffect(() => {
         const fetchActiveRack = async () => {
             if (selectedRackId) {
@@ -126,13 +129,16 @@ const RackBuilderView = () => {
         fetchActiveRack();
     }, [selectedRackId]);
 
+    // 3. Refresh racks list
     const fetchData = useCallback(async () => {
         if (!showId) return;
         try {
             const racksData = await api.getRacksForShow(showId);
-            setRacks(racksData);
-            if (!selectedRackId && racksData.length > 0) {
-                setSelectedRackId(racksData[0].id);
+            // Filter it out on refresh as well
+            const visibleRacks = racksData.filter(r => r.rack_name !== '[Unracked]');
+            setRacks(visibleRacks);
+            if (!selectedRackId && visibleRacks.length > 0) {
+                setSelectedRackId(visibleRacks[0].id);
             }
         } catch (error) {
             console.error("Failed to refresh racks:", error);
@@ -153,7 +159,9 @@ const RackBuilderView = () => {
         toast.loading('Calculating Power Usage...');
         try {
             const detailedRacks = await api.getDetailedRacksForShow(showId);
-            setPowerReportData(detailedRacks);
+            // Don't count [Unracked] equipment in the power calculations
+            const visibleRacks = detailedRacks.filter(r => r.rack_name !== '[Unracked]');
+            setPowerReportData(visibleRacks);
             setIsPowerReportOpen(true);
             toast.dismiss();
         } catch (error) {
@@ -173,13 +181,15 @@ const RackBuilderView = () => {
         try {
             const detailedRacks = await api.getDetailedRacksForShow(showId);
             
-            let racksToPrint = detailedRacks;
+            // Filter out the [Unracked] rack so it doesn't appear in drawings, lists, or power calcs
+            let racksToPrint = detailedRacks.filter(r => r.rack_name !== '[Unracked]');
+            
             if (scope === 'selected' && activeRack) {
-                racksToPrint = detailedRacks.filter(r => r.id === activeRack.id);
+                racksToPrint = racksToPrint.filter(r => r.id === activeRack.id);
             }
 
             if (racksToPrint.length === 0) {
-                toast.error("No racks found to export.");
+                toast.error("No valid racks found to export.");
                 return;
             }
 
@@ -190,7 +200,6 @@ const RackBuilderView = () => {
                 include_front_rear: includeFrontRear,
                 include_side_view: includeSide,
                 include_equipment_list: includeEquipmentList,
-                // Pass new flags
                 include_power_report: includePowerReport, 
                 include_panels: includePanels,
                 power_report_voltage: voltage 
@@ -198,15 +207,11 @@ const RackBuilderView = () => {
 
             const pdfBlob = await api.generateRacksPdf(payload);
             const url = window.URL.createObjectURL(pdfBlob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${showName}-Export.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            a.remove();
             
-            toast.success('Export downloaded successfully!');
+            // Use the PDF Preview Modal instead of forcing a direct download
+            setPdfPreview({ isOpen: true, url });
+            
+            toast.success('Export generated successfully!');
         } catch (err) {
             console.error("Failed to generate PDF:", err);
             toast.error(`Failed to generate Export: ${err.message}`);
@@ -764,15 +769,14 @@ const RackBuilderView = () => {
                     onCancel={() => setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} })}
                 />
             )}
-            {pdfPreview.isOpen && (
-                <PdfPreviewModal
-                    url={pdfPreview.url}
-                    onClose={() => {
-                        window.URL.revokeObjectURL(pdfPreview.url);
-                        setPdfPreview({ isOpen: false, url: '' });
-                    }}
-                />
-            )}
+            <PdfPreviewModal
+                isOpen={pdfPreview.isOpen}
+                url={pdfPreview.url}
+                onClose={() => {
+                    window.URL.revokeObjectURL(pdfPreview.url);
+                    setPdfPreview({ isOpen: false, url: '' });
+                }}
+            />
             <ContextualNotesDrawer
                 entityType={notesContext.entityType}
                 entityId={notesContext.entityId}

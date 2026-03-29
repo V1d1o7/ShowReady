@@ -14,6 +14,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
     const [isNewSheetModalOpen, setIsNewSheetModalOpen] = useState(false);
     const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
     const [editingLabel, setEditingLabel] = useState(null);
+    const [editingIndex, setEditingIndex] = useState(null); // Track exact array index
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
     const [isAdvancedPrintModalOpen, setIsAdvancedPrintModalOpen] = useState(false);
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
@@ -33,6 +34,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
 
     const handleOpenNewLabelModal = () => {
         setEditingLabel(null);
+        setEditingIndex(null);
         setIsLabelModalOpen(true);
     };
 
@@ -75,40 +77,43 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
 
     const handleSaveLabel = (formData) => {
         let newLabels;
-        if (editingLabel) {
-            newLabels = labels.map(label => {
-                // BUG FIX: Handle cases where legacy labels might have missing/undefined IDs.
-                // 1. Strict Check: If both have valid IDs, match by ID.
-                // 2. Reference Check: If no IDs, fallback to object reference (handles legacy data).
-                const idsMatch = label.id && editingLabel.id && label.id === editingLabel.id;
-                const refsMatch = label === editingLabel;
+        
+        // Generate a robust unique ID if one is missing
+        const generateId = () => (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-                if (idsMatch || refsMatch) {
-                    // Update matching label and ensure it has an ID moving forward
-                    return { ...label, ...formData, id: label.id || Date.now() };
-                }
-                return label;
-            });
+        if (editingIndex !== null) {
+            // Edit existing label strictly by array index
+            newLabels = [...labels];
+            newLabels[editingIndex] = { 
+                ...newLabels[editingIndex], 
+                ...formData, 
+                id: newLabels[editingIndex].id || generateId() // Ensure legacy items get an ID
+            };
         } else {
-            const newLabel = { id: Date.now(), ...formData };
+            // Create new label
+            const newLabel = { id: generateId(), ...formData };
             newLabels = [...labels, newLabel];
         }
+        
         handleUpdateLabels(newLabels);
         setIsLabelModalOpen(false);
         setEditingLabel(null);
+        setEditingIndex(null);
     };
 
-    const handleEditLabel = (label) => {
+    const handleEditLabel = (label, index) => {
         setEditingLabel(label);
+        setEditingIndex(index);
         setIsLabelModalOpen(true);
     };
 
-    const handleDeleteLabel = (idToDelete) => {
+    const handleDeleteLabel = (indexToDelete) => {
         setConfirmationModal({
             isOpen: true,
             message: "Are you sure you want to delete this label?",
             onConfirm: () => {
-                const newLabels = labels.filter(label => label.id !== idToDelete);
+                // Filter strictly by array index to guarantee we only delete one
+                const newLabels = labels.filter((_, idx) => idx !== indexToDelete);
                 handleUpdateLabels(newLabels);
                 setConfirmationModal({ isOpen: false, message: '', onConfirm: () => {} });
             }
@@ -159,12 +164,12 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                             </tr>
                         </thead>
                         <tbody>
-                            {labels.map((label) => (
-                                <tr key={label.id} className="border-b border-gray-700/50 hover:bg-gray-800/50">
+                            {labels.map((label, index) => (
+                                <tr key={label.id || `legacy-${index}`} className="border-b border-gray-700/50 hover:bg-gray-800/50">
                                     {labelFields.map(f => <td key={f.name} className="p-3 truncate">{label[f.name]}</td>)}
                                     <td className="p-3 flex justify-end gap-2">
-                                        <button onClick={() => handleEditLabel(label)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
-                                        <button onClick={() => handleDeleteLabel(label.id)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
+                                        <button onClick={() => handleEditLabel(label, index)} className="text-blue-400 hover:text-blue-300"><Edit size={16} /></button>
+                                        <button onClick={() => handleDeleteLabel(index)} className="text-red-400 hover:text-red-300"><Trash2 size={16} /></button>
                                     </td>
                                 </tr>
                             ))}

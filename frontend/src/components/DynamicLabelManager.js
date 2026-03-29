@@ -94,7 +94,8 @@ const DynamicLabelManager = ({ category }) => {
   useEffect(() => {
     if (selectedTemplate) {
       const variables = new Set();
-      const regex = /\{([^}]+)\}/g;
+      // FIXED REGEX: Accurately captures only the word inside double braces {{Like This}}
+      const regex = /{{\s*(.*?)\s*}}/g;
 
       (selectedTemplate.elements || []).forEach(el => {
           if (el.text_content) {
@@ -138,6 +139,7 @@ const DynamicLabelManager = ({ category }) => {
       setColumns([]);
       setTableData([]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTemplate]);
 
   // --- Load Data Logic ---
@@ -317,7 +319,8 @@ const DynamicLabelManager = ({ category }) => {
         data_rows: dataToSend,
       });
       
-      const url = URL.createObjectURL(new Blob([response], { type: 'application/pdf' }));
+      // FIXED BUG: Prevent Double-Blobbing which corrupts the PDF preview
+      const url = URL.createObjectURL(response);
       setPdfUrl(url);
       setIsPdfPreviewOpen(true);
       
@@ -339,7 +342,7 @@ const DynamicLabelManager = ({ category }) => {
                   <p className="font-bold flex items-center gap-2"><HelpCircle size={16}/> How to use the Label Engine:</p>
                   <ol className="list-decimal pl-5 space-y-1">
                       <li>Go to <strong>Settings &gt; Label Template Builder</strong> to create a template.</li>
-                      <li>In the builder, add text boxes with variables like <code>{`{Send To}`}</code> or <code>{`{Location}`}</code>.</li>
+                      <li>In the builder, add text boxes with variables like <code>{`{{Send To}}`}</code> or <code>{`{{Location}}`}</code>.</li>
                       <li>Come back here, select that template below.</li>
                       <li>Click <strong>Load Show Data</strong> to automatically pull info from your Show Data tabs and Venue settings.</li>
                       <li>Click <strong>Print PDF</strong> to generate your labels.</li>
@@ -433,7 +436,7 @@ const DynamicLabelManager = ({ category }) => {
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <Printer size={48} className="mb-4 opacity-20" />
                   <p>This template has no variable fields.</p>
-                  <p className="text-sm mt-2 text-gray-600">The "Load Show Data" feature requires variables like <code>{`{Send To}`}</code> in your template.</p>
+                  <p className="text-sm mt-2 text-gray-600">The "Load Show Data" feature requires variables like <code>{`{{Send To}}`}</code> in your template.</p>
                   <button onClick={handlePrint} className="mt-4 bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-500">Print Static Labels</button>
               </div>
           )
