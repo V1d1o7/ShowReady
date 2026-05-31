@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict WHpc4bYH6kdf3TdbsBB3UxB42BxYD21eCiZpt0I7fmIxVtzCuCvxBO8TwbFNPMl
+\restrict a9eOkB6mW7ObapavllMYRpVw65X18YOMZfBaLVDFq35oCkpT39dhqdSwq4VQp2a
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -99,20 +99,6 @@ CREATE SCHEMA vault;
 
 
 ALTER SCHEMA vault OWNER TO supabase_admin;
-
---
--- Name: pg_graphql; Type: EXTENSION; Schema: -; Owner: -
---
-
-CREATE EXTENSION IF NOT EXISTS pg_graphql WITH SCHEMA graphql;
-
-
---
--- Name: EXTENSION pg_graphql; Type: COMMENT; Schema: -; Owner: 
---
-
-COMMENT ON EXTENSION pg_graphql IS 'pg_graphql: GraphQL support';
-
 
 --
 -- Name: pg_stat_statements; Type: EXTENSION; Schema: -; Owner: -
@@ -768,6 +754,41 @@ ALTER FUNCTION extensions.set_graphql_placeholder() OWNER TO supabase_admin;
 
 COMMENT ON FUNCTION extensions.set_graphql_placeholder() IS 'Reintroduces placeholder function for graphql_public.graphql';
 
+
+--
+-- Name: graphql(text, text, jsonb, jsonb); Type: FUNCTION; Schema: graphql_public; Owner: supabase_admin
+--
+
+CREATE FUNCTION graphql_public.graphql("operationName" text DEFAULT NULL::text, query text DEFAULT NULL::text, variables jsonb DEFAULT NULL::jsonb, extensions jsonb DEFAULT NULL::jsonb) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+            DECLARE
+                server_version float;
+            BEGIN
+                server_version = (SELECT (SPLIT_PART((select version()), ' ', 2))::float);
+
+                IF server_version >= 14 THEN
+                    RETURN jsonb_build_object(
+                        'errors', jsonb_build_array(
+                            jsonb_build_object(
+                                'message', 'pg_graphql extension is not enabled.'
+                            )
+                        )
+                    );
+                ELSE
+                    RETURN jsonb_build_object(
+                        'errors', jsonb_build_array(
+                            jsonb_build_object(
+                                'message', 'pg_graphql is only available on projects running Postgres 14 onwards.'
+                            )
+                        )
+                    );
+                END IF;
+            END;
+        $$;
+
+
+ALTER FUNCTION graphql_public.graphql("operationName" text, query text, variables jsonb, extensions jsonb) OWNER TO supabase_admin;
 
 --
 -- Name: get_auth(text); Type: FUNCTION; Schema: pgbouncer; Owner: supabase_admin
@@ -1925,6 +1946,71 @@ $$;
 ALTER FUNCTION realtime.topic() OWNER TO supabase_realtime_admin;
 
 --
+-- Name: allow_any_operation(text[]); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.allow_any_operation(expected_operations text[]) RETURNS boolean
+    LANGUAGE sql STABLE
+    AS $$
+  WITH current_operation AS (
+    SELECT storage.operation() AS raw_operation
+  ),
+  normalized AS (
+    SELECT CASE
+      WHEN raw_operation LIKE 'storage.%' THEN substr(raw_operation, 9)
+      ELSE raw_operation
+    END AS current_operation
+    FROM current_operation
+  )
+  SELECT EXISTS (
+    SELECT 1
+    FROM normalized n
+    CROSS JOIN LATERAL unnest(expected_operations) AS expected_operation
+    WHERE expected_operation IS NOT NULL
+      AND expected_operation <> ''
+      AND n.current_operation = CASE
+        WHEN expected_operation LIKE 'storage.%' THEN substr(expected_operation, 9)
+        ELSE expected_operation
+      END
+  );
+$$;
+
+
+ALTER FUNCTION storage.allow_any_operation(expected_operations text[]) OWNER TO supabase_storage_admin;
+
+--
+-- Name: allow_only_operation(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
+--
+
+CREATE FUNCTION storage.allow_only_operation(expected_operation text) RETURNS boolean
+    LANGUAGE sql STABLE
+    AS $$
+  WITH current_operation AS (
+    SELECT storage.operation() AS raw_operation
+  ),
+  normalized AS (
+    SELECT
+      CASE
+        WHEN raw_operation LIKE 'storage.%' THEN substr(raw_operation, 9)
+        ELSE raw_operation
+      END AS current_operation,
+      CASE
+        WHEN expected_operation LIKE 'storage.%' THEN substr(expected_operation, 9)
+        ELSE expected_operation
+      END AS requested_operation
+    FROM current_operation
+  )
+  SELECT CASE
+    WHEN requested_operation IS NULL OR requested_operation = '' THEN FALSE
+    ELSE COALESCE(current_operation = requested_operation, FALSE)
+  END
+  FROM normalized;
+$$;
+
+
+ALTER FUNCTION storage.allow_only_operation(expected_operation text) OWNER TO supabase_storage_admin;
+
+--
 -- Name: can_insert_object(text, text, uuid, jsonb); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
 --
 
@@ -1942,73 +2028,6 @@ $$;
 
 
 ALTER FUNCTION storage.can_insert_object(bucketid text, name text, owner uuid, metadata jsonb) OWNER TO supabase_storage_admin;
-
---
--- Name: delete_leaf_prefixes(text[], text[]); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
---
-
-CREATE FUNCTION storage.delete_leaf_prefixes(bucket_ids text[], names text[]) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER
-    AS $$
-DECLARE
-    v_rows_deleted integer;
-BEGIN
-    LOOP
-        WITH candidates AS (
-            SELECT DISTINCT
-                t.bucket_id,
-                unnest(storage.get_prefixes(t.name)) AS name
-            FROM unnest(bucket_ids, names) AS t(bucket_id, name)
-        ),
-        uniq AS (
-             SELECT
-                 bucket_id,
-                 name,
-                 storage.get_level(name) AS level
-             FROM candidates
-             WHERE name <> ''
-             GROUP BY bucket_id, name
-        ),
-        leaf AS (
-             SELECT
-                 p.bucket_id,
-                 p.name,
-                 p.level
-             FROM storage.prefixes AS p
-                  JOIN uniq AS u
-                       ON u.bucket_id = p.bucket_id
-                           AND u.name = p.name
-                           AND u.level = p.level
-             WHERE NOT EXISTS (
-                 SELECT 1
-                 FROM storage.objects AS o
-                 WHERE o.bucket_id = p.bucket_id
-                   AND o.level = p.level + 1
-                   AND o.name COLLATE "C" LIKE p.name || '/%'
-             )
-             AND NOT EXISTS (
-                 SELECT 1
-                 FROM storage.prefixes AS c
-                 WHERE c.bucket_id = p.bucket_id
-                   AND c.level = p.level + 1
-                   AND c.name COLLATE "C" LIKE p.name || '/%'
-             )
-        )
-        DELETE
-        FROM storage.prefixes AS p
-            USING leaf AS l
-        WHERE p.bucket_id = l.bucket_id
-          AND p.name = l.name
-          AND p.level = l.level;
-
-        GET DIAGNOSTICS v_rows_deleted = ROW_COUNT;
-        EXIT WHEN v_rows_deleted = 0;
-    END LOOP;
-END;
-$$;
-
-
-ALTER FUNCTION storage.delete_leaf_prefixes(bucket_ids text[], names text[]) OWNER TO supabase_storage_admin;
 
 --
 -- Name: enforce_bucket_name_length(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
@@ -2039,8 +2058,11 @@ DECLARE
     _parts text[];
     _filename text;
 BEGIN
+    -- Split on "/" to get path segments
     SELECT string_to_array(name, '/') INTO _parts;
-    SELECT _parts[array_length(_parts,1)] INTO _filename;
+    -- Get the last path segment (the actual filename)
+    SELECT _parts[array_length(_parts, 1)] INTO _filename;
+    -- Extract extension: reverse, split on '.', then reverse again
     RETURN reverse(split_part(reverse(_filename), '.', 1));
 END
 $$;
@@ -2104,66 +2126,6 @@ $$;
 ALTER FUNCTION storage.get_common_prefix(p_key text, p_prefix text, p_delimiter text) OWNER TO supabase_storage_admin;
 
 --
--- Name: get_level(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
---
-
-CREATE FUNCTION storage.get_level(name text) RETURNS integer
-    LANGUAGE sql IMMUTABLE STRICT
-    AS $$
-SELECT array_length(string_to_array("name", '/'), 1);
-$$;
-
-
-ALTER FUNCTION storage.get_level(name text) OWNER TO supabase_storage_admin;
-
---
--- Name: get_prefix(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
---
-
-CREATE FUNCTION storage.get_prefix(name text) RETURNS text
-    LANGUAGE sql IMMUTABLE STRICT
-    AS $_$
-SELECT
-    CASE WHEN strpos("name", '/') > 0 THEN
-             regexp_replace("name", '[\/]{1}[^\/]+\/?$', '')
-         ELSE
-             ''
-        END;
-$_$;
-
-
-ALTER FUNCTION storage.get_prefix(name text) OWNER TO supabase_storage_admin;
-
---
--- Name: get_prefixes(text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
---
-
-CREATE FUNCTION storage.get_prefixes(name text) RETURNS text[]
-    LANGUAGE plpgsql IMMUTABLE STRICT
-    AS $$
-DECLARE
-    parts text[];
-    prefixes text[];
-    prefix text;
-BEGIN
-    -- Split the name into parts by '/'
-    parts := string_to_array("name", '/');
-    prefixes := '{}';
-
-    -- Construct the prefixes, stopping one level below the last part
-    FOR i IN 1..array_length(parts, 1) - 1 LOOP
-            prefix := array_to_string(parts[1:i], '/');
-            prefixes := array_append(prefixes, prefix);
-    END LOOP;
-
-    RETURN prefixes;
-END;
-$$;
-
-
-ALTER FUNCTION storage.get_prefixes(name text) OWNER TO supabase_storage_admin;
-
---
 -- Name: get_size_by_bucket(); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
 --
 
@@ -2172,7 +2134,7 @@ CREATE FUNCTION storage.get_size_by_bucket() RETURNS TABLE(size bigint, bucket_i
     AS $$
 BEGIN
     return query
-        select sum((metadata->>'size')::bigint) as size, obj.bucket_id
+        select sum((metadata->>'size')::bigint)::bigint as size, obj.bucket_id
         from "storage".objects as obj
         group by obj.bucket_id;
 END
@@ -2846,77 +2808,6 @@ $_$;
 
 
 ALTER FUNCTION storage.search_by_timestamp(p_prefix text, p_bucket_id text, p_limit integer, p_level integer, p_start_after text, p_sort_order text, p_sort_column text, p_sort_column_after text) OWNER TO supabase_storage_admin;
-
---
--- Name: search_legacy_v1(text, text, integer, integer, integer, text, text, text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
---
-
-CREATE FUNCTION storage.search_legacy_v1(prefix text, bucketname text, limits integer DEFAULT 100, levels integer DEFAULT 1, offsets integer DEFAULT 0, search text DEFAULT ''::text, sortcolumn text DEFAULT 'name'::text, sortorder text DEFAULT 'asc'::text) RETURNS TABLE(name text, id uuid, updated_at timestamp with time zone, created_at timestamp with time zone, last_accessed_at timestamp with time zone, metadata jsonb)
-    LANGUAGE plpgsql STABLE
-    AS $_$
-declare
-    v_order_by text;
-    v_sort_order text;
-begin
-    case
-        when sortcolumn = 'name' then
-            v_order_by = 'name';
-        when sortcolumn = 'updated_at' then
-            v_order_by = 'updated_at';
-        when sortcolumn = 'created_at' then
-            v_order_by = 'created_at';
-        when sortcolumn = 'last_accessed_at' then
-            v_order_by = 'last_accessed_at';
-        else
-            v_order_by = 'name';
-        end case;
-
-    case
-        when sortorder = 'asc' then
-            v_sort_order = 'asc';
-        when sortorder = 'desc' then
-            v_sort_order = 'desc';
-        else
-            v_sort_order = 'asc';
-        end case;
-
-    v_order_by = v_order_by || ' ' || v_sort_order;
-
-    return query execute
-        'with folders as (
-           select path_tokens[$1] as folder
-           from storage.objects
-             where objects.name ilike $2 || $3 || ''%''
-               and bucket_id = $4
-               and array_length(objects.path_tokens, 1) <> $1
-           group by folder
-           order by folder ' || v_sort_order || '
-     )
-     (select folder as "name",
-            null as id,
-            null as updated_at,
-            null as created_at,
-            null as last_accessed_at,
-            null as metadata from folders)
-     union all
-     (select path_tokens[$1] as "name",
-            id,
-            updated_at,
-            created_at,
-            last_accessed_at,
-            metadata
-     from storage.objects
-     where objects.name ilike $2 || $3 || ''%''
-       and bucket_id = $4
-       and array_length(objects.path_tokens, 1) = $1
-     order by ' || v_order_by || ')
-     limit $5
-     offset $6' using levels, prefix, search, bucketname, limits, offsets;
-end;
-$_$;
-
-
-ALTER FUNCTION storage.search_legacy_v1(prefix text, bucketname text, limits integer, levels integer, offsets integer, search text, sortcolumn text, sortorder text) OWNER TO supabase_storage_admin;
 
 --
 -- Name: search_v2(text, text, integer, integer, text, text, text, text); Type: FUNCTION; Schema: storage; Owner: supabase_storage_admin
@@ -3654,6 +3545,47 @@ COMMENT ON COLUMN auth.users.is_sso_user IS 'Auth: Set this column to true when 
 
 
 --
+-- Name: webauthn_challenges; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.webauthn_challenges (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid,
+    challenge_type text NOT NULL,
+    session_data jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT webauthn_challenges_challenge_type_check CHECK ((challenge_type = ANY (ARRAY['signup'::text, 'registration'::text, 'authentication'::text])))
+);
+
+
+ALTER TABLE auth.webauthn_challenges OWNER TO supabase_auth_admin;
+
+--
+-- Name: webauthn_credentials; Type: TABLE; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE TABLE auth.webauthn_credentials (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    credential_id bytea NOT NULL,
+    public_key bytea NOT NULL,
+    attestation_type text DEFAULT ''::text NOT NULL,
+    aaguid uuid,
+    sign_count bigint DEFAULT 0 NOT NULL,
+    transports jsonb DEFAULT '[]'::jsonb NOT NULL,
+    backup_eligible boolean DEFAULT false NOT NULL,
+    backed_up boolean DEFAULT false NOT NULL,
+    friendly_name text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_used_at timestamp with time zone
+);
+
+
+ALTER TABLE auth.webauthn_credentials OWNER TO supabase_auth_admin;
+
+--
 -- Name: agent_api_keys; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3729,9 +3661,9 @@ ALTER TABLE public.cables OWNER TO postgres;
 CREATE TABLE public.connections (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     source_device_id uuid NOT NULL,
-    source_port_id uuid NOT NULL,
+    source_port_id text NOT NULL,
     destination_device_id uuid NOT NULL,
-    destination_port_id uuid NOT NULL,
+    destination_port_id text NOT NULL,
     cable_type text NOT NULL,
     label text,
     length_ft integer,
@@ -3951,7 +3883,9 @@ CREATE TABLE public.panel_equipment_templates (
     depth_in numeric DEFAULT 0,
     slot_type text,
     panel_slots jsonb DEFAULT '[]'::jsonb,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now(),
+    visual_style text DEFAULT 'standard'::text,
+    ports jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -4587,7 +4521,8 @@ CREATE TABLE storage.s3_multipart_uploads (
     version text NOT NULL,
     owner_id text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    user_metadata jsonb
+    user_metadata jsonb,
+    metadata jsonb
 );
 
 
@@ -4910,6 +4845,22 @@ ALTER TABLE ONLY auth.users
 
 ALTER TABLE ONLY auth.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: webauthn_challenges webauthn_challenges_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.webauthn_challenges
+    ADD CONSTRAINT webauthn_challenges_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: webauthn_credentials webauthn_credentials_pkey; Type: CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.webauthn_credentials
+    ADD CONSTRAINT webauthn_credentials_pkey PRIMARY KEY (id);
 
 
 --
@@ -5781,6 +5732,34 @@ CREATE INDEX users_is_anonymous_idx ON auth.users USING btree (is_anonymous);
 
 
 --
+-- Name: webauthn_challenges_expires_at_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX webauthn_challenges_expires_at_idx ON auth.webauthn_challenges USING btree (expires_at);
+
+
+--
+-- Name: webauthn_challenges_user_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX webauthn_challenges_user_id_idx ON auth.webauthn_challenges USING btree (user_id);
+
+
+--
+-- Name: webauthn_credentials_credential_id_key; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE UNIQUE INDEX webauthn_credentials_credential_id_key ON auth.webauthn_credentials USING btree (credential_id);
+
+
+--
+-- Name: webauthn_credentials_user_id_idx; Type: INDEX; Schema: auth; Owner: supabase_auth_admin
+--
+
+CREATE INDEX webauthn_credentials_user_id_idx ON auth.webauthn_credentials USING btree (user_id);
+
+
+--
 -- Name: audit_log_action_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6081,6 +6060,22 @@ ALTER TABLE ONLY auth.sessions
 
 ALTER TABLE ONLY auth.sso_domains
     ADD CONSTRAINT sso_domains_sso_provider_id_fkey FOREIGN KEY (sso_provider_id) REFERENCES auth.sso_providers(id) ON DELETE CASCADE;
+
+
+--
+-- Name: webauthn_challenges webauthn_challenges_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.webauthn_challenges
+    ADD CONSTRAINT webauthn_challenges_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: webauthn_credentials webauthn_credentials_user_id_fkey; Type: FK CONSTRAINT; Schema: auth; Owner: supabase_auth_admin
+--
+
+ALTER TABLE ONLY auth.webauthn_credentials
+    ADD CONSTRAINT webauthn_credentials_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
 
 
 --
@@ -8551,6 +8546,22 @@ GRANT SELECT ON TABLE auth.users TO postgres WITH GRANT OPTION;
 
 
 --
+-- Name: TABLE webauthn_challenges; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.webauthn_challenges TO postgres;
+GRANT ALL ON TABLE auth.webauthn_challenges TO dashboard_user;
+
+
+--
+-- Name: TABLE webauthn_credentials; Type: ACL; Schema: auth; Owner: supabase_auth_admin
+--
+
+GRANT ALL ON TABLE auth.webauthn_credentials TO postgres;
+GRANT ALL ON TABLE auth.webauthn_credentials TO dashboard_user;
+
+
+--
 -- Name: TABLE pg_stat_statements; Type: ACL; Schema: extensions; Owner: postgres
 --
 
@@ -9376,5 +9387,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict WHpc4bYH6kdf3TdbsBB3UxB42BxYD21eCiZpt0I7fmIxVtzCuCvxBO8TwbFNPMl
+\unrestrict a9eOkB6mW7ObapavllMYRpVw65X18YOMZfBaLVDFq35oCkpT39dhqdSwq4VQp2a
 
