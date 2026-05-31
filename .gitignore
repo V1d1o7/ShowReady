@@ -48,3 +48,9 @@ Thumbs.db
 # Secretes #
 ####################
 service-account.json
+db_dump.sql
+db_structure-*.sql
+*.log
+tree*
+StartUp.yaml
+DB_DUMPS*
