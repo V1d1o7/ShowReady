@@ -214,7 +214,7 @@ export const api = {
         body: JSON.stringify(payload) 
     }).then(handleResponse),
     
-    exportRacksListPdf: async (showId) => fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
+    // exportRacksListPdf: async (showId) => fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
 
     // --- User Panel Builder ---
     getPanelFolders: async () => fetch('/api/panels/folders', { headers: await getAuthHeader() }).then(handleResponse),
