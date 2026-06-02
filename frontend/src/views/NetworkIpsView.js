@@ -3,41 +3,43 @@ import { useShow } from '../contexts/ShowContext';
 import { useModal } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { api } from '../api/api';
-import { Plus, Edit, Trash2, Columns, RefreshCw } from 'lucide-react';
+import { Plus, Edit, Trash2, Columns, Download } from 'lucide-react';
+import {
+    buildRackLocation,
+    buildEquipmentDeviceLabel,
+    formatNetworkAssignment,
+    getNetworkIpForEquipment,
+    isValidIpv4,
+    parseLegacyTrunkPlaceholder,
+} from '../utils/networkIpHelpers';
 import Modal from '../components/Modal';
 
 const initialFormState = {
     entity_type: 'rack_equipment',
     entity_id: '',
+    assignment_type: 'single',
     ip_address: '',
     ip_end: '',
+    trunk_mode: 'all',
+    trunk_label: '',
+    host_octet: '',
     mac_address: '',
     department: '',
     location: '',
-};
-
-const isValidIpv4 = (ip) => {
-    if (!ip) return false;
-    const regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-    return regex.test(ip);
 };
 
 const isTypingTarget = (target) => {
     return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable;
 };
 
-const buildRackLocation = (rackName, ruPosition) => {
-    if (!rackName || ruPosition === null || ruPosition === undefined || ruPosition === '') return '';
-    return `${rackName}.${ruPosition}`;
-};
+const normalizeBlank = (value) => value === '' ? null : value;
 
 const NetworkIpsView = () => {
-    const { showId, racks, refreshRacks } = useShow();
+    const { showId, racks, refreshRacks, networkIps = [], refreshNetworkIps } = useShow();
     const { showConfirmationModal } = useModal();
     const { addToast } = useToast();
 
-    const [ips, setIps] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
     const [error, setError] = useState(null);
 
@@ -47,6 +49,7 @@ const NetworkIpsView = () => {
 
     const [showColDropdown, setShowColDropdown] = useState(false);
     const [visibleColumns, setVisibleColumns] = useState({
+        assignment_type: true,
         ip_end: true,
         department: true,
         location: true,
@@ -54,6 +57,10 @@ const NetworkIpsView = () => {
         mac_address: false,
     });
 
+    /**
+     * Used for normal Existing Equipment selector and device label resolution.
+     * This uses canonical network_ip_entries only. No legacy IP fallback here.
+     */
     const equipmentList = useMemo(() => {
         if (!racks) return [];
 
@@ -68,9 +75,9 @@ const NetworkIpsView = () => {
             rackItems.forEach(item => {
                 const template = item.equipment_templates || {};
                 const supportsIp = template.has_ip_address === true;
-                const hasIp = Boolean(item.ip_address);
+                const networkEntry = getNetworkIpForEquipment(networkIps, item.id);
 
-                if (!supportsIp && !hasIp) return;
+                if (!supportsIp && !networkEntry) return;
 
                 const instanceName = item.instance_name || item.name || 'Unnamed Instance';
                 const modelNumber = template.model_number || template.name || 'Unknown Model';
@@ -82,15 +89,51 @@ const NetworkIpsView = () => {
                     modelNumber,
                     rackName,
                     ruPosition,
-                    currentIp: item.ip_address || '',
-                    displayLabel: `${instanceName} / ${modelNumber} / ${rackName}`,
+                    currentAssignment: networkEntry || null,
+                    currentDisplay: formatNetworkAssignment(networkEntry),
+                    displayLabel: buildEquipmentDeviceLabel(item, rackName),
                     location: buildRackLocation(rackName, ruPosition),
                 });
             });
         });
 
         return items.sort((a, b) => a.displayLabel.localeCompare(b.displayLabel));
-    }, [racks]);
+    }, [racks, networkIps]);
+
+    /**
+     * Used ONLY for the transitional Import Legacy IPs button.
+     * Allows old rack_equipment_instances.ip_address to be read once into the canonical table.
+     */
+    const legacyImportEquipmentList = useMemo(() => {
+        if (!racks) return [];
+
+        const candidates = [];
+        racks.forEach(rack => {
+            if (rack.rack_name === '[Unracked]') return;
+
+            const rackName = rack.rack_name || rack.name || 'Unknown Rack';
+            const rackItems = rack.equipment || rack.rack_items || [];
+
+            rackItems.forEach(item => {
+                const existing = getNetworkIpForEquipment(networkIps, item.id);
+                if (existing || !item.ip_address) return;
+
+                const legacyValue = String(item.ip_address).trim();
+                const parsedTrunk = parseLegacyTrunkPlaceholder(legacyValue);
+
+                if (!isValidIpv4(legacyValue) && !parsedTrunk) return;
+
+                candidates.push({
+                    id: item.id,
+                    legacyValue,
+                    parsedTrunk,
+                    location: buildRackLocation(rackName, item.ru_position),
+                });
+            });
+        });
+
+        return candidates;
+    }, [racks, networkIps]);
 
     const getDeviceName = useCallback((ipEntry) => {
         if (ipEntry.entity_type === 'reservation') return 'Reservation Block';
@@ -102,37 +145,40 @@ const NetworkIpsView = () => {
     }, [equipmentList]);
 
     const fetchIps = useCallback(async () => {
-        if (!showId) return;
+        if (!showId || !refreshNetworkIps) return;
         setIsLoading(true);
         setError(null);
         try {
-            const data = await api.getNetworkIps(showId);
-            setIps(data || []);
+            await refreshNetworkIps();
         } catch (err) {
             setError(err.message);
-            addToast(`Failed to fetch Network IPs: ${err.message}`, 'error');
-            console.error('Failed to fetch Network IPs:', err);
         } finally {
             setIsLoading(false);
         }
-    }, [showId, addToast]);
+    }, [showId, refreshNetworkIps]);
 
     useEffect(() => {
         fetchIps();
     }, [fetchIps]);
 
+    const hydrateFormFromEntry = (ip) => ({
+        entity_type: ip.entity_type || 'rack_equipment',
+        entity_id: ip.entity_id || '',
+        assignment_type: ip.assignment_type || (ip.ip_end ? 'range' : 'single'),
+        ip_address: ip.ip_address || '',
+        ip_end: ip.ip_end || '',
+        trunk_mode: ip.trunk_mode || 'all',
+        trunk_label: ip.trunk_label || '',
+        host_octet: ip.host_octet || '',
+        mac_address: ip.mac_address || '',
+        department: ip.department || '',
+        location: ip.location || '',
+    });
+
     const handleOpenModal = useCallback((ip = null) => {
         if (ip) {
             setEditingIp(ip);
-            setFormData({
-                entity_type: ip.entity_type || 'rack_equipment',
-                entity_id: ip.entity_id || '',
-                ip_address: ip.ip_address || '',
-                ip_end: ip.ip_end || '',
-                mac_address: ip.mac_address || '',
-                department: ip.department || '',
-                location: ip.location || '',
-            });
+            setFormData(hydrateFormFromEntry(ip));
         } else {
             setEditingIp(null);
             setFormData(initialFormState);
@@ -165,27 +211,23 @@ const NetworkIpsView = () => {
     }, [isModalOpen, showColDropdown, handleOpenModal, handleCloseModal]);
 
     const handleDeleteIp = (ipEntry) => {
-        showConfirmationModal('Are you sure you want to delete this IP entry?', async () => {
+        showConfirmationModal('Are you sure you want to delete this network assignment?', async () => {
             try {
                 if (ipEntry.entity_type === 'rack_equipment' && ipEntry.entity_id) {
-                    await api.updateEquipmentInstance(ipEntry.entity_id, { ip_address: null });
-                    await api.syncNetworkIpEntity(showId, {
-                        entity_type: 'rack_equipment',
-                        entity_id: ipEntry.entity_id,
-                        ip_address: null,
-                        mac_address: null,
-                        department: null,
-                        location: null,
-                    });
+                    await api.deleteNetworkIpEntity(showId, 'rack_equipment', ipEntry.entity_id);
+
+                    // Compatibility mirror cleanup only. network_ip_entries is canonical.
+                    await api.updateEquipmentInstance(ipEntry.entity_id, { ip_address: null }).catch(err => console.warn('Mirror cleanup failed', err));
+
                     if (refreshRacks) await refreshRacks();
                 } else {
                     await api.deleteNetworkIp(showId, ipEntry.id);
                 }
 
-                addToast('IP entry deleted successfully', 'success');
+                addToast('Network assignment deleted successfully', 'success');
                 fetchIps();
             } catch (err) {
-                addToast(`Failed to delete IP entry: ${err.message}`, 'error');
+                addToast(`Failed to delete network assignment: ${err.message}`, 'error');
             }
         });
     };
@@ -197,11 +239,26 @@ const NetworkIpsView = () => {
             const next = { ...prev, [name]: value };
 
             if (name === 'entity_type') {
-                if (value === 'reservation') {
-                    next.entity_id = '';
-                    next.ip_end = prev.ip_end || '';
-                } else if (value === 'rack_equipment') {
+                next.entity_id = value === 'reservation' ? '' : prev.entity_id;
+                if (value === 'reservation' && prev.assignment_type === 'trunk') {
+                    next.assignment_type = 'single';
+                }
+            }
+
+            if (name === 'assignment_type') {
+                if (value === 'single') {
                     next.ip_end = '';
+                    next.trunk_mode = 'all';
+                    next.trunk_label = '';
+                    next.host_octet = '';
+                } else if (value === 'range') {
+                    next.trunk_mode = 'all';
+                    next.trunk_label = '';
+                    next.host_octet = '';
+                } else if (value === 'trunk') {
+                    next.ip_address = '';
+                    next.ip_end = '';
+                    next.trunk_mode = prev.trunk_mode || 'all';
                 }
             }
 
@@ -212,78 +269,148 @@ const NetworkIpsView = () => {
     const handleEquipmentChange = (e) => {
         const selectedId = e.target.value;
         const eq = equipmentList.find(item => item.id === selectedId);
+        const assignment = eq?.currentAssignment;
 
         setFormData(prev => ({
             ...prev,
             entity_id: selectedId,
-            ip_address: eq?.currentIp || prev.ip_address,
-            location: eq?.location || prev.location,
+            assignment_type: assignment?.assignment_type || prev.assignment_type || 'single',
+            ip_address: assignment?.ip_address || prev.ip_address,
+            ip_end: assignment?.ip_end || prev.ip_end,
+            trunk_mode: assignment?.trunk_mode || prev.trunk_mode || 'all',
+            trunk_label: assignment?.trunk_label || prev.trunk_label,
+            host_octet: assignment?.host_octet || prev.host_octet,
+            mac_address: assignment?.mac_address || prev.mac_address,
+            department: assignment?.department || prev.department,
+            location: assignment?.location || eq?.location || prev.location,
         }));
     };
 
     const buildPayload = () => {
-        const payload = { ...formData };
+        const payload = {
+            ...formData,
+            host_octet: formData.host_octet === '' ? null : Number(formData.host_octet),
+        };
 
         if (payload.entity_type === 'reservation') {
             payload.entity_id = null;
             payload.status = 'reserved';
+            if (payload.assignment_type === 'trunk') payload.assignment_type = 'single';
         } else if (payload.entity_type === 'rack_equipment') {
-            payload.ip_end = null;
             payload.status = 'assigned';
         }
 
+        if (payload.assignment_type === 'single') {
+            payload.ip_end = null;
+            payload.trunk_mode = null;
+            payload.trunk_label = null;
+            payload.host_octet = null;
+            payload.trunk_vlan_ids = [];
+        } else if (payload.assignment_type === 'range') {
+            payload.trunk_mode = null;
+            payload.trunk_label = null;
+            payload.host_octet = null;
+            payload.trunk_vlan_ids = [];
+        } else if (payload.assignment_type === 'trunk') {
+            payload.ip_address = null;
+            payload.ip_end = null;
+            payload.trunk_mode = payload.trunk_mode || 'all';
+            payload.trunk_vlan_ids = [];
+        }
+
         Object.keys(payload).forEach(key => {
-            if (payload[key] === '') {
-                payload[key] = null;
-            }
+            payload[key] = normalizeBlank(payload[key]);
         });
 
         return payload;
     };
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-
+    const validatePayload = () => {
         if (formData.entity_type === 'rack_equipment' && !formData.entity_id) {
             addToast('Please select existing equipment.', 'error');
-            return;
+            return false;
         }
 
-        if (formData.ip_address && !isValidIpv4(formData.ip_address)) {
-            addToast('Invalid IP Address format.', 'error');
-            return;
+        if (formData.entity_type === 'reservation' && formData.assignment_type === 'trunk') {
+            addToast('Reservation blocks cannot use trunk assignments.', 'error');
+            return false;
         }
 
-        if (formData.ip_end && !isValidIpv4(formData.ip_end)) {
-            addToast('Invalid IP End format.', 'error');
-            return;
+        if (formData.assignment_type === 'single') {
+            if (!formData.ip_address) {
+                addToast('IP Address is required for single IP assignments.', 'error');
+                return false;
+            }
+            if (!isValidIpv4(formData.ip_address)) {
+                addToast('Invalid IP Address format.', 'error');
+                return false;
+            }
         }
+
+        if (formData.assignment_type === 'range') {
+            if (!formData.ip_address || !formData.ip_end) {
+                addToast('IP Address and IP End are required for range assignments.', 'error');
+                return false;
+            }
+            if (!isValidIpv4(formData.ip_address) || !isValidIpv4(formData.ip_end)) {
+                addToast('Invalid range IP format.', 'error');
+                return false;
+            }
+        }
+
+        if (formData.assignment_type === 'trunk') {
+            if (!formData.trunk_mode) {
+                addToast('Trunk Mode is required.', 'error');
+                return false;
+            }
+            if (formData.host_octet !== '') {
+                const hostOctet = Number(formData.host_octet);
+                if (!Number.isInteger(hostOctet) || hostOctet < 1 || hostOctet > 254) {
+                    addToast('Host Octet must be a number from 1 to 254.', 'error');
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!validatePayload()) return;
 
         const payload = buildPayload();
 
         if (payload.entity_type === 'rack_equipment' && payload.entity_id) {
             try {
-                await api.updateEquipmentInstance(payload.entity_id, {
-                    ip_address: payload.ip_address || null,
-                });
-
                 await api.syncNetworkIpEntity(showId, {
                     entity_type: 'rack_equipment',
                     entity_id: payload.entity_id,
-                    ip_address: payload.ip_address || null,
-                    department: payload.department || null,
-                    location: payload.location || null,
-                    mac_address: payload.mac_address || null,
+                    assignment_type: payload.assignment_type,
+                    ip_address: payload.ip_address,
+                    ip_end: payload.ip_end,
+                    trunk_mode: payload.trunk_mode,
+                    trunk_label: payload.trunk_label,
+                    host_octet: payload.host_octet,
+                    trunk_vlan_ids: payload.trunk_vlan_ids || [],
+                    department: payload.department,
+                    location: payload.location,
+                    mac_address: payload.mac_address,
+                });
+
+                // Compatibility mirror only. Do not store trunk placeholders in rack_equipment_instances.ip_address.
+                await api.updateEquipmentInstance(payload.entity_id, {
+                    ip_address: payload.assignment_type === 'single' ? payload.ip_address : null,
                 });
 
                 if (refreshRacks) await refreshRacks();
 
-                addToast(payload.ip_address ? 'IP entry synced successfully' : 'Rack equipment IP cleared', 'success');
+                addToast('Network assignment synced successfully', 'success');
                 await fetchIps();
                 handleCloseModal();
             } catch (err) {
-                console.error('Failed to sync IP to equipment instance:', err);
-                addToast(`Failed to update rack equipment IP: ${err.message}`, 'error');
+                console.error('Failed to sync network assignment:', err);
+                addToast(`Failed to update rack equipment assignment: ${err.message}`, 'error');
             }
             return;
         }
@@ -291,53 +418,71 @@ const NetworkIpsView = () => {
         try {
             if (editingIp) {
                 await api.updateNetworkIp(showId, editingIp.id, payload);
-                addToast('IP entry updated successfully', 'success');
+                addToast('Network assignment updated successfully', 'success');
             } else {
                 await api.createNetworkIp(showId, payload);
-                addToast('IP entry created successfully', 'success');
+                addToast('Network assignment created successfully', 'success');
             }
             await fetchIps();
             handleCloseModal();
         } catch (err) {
             const action = editingIp ? 'update' : 'create';
-            addToast(`Failed to ${action} IP entry: ${err.message}`, 'error');
+            addToast(`Failed to ${action} network assignment: ${err.message}`, 'error');
         }
     };
 
     const handleSyncFromRackBuilder = async () => {
         if (!showId) return;
-        const equipmentWithIps = equipmentList.filter(eq => eq.currentIp);
 
-        if (equipmentWithIps.length === 0) {
-            addToast('No rack equipment with IP addresses found to sync.', 'info');
+        if (legacyImportEquipmentList.length === 0) {
+            addToast('No valid legacy rack IP values found to import.', 'info');
             return;
         }
 
-        setIsSyncing(true);
-        let syncedCount = 0;
-        let failedCount = 0;
+        showConfirmationModal(`Import ${legacyImportEquipmentList.length} legacy network assignment${legacyImportEquipmentList.length === 1 ? '' : 's'} from Rack Builder?`, async () => {
+            setIsSyncing(true);
+            let syncedCount = 0;
+            let failedCount = 0;
 
-        try {
-            for (const eq of equipmentWithIps) {
-                try {
-                    await api.syncNetworkIpEntity(showId, {
-                        entity_type: 'rack_equipment',
-                        entity_id: eq.id,
-                        ip_address: eq.currentIp,
-                        location: eq.location || null,
-                    });
-                    syncedCount += 1;
-                } catch (err) {
-                    failedCount += 1;
-                    console.error(`Failed to sync rack equipment ${eq.id}:`, err);
+            try {
+                for (const eq of legacyImportEquipmentList) {
+                    try {
+                        const payload = eq.parsedTrunk
+                            ? {
+                                entity_type: 'rack_equipment',
+                                entity_id: eq.id,
+                                assignment_type: 'trunk',
+                                ip_address: null,
+                                ip_end: null,
+                                trunk_mode: eq.parsedTrunk.trunk_mode,
+                                trunk_label: eq.parsedTrunk.trunk_label,
+                                host_octet: eq.parsedTrunk.host_octet,
+                                trunk_vlan_ids: [],
+                                location: eq.location || null,
+                            }
+                            : {
+                                entity_type: 'rack_equipment',
+                                entity_id: eq.id,
+                                assignment_type: 'single',
+                                ip_address: eq.legacyValue,
+                                ip_end: null,
+                                location: eq.location || null,
+                            };
+
+                        await api.syncNetworkIpEntity(showId, payload);
+                        syncedCount += 1;
+                    } catch (err) {
+                        failedCount += 1;
+                        console.error(`Failed to import rack equipment ${eq.id}:`, err);
+                    }
                 }
-            }
 
-            await fetchIps();
-            addToast(`Synced ${syncedCount} rack IP${syncedCount === 1 ? '' : 's'}${failedCount ? `; ${failedCount} failed` : ''}.`, failedCount ? 'error' : 'success');
-        } finally {
-            setIsSyncing(false);
-        }
+                await fetchIps();
+                addToast(`Imported ${syncedCount} assignment${syncedCount === 1 ? '' : 's'}${failedCount ? `; ${failedCount} failed` : ''}.`, failedCount ? 'error' : 'success');
+            } finally {
+                setIsSyncing(false);
+            }
+        });
     };
 
     const getStatusBadgeClass = (status) => {
@@ -350,21 +495,32 @@ const NetworkIpsView = () => {
         }
     };
 
+    const assignmentOptions = formData.entity_type === 'reservation'
+        ? [
+            { value: 'single', label: 'Single IP' },
+            { value: 'range', label: 'IP Range' },
+        ]
+        : [
+            { value: 'single', label: 'Single IP' },
+            { value: 'trunk', label: 'Trunk / Multi-VLAN' },
+        ];
+
     return (
         <div className="p-4 sm:p-6 lg:p-8 h-full flex flex-col">
             <header className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-white">Network IPs</h1>
-                    <p className="text-sm text-gray-400 mt-1">Track rack equipment IPs and reservation blocks for this show.</p>
+                    <p className="text-sm text-gray-400 mt-1">Track rack equipment IPs, ranges, reservations, and trunk/multi-VLAN assignments for this show.</p>
                 </div>
                 <div className="flex items-center gap-4">
                     <button
                         onClick={handleSyncFromRackBuilder}
                         disabled={isSyncing}
-                        className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm disabled:opacity-50"
+                        className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-amber-400 border border-amber-900/30 rounded-lg hover:bg-gray-600 transition-colors font-medium text-sm disabled:opacity-50"
+                        title="Transitional: Import valid legacy rack equipment IPs and TRK placeholders"
                     >
-                        <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
-                        Sync from Rack Builder
+                        <Download size={18} className={isSyncing ? 'animate-spin' : ''} />
+                        Import Legacy IPs
                     </button>
 
                     <div className="relative">
@@ -375,7 +531,7 @@ const NetworkIpsView = () => {
                             <Columns size={18} /> Columns
                         </button>
                         {showColDropdown && (
-                            <div className="absolute right-0 mt-2 w-48 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 p-2 flex flex-col gap-1">
+                            <div className="absolute right-0 mt-2 w-52 bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-50 p-2 flex flex-col gap-1">
                                 {Object.keys(visibleColumns).map(col => (
                                     <label key={col} className="flex items-center gap-2 p-2 hover:bg-gray-700 rounded cursor-pointer">
                                         <input
@@ -403,13 +559,14 @@ const NetworkIpsView = () => {
             <div className="flex-grow overflow-y-auto bg-gray-800 rounded-lg shadow-md">
                 {isLoading ? (
                     <div className="text-center py-16 text-gray-400">Loading Network IPs...</div>
-                ) : error && ips.length === 0 ? (
+                ) : error && networkIps.length === 0 ? (
                     <div className="text-center py-16 text-red-400">Error: {error}</div>
                 ) : (
                     <table className="min-w-full divide-y divide-gray-700 text-sm">
                         <thead className="bg-gray-800 sticky top-0 z-10">
                             <tr>
-                                <th className="px-6 py-3 text-left font-medium text-gray-300 uppercase tracking-wider">IP Address</th>
+                                <th className="px-6 py-3 text-left font-medium text-gray-300 uppercase tracking-wider">Assignment</th>
+                                {visibleColumns.assignment_type && <th className="px-6 py-3 text-left font-medium text-gray-300 uppercase tracking-wider">Type</th>}
                                 {visibleColumns.ip_end && <th className="px-6 py-3 text-left font-medium text-gray-300 uppercase tracking-wider">IP End</th>}
                                 <th className="px-6 py-3 text-left font-medium text-gray-300 uppercase tracking-wider">Device Name</th>
                                 {visibleColumns.department && <th className="px-6 py-3 text-left font-medium text-gray-300 uppercase tracking-wider">Department</th>}
@@ -421,10 +578,16 @@ const NetworkIpsView = () => {
                             </tr>
                         </thead>
                         <tbody className="bg-gray-800 divide-y divide-gray-700">
-                            {ips.length > 0 ? ips.map((ip) => (
-                                <tr key={ip.id} className={`hover:bg-gray-700 ${ip.status === 'conflict' ? 'bg-red-900/20' : ''}`}>
-                                    <td className="px-6 py-4 whitespace-nowrap font-mono text-white">{ip.ip_address || '-'}</td>
-                                    {visibleColumns.ip_end && <td className="px-6 py-4 whitespace-nowrap font-mono text-gray-400">{ip.ip_end || '-'}</td>}
+                            {networkIps.length > 0 ? networkIps.map((ip) => (
+                                <tr
+                                    key={ip.id}
+                                    className={`hover:bg-gray-700 cursor-pointer ${ip.status === 'conflict' ? 'bg-red-900/20' : ''}`}
+                                    onDoubleClick={() => handleOpenModal(ip)}
+                                    title="Double-click to edit"
+                                >
+                                    <td className="px-6 py-4 whitespace-nowrap font-mono text-white">{formatNetworkAssignment(ip) || '-'}</td>
+                                    {visibleColumns.assignment_type && <td className="px-6 py-4 whitespace-nowrap text-gray-300 capitalize">{(ip.assignment_type || 'single').replace('_', ' ')}</td>}
+                                    {visibleColumns.ip_end && <td className="px-6 py-4 whitespace-nowrap font-mono text-gray-400">{ip.assignment_type === 'range' ? ip.ip_end || '-' : '-'}</td>}
                                     <td className="px-6 py-4 whitespace-nowrap text-gray-300">{getDeviceName(ip)}</td>
                                     {visibleColumns.department && <td className="px-6 py-4 whitespace-nowrap text-gray-300">{ip.department || '-'}</td>}
                                     {visibleColumns.location && <td className="px-6 py-4 whitespace-nowrap text-gray-300">{ip.location || '-'}</td>}
@@ -435,12 +598,12 @@ const NetworkIpsView = () => {
                                             {ip.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onDoubleClick={(e) => e.stopPropagation()}>
                                         <div className="flex justify-end gap-3">
-                                            <button onClick={() => handleOpenModal(ip)} className="text-gray-400 hover:text-white" aria-label="Edit IP entry">
+                                            <button onClick={() => handleOpenModal(ip)} className="text-gray-400 hover:text-white" aria-label="Edit network assignment">
                                                 <Edit size={18} />
                                             </button>
-                                            <button onClick={() => handleDeleteIp(ip)} className="text-red-500 hover:text-red-400" aria-label="Delete IP entry">
+                                            <button onClick={() => handleDeleteIp(ip)} className="text-red-500 hover:text-red-400" aria-label="Delete network assignment">
                                                 <Trash2 size={18} />
                                             </button>
                                         </div>
@@ -448,8 +611,8 @@ const NetworkIpsView = () => {
                                 </tr>
                             )) : (
                                 <tr>
-                                    <td colSpan="9" className="text-center py-10 text-gray-400">
-                                        No IP entries found. Click "New IP Entry", press N, or sync from Rack Builder.
+                                    <td colSpan="10" className="text-center py-10 text-gray-400">
+                                        No network assignments found. Click "New IP Entry", press N, or import from Rack Builder.
                                     </td>
                                 </tr>
                             )}
@@ -458,7 +621,7 @@ const NetworkIpsView = () => {
                 )}
             </div>
 
-            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingIp ? 'Edit IP Entry' : 'New IP Entry'} maxWidth="max-w-2xl">
+            <Modal isOpen={isModalOpen} onClose={handleCloseModal} title={editingIp ? 'Edit Network Assignment' : 'New Network Assignment'} maxWidth="max-w-2xl">
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
@@ -494,20 +657,36 @@ const NetworkIpsView = () => {
                         )}
 
                         <div>
-                            <label className="block text-sm font-medium text-gray-300 mb-1">IP Address</label>
-                            <input
-                                type="text"
-                                name="ip_address"
-                                value={formData.ip_address}
+                            <label className="block text-sm font-medium text-gray-300 mb-1">Assignment Type</label>
+                            <select
+                                name="assignment_type"
+                                value={formData.assignment_type}
                                 onChange={handleFormChange}
-                                placeholder="192.168.1.50"
                                 className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
-                            />
+                            >
+                                {assignmentOptions.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
                         </div>
 
-                        {formData.entity_type === 'reservation' && (
+                        {formData.assignment_type !== 'trunk' && (
                             <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-1">IP End (Optional Range)</label>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">IP Address</label>
+                                <input
+                                    type="text"
+                                    name="ip_address"
+                                    value={formData.ip_address}
+                                    onChange={handleFormChange}
+                                    placeholder="192.168.1.50"
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
+                                />
+                            </div>
+                        )}
+
+                        {formData.assignment_type === 'range' && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-300 mb-1">IP End</label>
                                 <input
                                     type="text"
                                     name="ip_end"
@@ -517,6 +696,50 @@ const NetworkIpsView = () => {
                                     className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
                                 />
                             </div>
+                        )}
+
+                        {formData.assignment_type === 'trunk' && (
+                            <>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Trunk Mode</label>
+                                    <select
+                                        name="trunk_mode"
+                                        value={formData.trunk_mode}
+                                        onChange={handleFormChange}
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
+                                    >
+                                        <option value="all">All VLANs</option>
+                                        <option value="selected" disabled>Selected VLANs (coming soon)</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Host Octet</label>
+                                    <input
+                                        type="number"
+                                        name="host_octet"
+                                        min="1"
+                                        max="254"
+                                        value={formData.host_octet}
+                                        onChange={handleFormChange}
+                                        placeholder="12"
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
+                                    />
+                                </div>
+
+                                <div className="sm:col-span-2">
+                                    <label className="block text-sm font-medium text-gray-300 mb-1">Trunk Label</label>
+                                    <input
+                                        type="text"
+                                        name="trunk_label"
+                                        value={formData.trunk_label}
+                                        onChange={handleFormChange}
+                                        placeholder="10.12.TRK.12"
+                                        className="w-full bg-gray-700 border border-gray-600 rounded-md py-2 px-3 text-white focus:outline-none focus:ring-amber-500 focus:border-amber-500 sm:text-sm"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Display-only shorthand. It is not stored as a real IP address.</p>
+                                </div>
+                            </>
                         )}
 
                         <div>
@@ -568,7 +791,7 @@ const NetworkIpsView = () => {
                             type="submit"
                             className="px-4 py-2 bg-amber-500 text-black font-bold rounded-md hover:bg-amber-400 transition-colors"
                         >
-                            {editingIp ? 'Update IP Entry' : 'Create IP Entry'}
+                            {editingIp ? 'Update Assignment' : 'Create Assignment'}
                         </button>
                     </div>
                 </form>

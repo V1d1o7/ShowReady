@@ -15,16 +15,22 @@ const ShowSidebar = () => {
     const { showName: showNameFromParams } = useParams();
     const navigate = useNavigate();
 
+    // FIX: Determine the current show object by matching the URL param (slug) to the show name.
+    // This handles cases where spaces are replaced by hyphens in the URL.
     const currentShow = shows?.find(s => {
         if (!s.name) return false;
+        // Replicate the slug logic used in navigation
         const slugifiedName = s.name.replace(/\s+/g, '-');
+        
+        // check against slug, exact match, or decoded match
         return (
-            slugifiedName === showNameFromParams ||
-            s.name === showNameFromParams ||
+            slugifiedName === showNameFromParams || 
+            s.name === showNameFromParams || 
             s.name === decodeURIComponent(showNameFromParams || '')
         );
     });
 
+    // Use the matched show's real name as the select value
     const selectedShowValue = currentShow ? currentShow.name : (decodeURIComponent(showNameFromParams || ''));
 
     const handleShowChange = (e) => {
@@ -44,10 +50,12 @@ const ShowSidebar = () => {
 
     const checkAccess = (feature) => {
         if (!feature) return true;
+        // If profile hasn't loaded or features aren't present, only allow non-feature tabs
         if (!profile?.permitted_features) return false;
         return profile.permitted_features.includes(feature);
     };
 
+    // Group 1: General Info & Management
     const mainTabs = [
         { path: 'info', label: 'Show Info', icon: Info, feature: null },
         { path: 'crew', label: 'Crew', icon: Users, feature: 'crew' },
@@ -55,16 +63,19 @@ const ShowSidebar = () => {
         { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'hours_tracking' },
     ];
 
+    // Group 2: Collapsible Labels
     const labelTabs = [
         { path: 'loomlabels', label: 'Loom Labels', icon: FileText, feature: 'loom_labels' },
         { path: 'caselabels', label: 'Case Labels', icon: Box, feature: 'case_labels' },
     ];
 
+    // Group 3: Collapsible Rack Building
     const rackTabs = [
         { path: 'rackbuilder', label: 'Rack Builder', icon: Server, feature: 'rack_builder' },
         { path: 'panelbuilder', label: 'Panel Builder', icon: Layout, feature: 'panel_builder' },
     ];
 
+    // Group 4: Technical Tools
     const networkTabs = [
         { path: 'networkips', label: 'IP Manager', icon: Globe, feature: 'networking_ips' },
         { path: 'switchconfig', label: 'Switch Config', icon: HardDrive, feature: 'switch_config' },
@@ -105,12 +116,18 @@ const ShowSidebar = () => {
             </div>
             <nav className="flex flex-col gap-2">
                 {visibleMainTabs.map(tab => (
-                    <NavLink key={tab.path} to={tab.path} end className={navLinkClasses}>
+                    <NavLink
+                        key={tab.path}
+                        to={tab.path}
+                        end
+                        className={navLinkClasses}
+                    >
                         <tab.icon className="mr-3 h-5 w-5" />
                         {tab.label}
                     </NavLink>
                 ))}
 
+                {/* Collapsible Labels Section */}
                 {visibleLabelTabs.length > 0 && (
                     <div className="flex flex-col gap-1">
                         <button
@@ -123,10 +140,16 @@ const ShowSidebar = () => {
                             </div>
                             {isLabelsOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </button>
+                        
                         {isLabelsOpen && (
                             <div className="flex flex-col gap-1 pl-4 border-l border-gray-700 ml-4">
                                 {visibleLabelTabs.map(tab => (
-                                    <NavLink key={tab.path} to={tab.path} end className={navLinkClasses}>
+                                    <NavLink
+                                        key={tab.path}
+                                        to={tab.path}
+                                        end
+                                        className={navLinkClasses}
+                                    >
                                         <tab.icon className="mr-3 h-5 w-5" />
                                         {tab.label}
                                     </NavLink>
@@ -136,6 +159,7 @@ const ShowSidebar = () => {
                     </div>
                 )}
 
+                {/* Collapsible Rack Building Section */}
                 {visibleRackTabs.length > 0 && (
                     <div className="flex flex-col gap-1">
                         <button
@@ -148,10 +172,16 @@ const ShowSidebar = () => {
                             </div>
                             {isRackBuildingOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </button>
+                        
                         {isRackBuildingOpen && (
                             <div className="flex flex-col gap-1 pl-4 border-l border-gray-700 ml-4">
                                 {visibleRackTabs.map(tab => (
-                                    <NavLink key={tab.path} to={tab.path} end className={navLinkClasses}>
+                                    <NavLink
+                                        key={tab.path}
+                                        to={tab.path}
+                                        end
+                                        className={navLinkClasses}
+                                    >
                                         <tab.icon className="mr-3 h-5 w-5" />
                                         {tab.label}
                                     </NavLink>
@@ -161,6 +191,7 @@ const ShowSidebar = () => {
                     </div>
                 )}
 
+                {/* Collapsible Networks Section */}
                 {visibleNetworkTabs.length > 0 && (
                     <div className="flex flex-col gap-1">
                         <button
@@ -173,10 +204,16 @@ const ShowSidebar = () => {
                             </div>
                             {isNetworksOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                         </button>
+                        
                         {isNetworksOpen && (
                             <div className="flex flex-col gap-1 pl-4 border-l border-gray-700 ml-4">
                                 {visibleNetworkTabs.map(tab => (
-                                    <NavLink key={tab.path} to={tab.path} end className={navLinkClasses}>
+                                    <NavLink
+                                        key={tab.path}
+                                        to={tab.path}
+                                        end
+                                        className={navLinkClasses}
+                                    >
                                         <tab.icon className="mr-3 h-5 w-5" />
                                         {tab.label}
                                     </NavLink>
@@ -187,7 +224,12 @@ const ShowSidebar = () => {
                 )}
 
                 {visibleTechTabs.map(tab => (
-                    <NavLink key={tab.path} to={tab.path} end className={navLinkClasses}>
+                    <NavLink
+                        key={tab.path}
+                        to={tab.path}
+                        end
+                        className={navLinkClasses}
+                    >
                         <tab.icon className="mr-3 h-5 w-5" />
                         {tab.label}
                     </NavLink>

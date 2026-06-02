@@ -37,6 +37,7 @@ import RackBuilderView from './views/RackBuilderView';
 import WireDiagramView from './views/WireDiagramView';
 import LoomBuilderView from './views/LoomBuilderView';
 import VLANView from './views/VLANView';
+import NetworkIpsView from './views/NetworkIpsView';
 import PanelBuilderView from './views/PanelBuilderView';
 import RosterView from './views/RosterView';
 import ShowCrewView from './views/ShowCrewView';
@@ -46,7 +47,6 @@ import TemplateManager from './views/settings/TemplateManager';
 import ShowTeamView from './views/ShowTeamView';
 import LabelTemplateListView from './views/library/LabelTemplateListView';
 import LabelTemplateBuilder from './views/settings/LabelTemplateBuilder';
-import NetworkIpsView from './views/NetworkIpsView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -177,11 +177,11 @@ const MainLayout = ({ session }) => {
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
                                                 {/* REMOVED: route path="label-engine" */}
                                                 <Route path="rackbuilder" element={<ProtectedRoute feature="rack_builder"><RackBuilderView /></ProtectedRoute>} />
+                                                <Route path="networkips" element={<ProtectedRoute feature="networking_ips"><NetworkIpsView /></ProtectedRoute>} />
                                                 <Route path="switchconfig" element={<ProtectedRoute feature="switch_config"><SwitchConfigView /></ProtectedRoute>} />
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
                                                 <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
                                                 <Route path="vlan" element={<ProtectedRoute feature="vlan_management"><VLANView /></ProtectedRoute>} />
-                                                <Route path="networkips" element={<ProtectedRoute feature="networking_ips"><NetworkIpsView /></ProtectedRoute>} />
                                                 <Route path="panelbuilder" element={<ProtectedRoute feature="panel_builder"><PanelBuilderView /></ProtectedRoute>} />
                                                 <Route path="team" element={<ProtectedRoute feature="show_collaboration"><ShowTeamView /></ProtectedRoute>} />
                                             </Route>
@@ -242,6 +242,7 @@ const ShowWrapper = ({ onShowUpdate }) => {
     const { showName } = useParams();
     const [showData, setShowData] = useState(null);
     const [racks, setRacks] = useState([]);
+    const [networkIps, setNetworkIps] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const navigate = useNavigate();
     const location = useLocation();
@@ -250,9 +251,13 @@ const ShowWrapper = ({ onShowUpdate }) => {
         setIsLoading(true);
         try {
             const fullShowObject = await api.getShowByName(showName);
-            const racksData = await api.getDetailedRacksForShow(fullShowObject.id);
+            const [racksData, ipsData] = await Promise.all([
+                api.getDetailedRacksForShow(fullShowObject.id),
+                api.getNetworkIps(fullShowObject.id)
+            ]);
             setShowData(fullShowObject); // Store the full object
             setRacks(racksData);
+            setNetworkIps(ipsData || []);
         } catch (error) {
             console.error("Failed to fetch show data by name:", error);
             navigate('/');
@@ -266,6 +271,16 @@ const ShowWrapper = ({ onShowUpdate }) => {
             fetchShowData();
         }
     }, [showName, fetchShowData]);
+
+    const refreshNetworkIps = useCallback(async () => {
+        if (!showData?.id) return;
+        try {
+            const ipsData = await api.getNetworkIps(showData.id);
+            setNetworkIps(ipsData || []);
+        } catch (error) {
+            console.error("Failed to refresh network IPs:", error);
+        }
+    }, [showData?.id]);
 
     const handleSaveShowData = async (updatedShowDataBlob) => {
         if (!showData || !showData.id) return;
@@ -303,7 +318,18 @@ const ShowWrapper = ({ onShowUpdate }) => {
     const providerShowData = showData ? showData.data : null;
 
     return (
-        <ShowProvider value={{ showData: providerShowData, racks, onSave: handleSaveShowData, isLoading, showId, refreshRacks: fetchShowData, has_notes, showOwnerId }}>
+        <ShowProvider value={{ 
+            showData: providerShowData, 
+            racks, 
+            networkIps,
+            onSave: handleSaveShowData, 
+            isLoading, 
+            showId, 
+            refreshRacks: fetchShowData, 
+            refreshNetworkIps,
+            has_notes, 
+            showOwnerId 
+        }}>
             <Outlet />
         </ShowProvider>
     );

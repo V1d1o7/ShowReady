@@ -139,9 +139,9 @@ app.include_router(switch_config_router, prefix="/api/v1")
 app.include_router(switch_agent_router, prefix="/api/v1")
 app.include_router(notes_router, prefix="/api/v1")
 app.include_router(label_engine_router, prefix="/api/v1", tags=["Label Engine"])
+app.include_router(network_ips_router, prefix="/api/v1")
 app.include_router(communications_router, prefix="/api/communications", tags=["Communications"])
 app.include_router(panels_router)
-app.include_router(network_ips_router, prefix="/api/v1")
 
 app.include_router(api_router, prefix="/api")
 

@@ -1,7 +1,12 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
 import { Plus, HardDrive, PanelLeftOpen } from 'lucide-react';
+import { 
+    mergeNetworkIpIntoEquipment, 
+    upsertRackEquipmentNetworkIp, 
+    clearRackEquipmentNetworkIp,
+    buildRackLocation
+} from '../utils/networkIpHelpers';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
@@ -20,7 +25,7 @@ import ConfirmationModal from '../components/ConfirmationModal';
 import { useAuth } from '../contexts/AuthContext';
 
 const RackBuilderView = () => {
-    const { showId, showData, showOwnerId } = useShow();
+    const { showId, showData, showOwnerId, networkIps, refreshNetworkIps } = useShow();
     const { user, profile } = useAuth();
     const showName = showData?.info?.show_name;
     const [racks, setRacks] = useState([]);
@@ -31,8 +36,8 @@ const RackBuilderView = () => {
     const [isNewRackModalOpen, setIsNewRackModalOpen] = useState(false);
     const [isNewEquipModalOpen, setIsNewEquipModalOpen] = useState(false);
     const [isRackLibraryOpen, setIsRackLibraryOpen] = useState(false);
-    const [isExportModalOpen, setIsExportModalOpen] = useState(false); // Export Modal
-    const [isPowerReportOpen, setIsPowerReportOpen] = useState(false); // Power Report Modal
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false); 
+    const [isPowerReportOpen, setIsPowerReportOpen] = useState(false); 
     const [isNamePromptOpen, setIsNamePromptOpen] = useState(false);
     const [confirmationModal, setConfirmationModal] = useState({ isOpen: false, message: '', onConfirm: () => {} });
     const [pdfPreview, setPdfPreview] = useState({ isOpen: false, url: '' });
@@ -48,7 +53,7 @@ const RackBuilderView = () => {
     const [dragOverData, setDragOverData] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-    const [viewMode, setViewMode] = useState('front_rear'); // 'front_rear' or 'side'
+    const [viewMode, setViewMode] = useState('front_rear'); 
     
     // Notes
     const [isNotesDrawerOpen, setIsNotesDrawerOpen] = useState(false);
@@ -61,13 +66,11 @@ const RackBuilderView = () => {
 
     // --- Data Fetching ---
 
-    // 1. Fetch initial library and rack list on mount
     useEffect(() => {
         const fetchInitialData = async () => {
             if (!showId) return;
             setIsLoading(true);
             try {
-                // Fetch both User library and Admin library to ensure we have ALL modules
                 const [userLib, adminLib, racksData] = await Promise.all([
                     api.getLibrary(),
                     api.getAdminLibrary().catch(err => {
@@ -77,7 +80,6 @@ const RackBuilderView = () => {
                     api.getRacksForShow(showId)
                 ]);
 
-                // Deduplicate and merge items (User overrides Admin if IDs conflict)
                 const equipmentMap = new Map();
                 if (adminLib?.equipment) adminLib.equipment.forEach(e => equipmentMap.set(e.id, e));
                 if (userLib?.equipment) userLib.equipment.forEach(e => equipmentMap.set(e.id, e));
@@ -91,7 +93,6 @@ const RackBuilderView = () => {
                     equipment: Array.from(equipmentMap.values())
                 });
 
-                // Filter out the [Unracked] holding rack so it doesn't show in the UI
                 const visibleRacks = racksData.filter(r => r.rack_name !== '[Unracked]');
                 setRacks(visibleRacks);
                 
@@ -108,13 +109,35 @@ const RackBuilderView = () => {
         fetchInitialData();
     }, [showId]);
 
-    // 2. Fetch details for the selected rack when it changes
+    useEffect(() => {
+        if (!activeRack || !networkIps) return;
+        
+        setActiveRack(current => {
+            // mergeNetworkIpIntoEquipment uses includeLegacyFallback: false by default
+            const mergedEquipment = (current.equipment || []).map(item => mergeNetworkIpIntoEquipment(item, networkIps));
+            
+            const isDifferent = mergedEquipment.some((item, idx) => {
+                const prev = current.equipment[idx];
+                return item.ip_address !== prev?.ip_address ||
+                       item.network_assignment_display !== prev?.network_assignment_display ||
+                       item.network_metadata?.status !== prev?.network_metadata?.status ||
+                       item.network_metadata?.id !== prev?.network_metadata?.id;
+            });
+            if (!isDifferent) return current;
+            return { ...current, equipment: mergedEquipment };
+        });
+    }, [networkIps, activeRack?.id]);
+
     useEffect(() => {
         const fetchActiveRack = async () => {
             if (selectedRackId) {
                 try {
                     const detailedRack = await api.getRackDetails(selectedRackId);
-                    setActiveRack(detailedRack);
+                    const mergedRack = {
+                        ...detailedRack,
+                        equipment: (detailedRack.equipment || []).map(item => mergeNetworkIpIntoEquipment(item, networkIps))
+                    };
+                    setActiveRack(mergedRack);
                 } catch (error) {
                     console.error("Failed to fetch active rack:", error);
                     toast.error("Failed to load selected rack.");
@@ -130,12 +153,10 @@ const RackBuilderView = () => {
         fetchActiveRack();
     }, [selectedRackId]);
 
-    // 3. Refresh racks list
     const fetchData = useCallback(async () => {
         if (!showId) return;
         try {
             const racksData = await api.getRacksForShow(showId);
-            // Filter it out on refresh as well
             const visibleRacks = racksData.filter(r => r.rack_name !== '[Unracked]');
             setRacks(visibleRacks);
             if (!selectedRackId && visibleRacks.length > 0) {
@@ -146,21 +167,17 @@ const RackBuilderView = () => {
         }
     }, [showId, selectedRackId]);
 
-    // Close context menu on click outside
     useEffect(() => {
         const handleClickOutside = () => setContextMenu(null);
         window.addEventListener('click', handleClickOutside);
         return () => window.removeEventListener('click', handleClickOutside);
     }, []);
 
-    // --- Handlers: Power Report & Export ---
-
     const handleOpenPowerReport = async () => {
         if (!showId) return;
         toast.loading('Calculating Power Usage...');
         try {
             const detailedRacks = await api.getDetailedRacksForShow(showId);
-            // Don't count [Unracked] equipment in the power calculations
             const visibleRacks = detailedRacks.filter(r => r.rack_name !== '[Unracked]');
             setPowerReportData(visibleRacks);
             setIsPowerReportOpen(true);
@@ -173,7 +190,6 @@ const RackBuilderView = () => {
     };
 
     const handleProcessExport = async (options) => {
-        // Destructure new options: includePowerReport, voltage
         const { scope, includeFrontRear, includeSide, includeEquipmentList, includePowerReport, includePanels, voltage, pageSize } = options;
 
         if (!showId) return;
@@ -181,8 +197,6 @@ const RackBuilderView = () => {
         toast.loading('Generating Export Package...');
         try {
             const detailedRacks = await api.getDetailedRacksForShow(showId);
-            
-            // Filter out the [Unracked] rack so it doesn't appear in drawings, lists, or power calcs
             let racksToPrint = detailedRacks.filter(r => r.rack_name !== '[Unracked]');
             
             if (scope === 'selected' && activeRack) {
@@ -208,10 +222,7 @@ const RackBuilderView = () => {
 
             const pdfBlob = await api.generateRacksPdf(payload);
             const url = window.URL.createObjectURL(pdfBlob);
-            
-            // Use the PDF Preview Modal instead of forcing a direct download
             setPdfPreview({ isOpen: true, url });
-            
             toast.success('Export generated successfully!');
         } catch (err) {
             console.error("Failed to generate PDF:", err);
@@ -220,8 +231,6 @@ const RackBuilderView = () => {
             toast.dismiss();
         }
     };
-
-    // --- Handlers: Rack CRUD ---
 
     const handleSelectRack = (rackId) => setSelectedRackId(rackId);
 
@@ -278,44 +287,52 @@ const RackBuilderView = () => {
         }
     };
 
-    // --- Handlers: Equipment CRUD ---
-
     const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
         try {
-            const updatedInstance = await api.updateEquipmentInstance(instanceId, updatedData);
+            const { ip_address, ...nonIpData } = updatedData;
             
-            // Rack Builder -> IP Manager sync
-            if (updatedData.ip_address !== undefined) {
+            // 1. Update non-IP equipment fields normally (instance_name, custom_fields, etc.)
+            let updatedInstance = await api.updateEquipmentInstance(instanceId, nonIpData);
+            
+            // 2. Sync IP to canonical network_ip_entries (Source of Truth)
+            if (ip_address !== undefined) {
                 try {
-                    let locationStr = null;
-                    if (activeRack && activeRack.rack_name) {
-                        const ruPos = updatedData.ru_position || updatedInstance.ru_position;
-                        if (ruPos) locationStr = `${activeRack.rack_name}.${ruPos}`;
-                    }
-
-                    await api.syncNetworkIpEntity(showId, {
-                        entity_type: 'rack_equipment',
-                        entity_id: instanceId,
-                        ip_address: updatedData.ip_address || null,
+                    const locationStr = buildRackLocation(activeRack?.rack_name, updatedData.ru_position || updatedInstance.ru_position);
+                    
+                    await upsertRackEquipmentNetworkIp({
+                        api,
+                        showId,
+                        entityId: instanceId,
+                        ipAddress: ip_address,
                         location: locationStr
-                        // Department and MAC Address omitted to avoid overwriting existing
                     });
+                    
+                    // 3. Update legacy rack_equipment_instances.ip_address only as a compatibility mirror
+                    // This follows a successful canonical sync.
+                    updatedInstance = await api.updateEquipmentInstance(instanceId, { ip_address: ip_address || null });
+                    
+                    if (refreshNetworkIps) await refreshNetworkIps();
                 } catch (syncErr) {
-                    console.error("Failed to sync IP entry from Rack Builder:", syncErr);
+                    console.error("Failed to sync IP to canonical table:", syncErr);
                     toast.error(`Equipment updated, but IP sync failed: ${syncErr.message}`);
+                    return;
                 }
             }
 
-            setActiveRack(currentRack => ({
-                ...currentRack,
-                equipment: currentRack.equipment.map(item =>
-                    item.id === instanceId ? { 
-                        ...item, 
-                        ...updatedInstance,
-                        equipment_templates: updatedInstance.equipment_templates || item.equipment_templates 
-                    } : item
-                )
-            }));
+            setActiveRack(currentRack => {
+                const updatedItems = currentRack.equipment.map(item => {
+                    if (item.id === instanceId) {
+                        return { 
+                            ...item, 
+                            ...updatedInstance,
+                            equipment_templates: updatedInstance.equipment_templates || item.equipment_templates,
+                            ip_address: ip_address !== undefined ? ip_address : updatedInstance.ip_address
+                        };
+                    }
+                    return item;
+                });
+                return { ...currentRack, equipment: updatedItems };
+            });
             toast.success("Equipment updated successfully!");
         } catch (error) {
             console.error("Failed to update equipment:", error);
@@ -326,7 +343,6 @@ const RackBuilderView = () => {
     const handleCreateUserEquipment = async (equipmentData) => {
         try {
             await api.createUserEquipment(equipmentData);
-            // Re-fetch merged library to ensure new item appears
              const [userLib, adminLib] = await Promise.all([
                 api.getLibrary(),
                 api.getAdminLibrary().catch(() => ({ folders: [], equipment: [] }))
@@ -357,17 +373,16 @@ const RackBuilderView = () => {
             message: "Are you sure you want to remove this equipment from the rack?",
             onConfirm: async () => {
                 try {
+                    // Delete canonical IP entry first
+                    try {
+                        await clearRackEquipmentNetworkIp({ api, showId, entityId: instanceId });
+                        if (refreshNetworkIps) await refreshNetworkIps();
+                    } catch (clearErr) {
+                        console.error("Failed to clear network IP for deleted equipment:", clearErr);
+                    }
+
                     await api.deleteEquipmentFromRack(instanceId);
                     
-                    // Sync nulls to clear network IP entry
-                    api.syncNetworkIpEntity(showId, {
-                        entity_type: "rack_equipment",
-                        entity_id: instanceId,
-                        ip_address: null,
-                        department: null,
-                        location: null
-                    }).catch(err => console.error("Failed to clear IP on delete", err));
-
                     setActiveRack(currentRack => ({
                         ...currentRack,
                         equipment: currentRack.equipment.filter(item => item.id !== instanceId)
@@ -382,8 +397,6 @@ const RackBuilderView = () => {
             }
         });
     };
-
-    // --- Handlers: Library & Copy ---
 
     const handleLoadRackFromLibrary = (templateRack) => {
         setIsRackLibraryOpen(false);
@@ -417,7 +430,6 @@ const RackBuilderView = () => {
         if (!contextMenu) return;
         try {
             await api.copyEquipmentToLibrary({ template_id: contextMenu.item.id, folder_id: null });
-            // Re-fetch to update library view
             const [userLib, adminLib] = await Promise.all([
                 api.getLibrary(),
                 api.getAdminLibrary().catch(() => ({ folders: [], equipment: [] }))
@@ -442,8 +454,6 @@ const RackBuilderView = () => {
         }
         setContextMenu(null);
     };
-
-    // --- Drag & Drop Logic ---
 
     const getItemSlot = (item) => {
         const width = item.equipment_templates.width;
@@ -611,23 +621,31 @@ const RackBuilderView = () => {
                         ...updatedInstanceFromServer 
                     };
 
+                    const existingNetworkEntry = networkIps.find(ip => ip.entity_type === 'rack_equipment' && ip.entity_id === movedItemId);
+                    if (existingNetworkEntry) {
+                        upsertRackEquipmentNetworkIp({
+                            api,
+                            showId,
+                            entityId: movedItemId,
+                            assignmentType: existingNetworkEntry.assignment_type || 'single',
+                            ipAddress: existingNetworkEntry.ip_address,
+                            ipEnd: existingNetworkEntry.ip_end,
+                            trunkMode: existingNetworkEntry.trunk_mode,
+                            trunkLabel: existingNetworkEntry.trunk_label,
+                            hostOctet: existingNetworkEntry.host_octet,
+                            trunkVlanIds: existingNetworkEntry.trunk_vlan_ids || [],
+                            macAddress: existingNetworkEntry.mac_address,
+                            department: existingNetworkEntry.department,
+                            location: buildRackLocation(activeRack?.rack_name, updatedInstanceFromServer.ru_position)
+                        }).then(() => refreshNetworkIps?.()).catch(err => console.error("Location sync failed", err));
+                    }
+
                     setActiveRack(currentRack => ({
                         ...currentRack,
                         equipment: currentRack.equipment.map(item => 
                             item.id === movedItemId ? finalInstance : item
                         )
                     }));
-
-                    // Sync location changes only for equipment that actually has an IP.
-                    // Do not create empty IP Manager rows just because a template supports IPs.
-                    if (finalInstance.ip_address) {
-                        api.syncNetworkIpEntity(showId, {
-                            entity_type: 'rack_equipment',
-                            entity_id: movedItemId,
-                            ip_address: finalInstance.ip_address,
-                            location: `${activeRack.rack_name}.${finalInstance.ru_position}`
-                        }).catch(err => console.error("Failed to sync IP location after move", err));
-                    }
                 })
                 .catch(err => {
                     toast.error(`Failed to save move: ${err.message}`);
@@ -679,8 +697,8 @@ const RackBuilderView = () => {
                     onUpdateRack={handleUpdateRack}
                     selectedRackId={selectedRackId}
                     onLoadFromRackLibrary={() => setIsRackLibraryOpen(true)}
-                    onExport={() => setIsExportModalOpen(true)} // Opens the Export Modal
-                    onPowerReport={handleOpenPowerReport} // Opens the Power Report
+                    onExport={() => setIsExportModalOpen(true)} 
+                    onPowerReport={handleOpenPowerReport} 
                     title="Show Racks"
                     onCollapse={() => setIsSidebarCollapsed(true)}
                     onOpenNotes={profile?.permitted_features?.includes('contextual_notes') ? (rackId) => openNotesDrawer('rack', rackId) : undefined}
@@ -781,7 +799,6 @@ const RackBuilderView = () => {
             <NewUserEquipmentModal isOpen={isNewEquipModalOpen} onClose={() => setIsNewEquipModalOpen(false)} onSubmit={handleCreateUserEquipment} userFolderTree={userFolderTree} />
             <RackLibraryModal isOpen={isRackLibraryOpen} onClose={() => setIsRackLibraryOpen(false)} onRackLoad={handleLoadRackFromLibrary} />
             
-            {/* RACK EXPORT MODAL */}
             <RackExportModal 
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}
@@ -790,7 +807,6 @@ const RackBuilderView = () => {
                 selectedRackName={activeRack ? activeRack.rack_name : null}
             />
 
-            {/* POWER REPORT MODAL */}
             <PowerReportModal 
                 isOpen={isPowerReportOpen} 
                 onClose={() => setIsPowerReportOpen(false)} 

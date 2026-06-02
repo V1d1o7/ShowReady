@@ -21,35 +21,36 @@ import LibrarySidebar from '../components/LibrarySidebar';
 import CustomDragLayer from '../components/CustomDragLayer';
 import { useShow } from '../contexts/ShowContext';
 import { useAuth } from '../contexts/AuthContext';
+import { mergeNetworkIpIntoEquipment, upsertRackEquipmentNetworkIp, buildRackLocation, formatNetworkAssignment } from '../utils/networkIpHelpers';
 
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
 const getLayoutedElements = (nodes, edges, direction = 'LR') => {
-  const isHorizontal = direction === 'LR';
-  dagreGraph.setGraph({ rankdir: direction, marginx: 20, marginy: 20 });
+    const isHorizontal = direction === 'LR';
+    dagreGraph.setGraph({ rankdir: direction, marginx: 20, marginy: 20 });
 
-  nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: node.width || 384, height: node.height || 150 });
-  });
+    nodes.forEach((node) => {
+        dagreGraph.setNode(node.id, { width: node.width || 384, height: node.height || 150 });
+    });
 
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
-  });
+    edges.forEach((edge) => {
+        dagreGraph.setEdge(edge.source, edge.target);
+    });
 
-  dagre.layout(dagreGraph);
+    dagre.layout(dagreGraph);
 
-  nodes.forEach((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
-    node.targetPosition = isHorizontal ? 'left' : 'top';
-    node.sourcePosition = isHorizontal ? 'right' : 'bottom';
-    node.position = {
-      x: nodeWithPosition.x - (node.width || 384) / 2,
-      y: nodeWithPosition.y - (node.height || 150) / 2,
-    };
-  });
+    nodes.forEach((node) => {
+        const nodeWithPosition = dagreGraph.node(node.id);
+        node.targetPosition = isHorizontal ? 'left' : 'top';
+        node.sourcePosition = isHorizontal ? 'right' : 'bottom';
+        node.position = {
+            x: nodeWithPosition.x - (node.width || 384) / 2,
+            y: nodeWithPosition.y - (node.height || 150) / 2,
+        };
+    });
 
-  return { nodes, edges };
+    return { nodes, edges };
 };
 
 const nodeTypes = {
@@ -60,15 +61,12 @@ const edgeTypes = {
     custom: CustomEdge,
 };
 
-// ---------------------------------------------------------
-// 1. SWITCH MODULE HARVESTER
-// ---------------------------------------------------------
 const flattenNodePorts = (instance, libraryMap) => {
     if (!instance || !instance.equipment_templates) return [];
-    
+
     let allPorts = [...(instance.equipment_templates.ports || [])];
     const chassisTemplate = instance.equipment_templates;
-    
+
     if (!instance.module_assignments || Object.keys(instance.module_assignments).length === 0) {
         return allPorts;
     }
@@ -109,15 +107,15 @@ const flattenNodePorts = (instance, libraryMap) => {
 
             if (moduleTemplate.ports && Array.isArray(moduleTemplate.ports)) {
                 const modulePorts = moduleTemplate.ports.map(p => {
-                    const deterministicUUID = p.id && p.id.length >= 8 
+                    const deterministicUUID = p.id && p.id.length >= 8
                         ? `${hexPrefix}${p.id.substring(8)}`
                         : `${hexPrefix}-0000-0000-0000-000000000000`;
 
                     return {
                         ...p,
-                        id: deterministicUUID, 
+                        id: deterministicUUID,
                         original_id: p.id,
-                        label: `${currentPrefixName}: ${p.label}`, 
+                        label: `${currentPrefixName}: ${p.label}`,
                         isModule: true
                     };
                 });
@@ -134,9 +132,6 @@ const flattenNodePorts = (instance, libraryMap) => {
     return allPorts;
 };
 
-// ---------------------------------------------------------
-// 2. PATCH PANEL HARVESTERS (1RU & STECK)
-// ---------------------------------------------------------
 const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '') => {
     const harvestedPorts = [];
     if (!instance || !instance.template) {
@@ -146,7 +141,6 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
     const instanceLabel = instance.label || instance.template.name || '';
     const labelParts = [parentLabelPath, instanceLabel].filter(Boolean);
     const baseLabel = labelParts.join(' - ');
-
 
     if (instance.template.ports && instance.template.ports.length > 0) {
         const isSingleGenericPort = instance.template.ports.length === 1 && String(instance.template.ports[0].label).trim() === '1';
@@ -158,11 +152,11 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
             harvestedPorts.push({
                 ...port,
                 pei_id: instance.id,
-                full_label: finalLabel || 'Port' 
+                full_label: finalLabel || 'Port'
             });
         });
-    } 
-    
+    }
+
     let templateSlots = instance.template.panel_slots || instance.template.slots || [];
     if (typeof templateSlots === 'string') {
         try { templateSlots = JSON.parse(templateSlots); } catch (e) { templateSlots = []; }
@@ -171,7 +165,7 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
     if (Array.isArray(templateSlots) && templateSlots.length > 0) {
         templateSlots.forEach((slot, idx) => {
             const robustSlotId = slot.id || `${instance.id}-sub-${idx}`;
-            
+
             const child = allPanelInstances.find(c => {
                 if (String(c.parent_instance_id) !== String(instance.id)) return false;
                 if (slot.id && String(c.slot_id) === String(slot.id)) return true;
@@ -193,8 +187,8 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
         });
 
         const validSlotIds = new Set(templateSlots.flatMap((s, idx) => [String(s.id), String(s.name), String(`${instance.id}-sub-${idx}`)]));
-        const orphanedChildren = allPanelInstances.filter(c => 
-            String(c.parent_instance_id) === String(instance.id) && 
+        const orphanedChildren = allPanelInstances.filter(c =>
+            String(c.parent_instance_id) === String(instance.id) &&
             (!c.slot_id || !validSlotIds.has(String(c.slot_id)))
         );
         orphanedChildren.forEach(child => {
@@ -208,14 +202,14 @@ const harvestPatchPanelPorts = (instance, allPanelInstances, parentLabelPath = '
 const generatePatchPanelPorts = (item, allPanelInstances) => {
     const panelInstances = allPanelInstances.filter(pi => String(pi.panel_instance_id) === String(item.id));
     const topLevelPanelInstances = panelInstances.filter(pi => !pi.parent_instance_id);
-    
+
     let rootSlots = item.equipment_templates.panel_slots || item.equipment_templates.slots || [];
     if (typeof rootSlots === 'string') {
         try { rootSlots = JSON.parse(rootSlots); } catch(e) { rootSlots = []; }
     }
-    
+
     const panelPorts = [];
-    
+
     if (item.equipment_templates.ports && item.equipment_templates.ports.length > 0) {
         item.equipment_templates.ports.forEach(p => {
             panelPorts.push({
@@ -229,12 +223,12 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
     if (Array.isArray(rootSlots)) {
         rootSlots.forEach((slot, idx) => {
             const robustSlotId = slot.id || `${item.id}-slot-${idx}`;
-            const rootInstance = topLevelPanelInstances.find(tpi => 
+            const rootInstance = topLevelPanelInstances.find(tpi =>
                 (slot.id && String(tpi.slot_id) === String(slot.id)) ||
                 (slot.name && String(tpi.slot_id) === String(slot.name)) ||
                 String(tpi.slot_id) === String(robustSlotId)
             );
-            
+
             if (rootInstance) {
                 panelPorts.push(...harvestPatchPanelPorts(rootInstance, panelInstances, ''));
             } else {
@@ -246,16 +240,14 @@ const generatePatchPanelPorts = (item, allPanelInstances) => {
             }
         });
     }
-    
+
     const validSlotIds = new Set(rootSlots.flatMap((s, idx) => [String(s.id), String(s.name), String(`${item.id}-slot-${idx}`)]));
     topLevelPanelInstances.filter(tpi => !tpi.slot_id || !validSlotIds.has(String(tpi.slot_id))).forEach(tpi => {
-        panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, '')); 
+        panelPorts.push(...harvestPatchPanelPorts(tpi, panelInstances, ''));
     });
 
     return panelPorts;
 };
-
-// ---------------------------------------------------------
 
 const createApiGraph = (nodes, edges, pageSize) => {
     const apiNodes = nodes.map(node => {
@@ -289,7 +281,7 @@ const createApiGraph = (nodes, edges, pageSize) => {
             modelNumber: node.data.equipment_templates?.model_number || 'N/A',
             rackName: node.data.rack_name || 'Unracked',
             deviceRu: node.data.ru_position || 0,
-            ipAddress: node.data.ip_address || '',
+            ipAddress: node.data.network_assignment_display || node.data.ip_address || '',
             ports: portsDict,
         };
     });
@@ -309,21 +301,21 @@ const createApiGraph = (nodes, edges, pageSize) => {
 };
 
 const WireDiagramView = () => {
-    const { showId, showData } = useShow();
+    const { showId, showData, networkIps, refreshNetworkIps } = useShow();
     const showName = showData?.info?.show_name;
     const { profile } = useAuth();
     const reactFlowWrapper = useRef(null);
     const searchContainerRef = useRef(null);
+    const networkIpsRef = useRef(networkIps || []);
 
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
-    
-    // Extracted setCenter from useReactFlow to handle camera panning
+
     const { getNodes, getEdges, screenToFlowPosition, getViewport, fitView, setCenter } = useReactFlow();
-    
+
     const [activeTab, setActiveTab] = useState(1);
     const [numTabs, setNumTabs] = useState(1);
     const [unassignedEquipment, setUnassignedEquipment] = useState([]);
@@ -333,19 +325,19 @@ const WireDiagramView = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [editingNode, setEditingNode] = useState(null);
 
-    // Search State
     const [diagramSearchTerm, setDiagramSearchTerm] = useState('');
     const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
-    // Filter nodes for the search dropdown
     const filteredDiagramNodes = useMemo(() => {
         if (!diagramSearchTerm) return [];
         const term = diagramSearchTerm.toLowerCase();
-        // Only search through nodes that have actually been placed on a page
         return getNodes().filter(n => n.data?.page_number && n.data?.label?.toLowerCase().includes(term));
     }, [diagramSearchTerm, getNodes]);
 
-    // Handle clicking outside of the search dropdown to close it
+    useEffect(() => {
+        networkIpsRef.current = networkIps || [];
+    }, [networkIps]);
+
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
@@ -386,8 +378,11 @@ const WireDiagramView = () => {
                 libData.equipment.forEach(eq => templateMap.set(eq.id, eq));
             }
 
-            const allEquipment = detailedRacks.flatMap(rack => 
-                rack.equipment.map(eq => ({ ...eq, rack_name: rack.rack_name }))
+            const allEquipment = detailedRacks.flatMap(rack =>
+                rack.equipment.map(eq => {
+                    const itemWithCanonicalIp = mergeNetworkIpIntoEquipment(eq, networkIpsRef.current || []);
+                    return { ...itemWithCanonicalIp, rack_name: rack.rack_name };
+                })
             );
 
             const connections = connectionsData.connections || [];
@@ -420,7 +415,7 @@ const WireDiagramView = () => {
                     data: { ...enrichedItem, label: item.instance_name },
                 };
             });
-            
+
             setNodes(initialNodes);
 
             const nodePageMap = new Map(placedEquipment.map(eq => [eq.id.toString(), eq.page_number]));
@@ -439,7 +434,7 @@ const WireDiagramView = () => {
                     targetHandle: conn.destination_port_id.startsWith('pei_') ? conn.destination_port_id : `port-in-${conn.destination_port_id}`,
                     animated: true,
                     style: { strokeWidth: 2, stroke: isCrossPage ? '#888' : '#f59e0b' },
-                    data: { 
+                    data: {
                         db_id: conn.id,
                         label: conn.cable_type || '',
                         isCrossPage,
@@ -449,8 +444,8 @@ const WireDiagramView = () => {
                     markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
                 };
             });
-            setEdges(initialEdges);
 
+            setEdges(initialEdges);
         } catch (err) {
             console.error("Failed to fetch wire diagram data:", err);
             setError("Failed to load wire diagram data. Please try again.");
@@ -461,8 +456,7 @@ const WireDiagramView = () => {
         setTimeout(() => {
             if (fitView) fitView({ padding: 0.1 });
         }, 100);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showId, setNodes, setEdges]); 
+    }, [showId, setNodes, setEdges, fitView]);
 
     const fetchUnassignedEquipment = useCallback(async () => {
         if (!showId) return;
@@ -479,8 +473,63 @@ const WireDiagramView = () => {
             fetchData();
             fetchUnassignedEquipment();
         }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showId]);
+    }, [showId, fetchData, fetchUnassignedEquipment]);
+
+    useEffect(() => {
+        if (!networkIps || nodes.length === 0) return;
+
+        setNodes(nds => nds.map(node => {
+            const networkEntry = networkIps.find(ip => ip.entity_type === 'rack_equipment' && ip.entity_id === node.id);
+
+            if (!networkEntry) {
+                if (node.data.ip_address === '' && node.data.network_assignment_display === '' && node.data.network_metadata === null) return node;
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        ip_address: '',
+                        network_assignment_display: '',
+                        network_metadata: null
+                    }
+                };
+            }
+
+            const formattedAssignment = formatNetworkAssignment(networkEntry);
+
+            if (
+                node.data.ip_address === networkEntry.ip_address &&
+                node.data.network_assignment_display === formattedAssignment &&
+                node.data.network_metadata?.id === networkEntry.id
+            ) {
+                return node;
+            }
+
+            return {
+                ...node,
+                data: {
+                    ...node.data,
+                    ip_address: networkEntry.assignment_type === 'trunk' ? '' : networkEntry.ip_address,
+                    network_assignment_display: formattedAssignment,
+                    network_metadata: {
+                        assignment_type: networkEntry.assignment_type || 'single',
+                        ip_end: networkEntry.ip_end,
+                        trunk_mode: networkEntry.trunk_mode,
+                        trunk_vlan_ids: networkEntry.trunk_vlan_ids || [],
+                        trunk_label: networkEntry.trunk_label,
+                        host_octet: networkEntry.host_octet,
+                        mac_address: networkEntry.mac_address,
+                        department: networkEntry.department,
+                        location: networkEntry.location,
+                        status: networkEntry.status,
+                        notes: networkEntry.notes,
+                        vlan_id: networkEntry.vlan_id,
+                        id: networkEntry.id
+                    }
+                }
+            };
+        }));
+    }, [networkIps, nodes.length, setNodes]);
 
     useEffect(() => {
         setNodes(nds =>
@@ -516,11 +565,11 @@ const WireDiagramView = () => {
                     const allNodes = getNodes();
                     const nodePageMap = new Map(allNodes.map(n => [n.id, n.data.page_number]));
                     nodePageMap.set(justDroppedNode.id, justDroppedNode.data.page_number);
-                    
+
                     const newEdges = connections.map(conn => {
                         const sourcePage = nodePageMap.get(conn.source_device_id.toString());
                         const targetPage = nodePageMap.get(conn.destination_device_id.toString());
-                        
+
                         if (sourcePage === undefined || targetPage === undefined) {
                             return null;
                         }
@@ -546,7 +595,7 @@ const WireDiagramView = () => {
                             markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
                             hidden: sourcePage !== activeTab,
                         };
-                    }).filter(Boolean); 
+                    }).filter(Boolean);
 
                     setEdges(eds => {
                         const existingEdgeIds = new Set(eds.map(e => e.id));
@@ -557,7 +606,7 @@ const WireDiagramView = () => {
             } catch (err) {
                 console.error("Failed to finalize dropped node:", err);
             } finally {
-                setJustDroppedNode(null); 
+                setJustDroppedNode(null);
             }
         };
 
@@ -566,7 +615,7 @@ const WireDiagramView = () => {
 
     const onConnect = useCallback(async (params) => {
         const { source, sourceHandle, target, targetHandle } = params;
-        
+
         if (!sourceHandle || !targetHandle) {
             console.warn("⚠️ Missing handle IDs. Cannot connect.");
             return;
@@ -596,9 +645,10 @@ const WireDiagramView = () => {
                 const innerPortIdWithSide = parts[1];
                 const lastUnderscoreIndex = innerPortIdWithSide.lastIndexOf('_');
                 const innerPortId = innerPortIdWithSide.substring(0, lastUnderscoreIndex);
-                
+
                 return ports.find(p => String(p.id) === String(innerPortId));
             }
+
             return ports.find(p => String(p.id) === String(portId));
         };
 
@@ -640,7 +690,7 @@ const WireDiagramView = () => {
                 targetHandle: targetHandle,
                 animated: true,
                 style: { strokeWidth: 2, stroke: isCrossPage ? '#888' : '#f59e0b' },
-                data: { 
+                data: {
                     db_id: newConnection.id,
                     label: newConnection.cable_type || '',
                     isCrossPage,
@@ -649,7 +699,7 @@ const WireDiagramView = () => {
                 },
                 markerEnd: { type: 'arrowclosed', color: '#f59e0b' },
             };
-            
+
             setEdges((eds) => eds.concat(newEdge));
         } catch (err) {
             toast.error(`Error creating connection: ${err.message}`);
@@ -679,10 +729,32 @@ const WireDiagramView = () => {
 
     const handleUpdateNode = async (updatedData) => {
         if (!editingNode) return;
-        
+
         try {
-            const updatedInstance = await api.updateEquipmentInstance(editingNode.id, updatedData);
-            
+            const { ip_address, ...nonIpData } = updatedData;
+
+            let updatedInstance = await api.updateEquipmentInstance(editingNode.id, nonIpData);
+
+            if (ip_address !== undefined) {
+                try {
+                    await upsertRackEquipmentNetworkIp({
+                        api,
+                        showId,
+                        entityId: editingNode.id,
+                        ipAddress: ip_address,
+                        location: buildRackLocation(editingNode.data.rack_name, updatedInstance.ru_position)
+                    });
+
+                    updatedInstance = await api.updateEquipmentInstance(editingNode.id, { ip_address: ip_address || null });
+
+                    if (refreshNetworkIps) await refreshNetworkIps();
+                } catch (syncErr) {
+                    console.error("Wire Diagram IP sync failed", syncErr);
+                    toast.error(`IP sync failed: ${syncErr.message}`);
+                    return;
+                }
+            }
+
             const templateMap = new Map();
             if (libraryData && libraryData.equipment) {
                 libraryData.equipment.forEach(eq => templateMap.set(eq.id, eq));
@@ -695,9 +767,10 @@ const WireDiagramView = () => {
             } else {
                 flattenedPorts = flattenNodePorts(updatedInstance, templateMap);
             }
-            
+
             const enrichedItem = {
                 ...updatedInstance,
+                ip_address: ip_address !== undefined ? ip_address : updatedInstance.ip_address,
                 equipment_templates: {
                     ...updatedInstance.equipment_templates,
                     ports: flattenedPorts
@@ -719,6 +792,7 @@ const WireDiagramView = () => {
                     return n;
                 })
             );
+
             handleCloseEditModal();
         } catch (err) {
             toast.error(`Error: ${err.message}`);
@@ -755,15 +829,15 @@ const WireDiagramView = () => {
                     page_number: activeTab,
                 };
                 const newInstance = await api.createEquipmentInstance(newInstanceData);
-                
+
                 const newNode = {
                     id: newInstance.id.toString(),
                     type: 'device',
                     position,
-                    data: { ...newInstance, label: newInstance.instance_name, page_number: activeTab },
+                    data: { ...newInstance, label: newInstance.instance_name, page_number: activeTab, rack_name: 'Unracked' },
                     hidden: false,
                 };
-                
+
                 setNodes((nds) => nds.concat(newNode));
                 setJustDroppedNode(newNode);
             } catch (err) {
@@ -792,7 +866,7 @@ const WireDiagramView = () => {
                 toast.error("Failed to save equipment position. It has been returned to the library.");
             });
         }
-    }, [activeTab, screenToFlowPosition, showId, setNodes, setUnassignedEquipment, setJustDroppedNode, setDraggingItem]);
+    }, [activeTab, screenToFlowPosition, showId, setNodes, setUnassignedEquipment, setJustDroppedNode]);
 
     const onEdgesChangeCustom = useCallback((changes) => {
         for (const change of changes) {
@@ -816,12 +890,14 @@ const WireDiagramView = () => {
             if (change.type === 'remove') {
                 const nodeId = change.id;
                 const connectedEdges = currentEdges.filter(e => e.source === nodeId || e.target === nodeId);
+
                 if (connectedEdges.length > 0) {
                     const deletionPromises = connectedEdges.map(edge => api.deleteConnection(edge.data.db_id));
                     Promise.all(deletionPromises).catch(err => {
                         console.error("Failed to delete one or more connections for node:", nodeId, err);
                     });
                 }
+
                 api.updateEquipmentInstance(nodeId, {
                     page_number: null,
                     x_pos: null,
@@ -829,12 +905,14 @@ const WireDiagramView = () => {
                 }).catch(err => {
                     console.error("Failed to unassign equipment:", nodeId, err);
                 });
+
                 const nodeToRemove = currentNodes.find(n => n.id === nodeId);
                 if (nodeToRemove) {
                     setUnassignedEquipment(current => [...current, nodeToRemove.data]);
                 }
             }
         }
+
         onNodesChange(changes);
     }, [onNodesChange, getEdges, getNodes, setUnassignedEquipment]);
 
@@ -842,6 +920,7 @@ const WireDiagramView = () => {
         const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(getNodes(), getEdges());
         setNodes([...layoutedNodes]);
         setEdges([...layoutedEdges]);
+
         layoutedNodes.forEach(node => {
             api.updateEquipmentInstance(node.id, {
                 x_pos: Math.round(node.position.x),
@@ -856,7 +935,6 @@ const WireDiagramView = () => {
             const edges = getEdges();
             const apiGraph = createApiGraph(nodes, edges, pageSize);
 
-            // Format names natively from JSON data
             const formatName = (prefix) => {
                 const first = showData.info?.[`${prefix}_first_name`] || '';
                 const last = showData.info?.[`${prefix}_last_name`] || '';
@@ -891,36 +969,31 @@ const WireDiagramView = () => {
         }
     };
 
-    // --- Search & Pan Logic ---
     const handleSearchSelect = (node) => {
         setDiagramSearchTerm('');
         setShowSearchDropdown(false);
 
         const targetPage = node.data.page_number;
-        
-        // 1. Switch Tabs if needed
+
         if (activeTab !== targetPage) {
             setActiveTab(targetPage);
         }
 
-        // 2. Mark this node as highlighted, and turn off highlights for everything else
         setNodes(nds => nds.map(n => ({
             ...n,
             data: { ...n.data, highlighted: n.id === node.id }
         })));
 
-        // 3. Pan Camera (Wait slightly for the DOM/nodes to render if a tab switch happened)
         setTimeout(() => {
             const width = node.width || 384;
             const height = node.height || 150;
             const x = node.position.x + width / 2;
             const y = node.position.y + height / 2;
-            
+
             setCenter(x, y, { zoom: 1.2, duration: 800 });
-        }, 150); 
+        }, 150);
     };
 
-    // Clear highlight when clicking the background canvas
     const handlePaneClick = useCallback(() => {
         setNodes(nds => nds.map(n => {
             if (n.data.highlighted) {
@@ -967,9 +1040,8 @@ const WireDiagramView = () => {
                             <Plus size={16} />
                         </button>
                     </div>
+
                     <div className="flex gap-2 items-center" ref={searchContainerRef}>
-                        
-                        {/* Search Bar for Diagram */}
                         <div className="relative mr-2">
                             <div className="flex items-center bg-gray-900 rounded-lg px-3 py-1.5 border border-gray-600 focus-within:border-amber-500 transition-colors">
                                 <Search size={16} className="text-gray-400 mr-2" />
@@ -985,8 +1057,7 @@ const WireDiagramView = () => {
                                     className="bg-transparent text-sm text-white focus:outline-none w-48"
                                 />
                             </div>
-                            
-                            {/* Search Dropdown */}
+
                             {showSearchDropdown && diagramSearchTerm && (
                                 <div className="absolute top-full mt-2 right-0 w-64 max-h-60 overflow-y-auto bg-gray-800 border border-gray-600 rounded-lg shadow-2xl z-50">
                                     {filteredDiagramNodes.length > 0 ? (
@@ -1016,13 +1087,16 @@ const WireDiagramView = () => {
                         </button>
                     </div>
                 </div>
+
                 <WireDiagramPdfModal isOpen={isPdfModalOpen} onClose={() => setIsPdfModalOpen(false)} onGenerate={handleGeneratePdf} />
+
                 <EditInstanceModal
                     isOpen={isEditModalOpen}
                     onClose={handleCloseEditModal}
                     onSubmit={handleUpdateNode}
                     item={editingNode?.data}
                 />
+
                 <div className="flex-grow relative" ref={reactFlowWrapper}>
                     <ReactFlow
                         nodes={nodes}
@@ -1035,7 +1109,7 @@ const WireDiagramView = () => {
                         onNodeDoubleClick={handleNodeDoubleClick}
                         onDrop={onDrop}
                         onDragOver={onDragOver}
-                        onPaneClick={handlePaneClick} // Clear highlight on click
+                        onPaneClick={handlePaneClick}
                         nodeTypes={nodeTypes}
                         edgeTypes={edgeTypes}
                         deleteKeyCode={['Backspace', 'Delete']}
