@@ -315,6 +315,7 @@ const WireDiagramView = () => {
     const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
     const { getNodes, getEdges, screenToFlowPosition, getViewport, fitView, setCenter } = useReactFlow();
+    const fitViewRef = useRef(fitView);
 
     const [activeTab, setActiveTab] = useState(1);
     const [numTabs, setNumTabs] = useState(1);
@@ -339,6 +340,10 @@ const WireDiagramView = () => {
     }, [networkIps]);
 
     useEffect(() => {
+        fitViewRef.current = fitView;
+    }, [fitView]);
+
+    useEffect(() => {
         const handleClickOutside = (event) => {
             if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
                 setShowSearchDropdown(false);
@@ -348,7 +353,7 @@ const WireDiagramView = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const onDragStart = (event, equipment) => {
+    const onDragStart = useCallback((event, equipment) => {
         const { zoom } = getViewport();
         const equipmentWithZoom = { ...equipment, zoom };
         event.dataTransfer.setData('application/reactflow', JSON.stringify(equipment));
@@ -357,7 +362,7 @@ const WireDiagramView = () => {
         img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         event.dataTransfer.setDragImage(img, 0, 0);
         setDraggingItem(equipmentWithZoom);
-    };
+    }, [getViewport]);
 
     const fetchData = useCallback(async () => {
         if (!showId) return;
@@ -454,9 +459,9 @@ const WireDiagramView = () => {
         }
 
         setTimeout(() => {
-            if (fitView) fitView({ padding: 0.1 });
+            if (fitViewRef.current) fitViewRef.current({ padding: 0.1 });
         }, 100);
-    }, [showId, setNodes, setEdges, fitView]);
+    }, [showId, setNodes, setEdges]);
 
     const fetchUnassignedEquipment = useCallback(async () => {
         if (!showId) return;
