@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict a9eOkB6mW7ObapavllMYRpVw65X18YOMZfBaLVDFq35oCkpT39dhqdSwq4VQp2a
+\restrict 5Rofiy609QflEawRQAWHGlpqdcoLMsgCTcXqkr8zAwqrj6YpU8Yd21HSzmgiFUb
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -270,6 +270,34 @@ CREATE TYPE auth.one_time_token_type AS ENUM (
 
 
 ALTER TYPE auth.one_time_token_type OWNER TO supabase_auth_admin;
+
+--
+-- Name: network_entity_type; Type: TYPE; Schema: public; Owner: postgres
+--
+
+CREATE TYPE public.network_entity_type AS ENUM (
+    'rack_equipment',
+    'wire_diagram',
+    'manual',
+    'reservation'
+);
+
+
+ALTER TYPE public.network_entity_type OWNER TO postgres;
+
+--
+-- Name: network_ip_status; Type: TYPE; Schema: public; Owner: postgres
+--
+
+CREATE TYPE public.network_ip_status AS ENUM (
+    'assigned',
+    'reserved',
+    'conflict',
+    'offline'
+);
+
+
+ALTER TYPE public.network_ip_status OWNER TO postgres;
 
 --
 -- Name: action; Type: TYPE; Schema: realtime; Owner: supabase_admin
@@ -1214,8 +1242,8 @@ CREATE FUNCTION public.update_updated_at_column() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-   NEW.updated_at = now();
-   RETURN NEW;
+    NEW.updated_at = now();
+    RETURN NEW;
 END;
 $$;
 
@@ -3831,6 +3859,32 @@ CREATE TABLE public.looms (
 ALTER TABLE public.looms OWNER TO postgres;
 
 --
+-- Name: network_ip_entries; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.network_ip_entries (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    show_id bigint NOT NULL,
+    vlan_id uuid,
+    entity_type public.network_entity_type NOT NULL,
+    entity_id uuid,
+    ip_address inet,
+    ip_end inet,
+    mac_address text,
+    hostname text,
+    department text,
+    location text,
+    status public.network_ip_status DEFAULT 'assigned'::public.network_ip_status NOT NULL,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT check_ip_range CHECK (((ip_end IS NULL) OR (ip_end >= ip_address)))
+);
+
+
+ALTER TABLE public.network_ip_entries OWNER TO postgres;
+
+--
 -- Name: notes; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -4984,6 +5038,14 @@ ALTER TABLE ONLY public.looms
 
 
 --
+-- Name: network_ip_entries network_ip_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.network_ip_entries
+    ADD CONSTRAINT network_ip_entries_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: notes notes_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5253,6 +5315,14 @@ ALTER TABLE ONLY public.user_smtp_settings
 
 ALTER TABLE ONLY public.user_smtp_settings
     ADD CONSTRAINT user_smtp_settings_user_id_key UNIQUE (user_id);
+
+
+--
+-- Name: vlans vlans_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.vlans
+    ADD CONSTRAINT vlans_pkey PRIMARY KEY (id);
 
 
 --
@@ -5781,6 +5851,34 @@ CREATE INDEX audit_log_target_id_idx ON public.audit_log USING btree (target_id)
 
 
 --
+-- Name: idx_network_ip_entries_entity; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_network_ip_entries_entity ON public.network_ip_entries USING btree (entity_type, entity_id);
+
+
+--
+-- Name: idx_network_ip_entries_ip_address; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_network_ip_entries_ip_address ON public.network_ip_entries USING btree (ip_address);
+
+
+--
+-- Name: idx_network_ip_entries_show_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_network_ip_entries_show_id ON public.network_ip_entries USING btree (show_id);
+
+
+--
+-- Name: idx_network_ip_entries_vlan_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_network_ip_entries_vlan_id ON public.network_ip_entries USING btree (vlan_id);
+
+
+--
 -- Name: idx_rack_equipment_parent_item_id; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5890,6 +5988,13 @@ CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXEC
 --
 
 CREATE TRIGGER on_show_created AFTER INSERT ON public.shows FOR EACH ROW EXECUTE FUNCTION public.handle_new_show();
+
+
+--
+-- Name: network_ip_entries update_network_ip_entries_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER update_network_ip_entries_updated_at BEFORE UPDATE ON public.network_ip_entries FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 
 --
@@ -6196,6 +6301,14 @@ ALTER TABLE ONLY public.looms
 
 ALTER TABLE ONLY public.looms
     ADD CONSTRAINT looms_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: network_ip_entries network_ip_entries_show_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.network_ip_entries
+    ADD CONSTRAINT network_ip_entries_show_id_fkey FOREIGN KEY (show_id) REFERENCES public.shows(id) ON DELETE CASCADE;
 
 
 --
@@ -6882,6 +6995,17 @@ CREATE POLICY "Allow read access to all" ON public.label_stocks FOR SELECT USING
 
 
 --
+-- Name: network_ip_entries Allow read access to show network IPs; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow read access to show network IPs" ON public.network_ip_entries FOR SELECT USING (((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = network_ip_entries.show_id) AND (s.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
+   FROM public.show_collaborators sc
+  WHERE ((sc.show_id = network_ip_entries.show_id) AND (sc.user_id = auth.uid()))))));
+
+
+--
 -- Name: equipment_templates Allow users to delete their own equipment templates; Type: POLICY; Schema: public; Owner: postgres
 --
 
@@ -7005,6 +7129,17 @@ CREATE POLICY "Allow viewing roster members on shared shows" ON public.roster FO
   WHERE ((sc.roster_id = roster.id) AND ((EXISTS ( SELECT 1
            FROM public.shows
           WHERE ((shows.id = sc.show_id) AND (shows.user_id = auth.uid())))) OR public.is_show_editor_or_owner(sc.show_id)))))));
+
+
+--
+-- Name: network_ip_entries Allow write access to show network IPs; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY "Allow write access to show network IPs" ON public.network_ip_entries USING (((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = network_ip_entries.show_id) AND (s.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
+   FROM public.show_collaborators sc
+  WHERE ((sc.show_id = network_ip_entries.show_id) AND (sc.user_id = auth.uid()) AND (sc.role = ANY (ARRAY['owner'::text, 'editor'::text])))))));
 
 
 --
@@ -7206,6 +7341,12 @@ ALTER TABLE public.label_templates ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE public.looms ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: network_ip_entries; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.network_ip_entries ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: notes; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -8697,6 +8838,15 @@ GRANT ALL ON TABLE public.looms TO supabase_admin;
 
 
 --
+-- Name: TABLE network_ip_entries; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.network_ip_entries TO anon;
+GRANT ALL ON TABLE public.network_ip_entries TO authenticated;
+GRANT ALL ON TABLE public.network_ip_entries TO service_role;
+
+
+--
 -- Name: TABLE notes; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -9387,5 +9537,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict a9eOkB6mW7ObapavllMYRpVw65X18YOMZfBaLVDFq35oCkpT39dhqdSwq4VQp2a
+\unrestrict 5Rofiy609QflEawRQAWHGlpqdcoLMsgCTcXqkr8zAwqrj6YpU8Yd21HSzmgiFUb
 
