@@ -46,6 +46,7 @@ import TemplateManager from './views/settings/TemplateManager';
 import ShowTeamView from './views/ShowTeamView';
 import LabelTemplateListView from './views/library/LabelTemplateListView';
 import LabelTemplateBuilder from './views/settings/LabelTemplateBuilder';
+import NetworkIpsView from './views/NetworkIpsView';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -180,6 +181,7 @@ const MainLayout = ({ session }) => {
                                                 <Route path="wirediagram" element={<ProtectedRoute feature="wire_diagram"><WireDiagramView /></ProtectedRoute>} />
                                                 <Route path="loombuilder" element={<ProtectedRoute feature="loom_builder"><LoomBuilderView /></ProtectedRoute>} />
                                                 <Route path="vlan" element={<ProtectedRoute feature="vlan_management"><VLANView /></ProtectedRoute>} />
+                                                <Route path="networkips" element={<ProtectedRoute feature="networking_ips"><NetworkIpsView /></ProtectedRoute>} />
                                                 <Route path="panelbuilder" element={<ProtectedRoute feature="panel_builder"><PanelBuilderView /></ProtectedRoute>} />
                                                 <Route path="team" element={<ProtectedRoute feature="show_collaboration"><ShowTeamView /></ProtectedRoute>} />
                                             </Route>

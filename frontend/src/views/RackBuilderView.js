@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
 import { Plus, HardDrive, PanelLeftOpen } from 'lucide-react';
@@ -282,6 +283,29 @@ const RackBuilderView = () => {
     const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
         try {
             const updatedInstance = await api.updateEquipmentInstance(instanceId, updatedData);
+            
+            // Rack Builder -> IP Manager sync
+            if (updatedData.ip_address !== undefined) {
+                try {
+                    let locationStr = null;
+                    if (activeRack && activeRack.rack_name) {
+                        const ruPos = updatedData.ru_position || updatedInstance.ru_position;
+                        if (ruPos) locationStr = `${activeRack.rack_name}.${ruPos}`;
+                    }
+
+                    await api.syncNetworkIpEntity(showId, {
+                        entity_type: 'rack_equipment',
+                        entity_id: instanceId,
+                        ip_address: updatedData.ip_address || null,
+                        location: locationStr
+                        // Department and MAC Address omitted to avoid overwriting existing
+                    });
+                } catch (syncErr) {
+                    console.error("Failed to sync IP entry from Rack Builder:", syncErr);
+                    toast.error(`Equipment updated, but IP sync failed: ${syncErr.message}`);
+                }
+            }
+
             setActiveRack(currentRack => ({
                 ...currentRack,
                 equipment: currentRack.equipment.map(item =>
@@ -334,6 +358,16 @@ const RackBuilderView = () => {
             onConfirm: async () => {
                 try {
                     await api.deleteEquipmentFromRack(instanceId);
+                    
+                    // Sync nulls to clear network IP entry
+                    api.syncNetworkIpEntity(showId, {
+                        entity_type: "rack_equipment",
+                        entity_id: instanceId,
+                        ip_address: null,
+                        department: null,
+                        location: null
+                    }).catch(err => console.error("Failed to clear IP on delete", err));
+
                     setActiveRack(currentRack => ({
                         ...currentRack,
                         equipment: currentRack.equipment.filter(item => item.id !== instanceId)
@@ -583,6 +617,17 @@ const RackBuilderView = () => {
                             item.id === movedItemId ? finalInstance : item
                         )
                     }));
+
+                    // Sync location changes only for equipment that actually has an IP.
+                    // Do not create empty IP Manager rows just because a template supports IPs.
+                    if (finalInstance.ip_address) {
+                        api.syncNetworkIpEntity(showId, {
+                            entity_type: 'rack_equipment',
+                            entity_id: movedItemId,
+                            ip_address: finalInstance.ip_address,
+                            location: `${activeRack.rack_name}.${finalInstance.ru_position}`
+                        }).catch(err => console.error("Failed to sync IP location after move", err));
+                    }
                 })
                 .catch(err => {
                     toast.error(`Failed to save move: ${err.message}`);

@@ -213,8 +213,6 @@ export const api = {
         headers: await getAuthHeader(), 
         body: JSON.stringify(payload) 
     }).then(handleResponse),
-    
-    // exportRacksListPdf: async (showId) => fetch(`/api/shows/${showId}/racks/export-list`, { headers: await getAuthHeader() }).then(handleResponse),
 
     // --- User Panel Builder ---
     getPanelFolders: async () => fetch('/api/panels/folders', { headers: await getAuthHeader() }).then(handleResponse),
@@ -454,6 +452,13 @@ export const api = {
         headers: await getAuthHeader(), 
         body: JSON.stringify(payload), 
     }).then(handleResponse),
+
+    // --- Network IPs ---
+    getNetworkIps: async (showId) => fetch(`/api/v1/shows/${showId}/network/ips`, { headers: await getAuthHeader() }).then(handleResponse),
+    createNetworkIp: async (showId, payload) => fetch(`/api/v1/shows/${showId}/network/ips`, { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(payload) }).then(handleResponse),
+    updateNetworkIp: async (showId, ipId, payload) => fetch(`/api/v1/shows/${showId}/network/ips/${ipId}`, { method: 'PUT', headers: await getAuthHeader(), body: JSON.stringify(payload) }).then(handleResponse),
+    deleteNetworkIp: async (showId, ipId) => fetch(`/api/v1/shows/${showId}/network/ips/${ipId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
+    syncNetworkIpEntity: async (showId, payload) => fetch(`/api/v1/shows/${showId}/network/ips/sync-entity`, { method: 'POST', headers: await getAuthHeader(), body: JSON.stringify(payload) }).then(handleResponse),
 
     // --- Admin Metrics ---
     getMetrics: async () => fetch('/api/admin/metrics', { headers: await getAuthHeader() }).then(handleResponse),
