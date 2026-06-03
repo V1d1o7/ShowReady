@@ -158,15 +158,37 @@ async def grim_reaper_task():
     beta_entitlements_res = (
         supabase_admin
         .table("user_entitlements")
-        .select("user_id")
+        .select("user_id, is_beta, is_founding")
         .eq("is_beta", True)
         .execute()
     )
+
     beta_user_ids = {
         item["user_id"]
         for item in (beta_entitlements_res.data or [])
-        if item.get("user_id")
+        if item.get("user_id") and item.get("is_beta") is True and item.get("is_founding") is not True
     }
+
+    founding_beta_user_ids = {
+        item["user_id"]
+        for item in (beta_entitlements_res.data or [])
+        if item.get("user_id") and item.get("is_beta") is True and item.get("is_founding") is True
+    }
+
+    if founding_beta_user_ids:
+        print(
+            "Skipping Grim Reaper inactivity checks for founding beta users: "
+            f"{len(founding_beta_user_ids)} exempt user(s)."
+        )
+
+        # If a founding member was previously warned before being marked founding,
+        # clear the warning flag so they do not keep stale warning state forever.
+        try:
+            supabase_admin.table("profiles").update({
+                "inactivity_warning_sent": False,
+            }).in_("id", list(founding_beta_user_ids)).execute()
+        except Exception as e:
+            print(f"Warning: failed to clear stale inactivity warnings for founding users: {e}")
 
     admin_user_ids_res = (
         supabase_admin

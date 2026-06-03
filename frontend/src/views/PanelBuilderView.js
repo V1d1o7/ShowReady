@@ -36,9 +36,119 @@ const isSlotMatch = (instanceSlotId, slot, index) => {
     return false;
 };
 
+const addPanelInstanceToTree = (instances, newInstance, parentInstanceId = null) => {
+    if (!parentInstanceId) {
+        return [...instances, { ...newInstance, children: newInstance.children || [] }];
+    }
+
+    return instances.map(instance => {
+        if (String(instance.id) === String(parentInstanceId)) {
+            return {
+                ...instance,
+                children: [
+                    ...(instance.children || []),
+                    { ...newInstance, children: newInstance.children || [] },
+                ],
+            };
+        }
+
+        if (instance.children && instance.children.length > 0) {
+            return {
+                ...instance,
+                children: addPanelInstanceToTree(instance.children, newInstance, parentInstanceId),
+            };
+        }
+
+        return instance;
+    });
+};
+
+const removePanelInstanceFromTree = (instances, instanceId) => {
+    return instances
+        .filter(instance => String(instance.id) !== String(instanceId))
+        .map(instance => ({
+            ...instance,
+            children: instance.children
+                ? removePanelInstanceFromTree(instance.children, instanceId)
+                : [],
+        }));
+};
+
+const updatePanelInstanceInTree = (instances, updatedInstance) => {
+    return instances.map(instance => {
+        if (String(instance.id) === String(updatedInstance.id)) {
+            return {
+                ...instance,
+                ...updatedInstance,
+                children: instance.children || updatedInstance.children || [],
+            };
+        }
+
+        if (instance.children && instance.children.length > 0) {
+            return {
+                ...instance,
+                children: updatePanelInstanceInTree(instance.children, updatedInstance),
+            };
+        }
+
+        return instance;
+    });
+};
+
+const checkIsDHoleType = (acceptedModuleType, slotName) => {
+    const a = (acceptedModuleType || "").trim().toLowerCase();
+    const n = (slotName || "").trim().toLowerCase();
+
+    return (
+        a.includes('d-hole') ||
+        a.includes('d_hole') ||
+        a.includes('dhole') ||
+        a.includes('d-series') ||
+        a === 'd' ||
+        n.includes('d-hole') ||
+        n.includes('d_hole') ||
+        n.includes('d hole') ||
+        n.includes('dhole') ||
+        n.includes('d-series')
+    );
+};
+
+const getModuleSlotGrid = (template) => {
+    const slots = template.panel_slots || [];
+    const slotCount = slots.length;
+
+    const isDholeSteckPlate = slotCount > 0 && slots.every(slot =>
+        checkIsDHoleType(slot.accepted_module_type, slot.name)
+    );
+
+    if (isDholeSteckPlate) {
+        if (slotCount === 1) return { gridCols: 1, gridRows: 1 };
+        if (slotCount === 2) return { gridCols: 2, gridRows: 1 };
+        if (slotCount === 3) return { gridCols: 3, gridRows: 1 };
+        if (slotCount === 4) return { gridCols: 2, gridRows: 2 };
+        if (slotCount === 6) return { gridCols: 3, gridRows: 2 };
+
+        return {
+            gridCols: 3,
+            gridRows: Math.ceil(slotCount / 3),
+        };
+    }
+
+    if (slotCount <= 2) {
+        return {
+            gridCols: 1,
+            gridRows: slotCount,
+        };
+    }
+
+    return {
+        gridCols: 2,
+        gridRows: Math.ceil(slotCount / 2),
+    };
+};
+
 const PanelBuilderView = () => {
-    const { showId, isLoading: isShowLoading } = useShow();
-    const [racks, setRacks] = useState([]);
+    const { showId, isLoading: isShowLoading, racks: showRacks = [] } = useShow();
     const [selectedPanel, setSelectedPanel] = useState(null);
     const [peLibrary, setPeLibrary] = useState({ folders: [], templates: [] });
     const [panelInstances, setPanelInstances] = useState([]);
@@ -94,22 +204,21 @@ const PanelBuilderView = () => {
     });
 
     const fetchData = useCallback(async () => {
-        if (!showId) return;
         setIsLoading(true);
+
         try {
-            const [folders, templates, detailedRacks] = await Promise.all([
+            const [folders, templates] = await Promise.all([
                 api.getPanelFolders(),
                 api.getPanelTemplates(),
-                api.getDetailedRacksForShow(showId)
             ]);
+
             setPeLibrary({ folders, templates });
-            setRacks(detailedRacks || []);
         } catch (error) {
-            toast.error("Failed to load Panel Builder data.");
+            toast.error("Failed to load Panel Builder library.");
         } finally {
             setIsLoading(false);
         }
-    }, [showId]);
+    }, []);
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -131,18 +240,29 @@ const PanelBuilderView = () => {
 
     const showPanels = useMemo(() => {
         const panels = [];
-        (racks || []).forEach(rack => {
+
+        (showRacks || []).forEach(rack => {
             (rack.equipment || []).forEach(instance => {
                 if (instance.equipment_templates?.is_patch_panel) {
                     panels.push({
                         ...instance,
-                        rack_name: rack.rack_name
+                        rack_name: rack.rack_name,
                     });
                 }
             });
         });
+
         return panels;
-    }, [racks]);
+    }, [showRacks]);
+
+    useEffect(() => {
+    if (!selectedPanel) return;
+
+    const refreshedPanel = showPanels.find(panel => String(panel.id) === String(selectedPanel.id));
+    if (refreshedPanel && refreshedPanel !== selectedPanel) {
+        setSelectedPanel(refreshedPanel);
+    }
+}, [showPanels, selectedPanel]);
 
     const handleCreateFolder = async (folderName) => {
         try {
@@ -228,19 +348,22 @@ const PanelBuilderView = () => {
 
     const handleDragEnd = async (event) => {
         setActiveDragItem(null);
+
         const { active, over } = event;
         if (!over || !selectedPanel) return;
 
         const template = active.data.current.item;
         const slot = over.data.current.slot;
 
+        if (!template || !slot) return;
+
         const requiredType = (slot.accepted_module_type || "").trim().toLowerCase();
         const providedType = (template.slot_type || "").trim().toLowerCase();
 
         if (requiredType && providedType && !requiredType.includes(providedType) && !providedType.includes(requiredType)) {
-            const reqIsDhole = requiredType.includes('d-hole') || requiredType.includes('d_hole') || requiredType.includes('dhole') || requiredType.includes('d-series') || requiredType === 'd';
-            const provIsDhole = providedType.includes('d-hole') || providedType.includes('d_hole') || providedType.includes('dhole') || providedType.includes('d-series') || providedType === 'd';
-            
+            const reqIsDhole = checkIsDHoleType(requiredType, slot.name);
+            const provIsDhole = checkIsDHoleType(providedType, template.name || template.model_number);
+
             if (!(reqIsDhole && provIsDhole)) {
                 toast.error(`Compatibility error: This slot requires '${slot.accepted_module_type}'.`);
                 return;
@@ -250,16 +373,18 @@ const PanelBuilderView = () => {
         try {
             const parentInstanceId = slot.parent_instance_id || null;
 
-            await api.createPanelInstance({
+            const createdInstance = await api.createPanelInstance({
                 panel_instance_id: selectedPanel.id,
                 template_id: template.id,
                 parent_instance_id: parentInstanceId,
-                slot_id: slot.id, 
-                label: ''
+                slot_id: slot.id,
+                label: '',
             });
 
-            const instances = await api.getPanelInstances(selectedPanel.id);
-            setPanelInstances(instances);
+            setPanelInstances(current =>
+                addPanelInstanceToTree(current, createdInstance, parentInstanceId)
+            );
+
             toast.success(`${template.name} mounted.`);
         } catch (error) {
             toast.error(`Mount failed: ${error.message}`);
@@ -267,13 +392,16 @@ const PanelBuilderView = () => {
     };
 
     const handleRemoveInstance = async (instanceId) => {
+        const previousInstances = panelInstances;
+
+        setPanelInstances(current => removePanelInstanceFromTree(current, instanceId));
+        if (selectedItemId === instanceId) setSelectedItemId(null);
+
         try {
             await api.deletePanelInstance(instanceId);
-            const instances = await api.getPanelInstances(selectedPanel.id);
-            setPanelInstances(instances);
-            if (selectedItemId === instanceId) setSelectedItemId(null);
             toast.success("Removed from panel.");
         } catch (error) {
+            setPanelInstances(previousInstances);
             toast.error("Failed to remove item.");
         }
     };
@@ -284,13 +412,29 @@ const PanelBuilderView = () => {
     };
 
     const handleSaveLabel = async (label) => {
+        if (!editingInstance) return;
+
+        const previousInstances = panelInstances;
+
+        setPanelInstances(current =>
+            updatePanelInstanceInTree(current, {
+                ...editingInstance,
+                label,
+            })
+        );
+
+        setIsLabelModalOpen(false);
+
         try {
-            await api.updatePanelInstance(editingInstance.id, { label });
-            const instances = await api.getPanelInstances(selectedPanel.id);
-            setPanelInstances(instances);
-            setIsLabelModalOpen(false);
+            const updatedInstance = await api.updatePanelInstance(editingInstance.id, { label });
+
+            setPanelInstances(current =>
+                updatePanelInstanceInTree(current, updatedInstance)
+            );
+
             toast.success("Label updated.");
         } catch (error) {
+            setPanelInstances(previousInstances);
             toast.error("Failed to update label.");
         }
     };
@@ -308,185 +452,195 @@ const PanelBuilderView = () => {
         }
     };
 
-    const checkIsDHole = (acceptedModuleType, slotName) => {
-        const a = (acceptedModuleType || "").trim().toLowerCase();
-        const n = (slotName || "").trim().toLowerCase();
-        return a.includes('d-hole') || a.includes('d_hole') || a.includes('dhole') || a.includes('d-series') || a === 'd' ||
-               n.includes('d-hole') || n.includes('d_hole') || n.includes('d hole');
-    };
+    const checkIsDHole = checkIsDHoleType;
 
     const renderPEInstance = (instance, slot, labelPlacement = 'top') => {
-        const template = instance.template;
-        if (!template) return null;
+    const template = instance.template;
+    if (!template) return null;
 
-        const isConnector = !template.panel_slots || template.panel_slots.length === 0;
+    const isConnector = !template.panel_slots || template.panel_slots.length === 0;
 
-        if (isConnector) {
-            const isTop = labelPlacement === 'top';
-            const isSelected = instance.id === selectedItemId;
-            return (
-                <div 
-                    className={`absolute inset-0 z-10 flex items-center justify-center group pointer-events-auto cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 rounded z-50' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setSelectedItemId(instance.id); }}
-                >
-                    <div className="relative flex items-center justify-center w-[34px] h-[41px]">
-                        <ConnectorFace style={template.visual_style || 'standard'} />
-                        
-                        {instance.label && (
-                            <div className={`absolute ${isTop ? '-top-3' : '-bottom-3'} left-1/2 -translate-x-1/2 w-[150%] flex justify-center z-20`} title={instance.label}>
-                                <div className="bg-white text-black font-bold px-1 py-[1px] rounded shadow-sm text-[6px] truncate max-w-full border border-gray-400 leading-none">
-                                    {instance.label}
-                                </div>
-                            </div>
-                        )}
-                        
-                        <div className="absolute inset-0 w-full h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 rounded z-[70] cursor-pointer">
-                            <button onClick={(e) => { e.stopPropagation(); handleOpenLabelModal(instance); }} className="text-amber-400 hover:text-amber-300 p-1"><Edit size={14} /></button>
-                            <button onClick={(e) => { e.stopPropagation(); handleRemoveInstance(instance.id); }} className="text-red-500 hover:text-red-400 p-1"><Trash2 size={14} /></button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        const slotCount = template.panel_slots.length;
-        const isModule = !!template.slot_type || (template.model_number || "").toLowerCase().includes('ucp');
-        const ruHeight = template.width_units >= 1 ? Math.round(template.width_units) : 1;
-
-        let gridCols = 1;
-        let gridRows = slotCount;
-
-        if (!isModule) {
-            gridRows = ruHeight;
-            gridCols = Math.ceil(slotCount / gridRows);
-        } else {
-            if (slotCount <= 2) {
-                gridCols = 1; 
-                gridRows = slotCount;
-            } else {
-                gridCols = 2; 
-                gridRows = Math.ceil(slotCount / 2);
-            }
-        }
-
+    if (isConnector) {
+        const isTop = labelPlacement === 'top';
         const isSelected = instance.id === selectedItemId;
 
         return (
-            <div 
-                className={`absolute inset-0 z-10 bg-[#1e1e1e] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] flex flex-col items-center group overflow-hidden cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 border-amber-500 z-50' : 'border-x border-[#111]'}`}
+            <div
+                className={`absolute inset-0 z-10 flex items-center justify-center group pointer-events-auto cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 rounded z-50' : ''}`}
                 onClick={(e) => { e.stopPropagation(); setSelectedItemId(instance.id); }}
             >
-                {gridCols === 1 ? (
-                    <>
-                        <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
-                        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
-                    </>
-                ) : (
-                    <>
-                        <div className="absolute top-1.5 left-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
-                        <div className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
-                        <div className="absolute bottom-1.5 left-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
-                        <div className="absolute bottom-1.5 right-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
-                    </>
-                )}
+                <div className="relative flex items-center justify-center w-[34px] h-[41px]">
+                    <ConnectorFace style={template.visual_style || 'standard'} />
 
-                {instance.label && (
-                    <div className="absolute top-1 w-full flex justify-center z-50 pointer-events-none">
-                        <div className="bg-white text-black font-bold px-2 py-[2px] rounded shadow-sm text-[8px] truncate max-w-[90%] border border-gray-400 leading-none">
-                            {instance.label}
-                        </div>
-                    </div>
-                )}
-
-                <div 
-                    className={`flex-grow w-full grid place-items-center gap-y-1 ${!isModule ? (instance.label ? 'px-8 pt-7 pb-4' : 'px-8 pt-2 pb-4') : (instance.label ? 'px-1 pt-7 pb-2' : 'px-1 py-1')} min-h-0`} 
-                    style={{
-                        gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-                        gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`
-                    }}
-                >
-                    {template.panel_slots.map((subSlot, idx) => {
-                        const subSlotId = subSlot.id || subSlot.name || `${instance.id}-sub-${idx}`;
-                        const normalizedSubSlot = { ...subSlot, id: subSlotId };
-                        
-                        // Robust match for children
-                        const child = (instance.children || []).find(c => isSlotMatch(c.slot_id, normalizedSubSlot, idx));
-                        
-                        const isDHoleSubSlot = checkIsDHole(subSlot.accepted_module_type, subSlot.name);
-
-                        const row = Math.floor(idx / gridCols);
-                        let subLabelPlacement = 'top';
-
-                        if (slotCount === 1) {
-                            subLabelPlacement = 'bottom';
-                        } else if (isModule) {
-                            if (slotCount === 2) {
-                                subLabelPlacement = row === 0 ? 'top' : 'bottom';
-                            } else if (slotCount === 3) {
-                                subLabelPlacement = 'bottom';
-                            } else if (slotCount >= 4) {
-                                subLabelPlacement = row === 0 ? 'top' : 'bottom';
-                            }
-                        } else {
-                            subLabelPlacement = row === 0 ? 'top' : 'bottom';
-                        }
-
-                        const isTopSub = subLabelPlacement === 'top';
-                        const emptyLabelPlacementClass = isTopSub ? '-top-4' : '-bottom-4';
-
-                        return (
-                            <div key={subSlotId} className="relative w-full h-full flex items-center justify-center min-h-0 min-w-0">
-                                <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-                                    {!child && (
-                                        isDHoleSubSlot ? (
-                                            <div className="relative flex items-center justify-center w-[34px] h-[41px]">
-                                                <ConnectorFace style="empty" />
-                                                <span className={`absolute ${emptyLabelPlacementClass} left-1/2 -translate-x-1/2 text-[5px] font-bold text-gray-500 px-1 text-center leading-tight truncate w-[150%]`}>
-                                                    {subSlot.name || 'Empty'}
-                                                </span>
-                                            </div>
-                                        ) : (
-                                            <div className="relative flex items-center justify-center w-[34px] h-[41px] flex-shrink-0">
-                                                <div className="w-[80%] h-[80%] flex flex-col justify-between items-center opacity-80 bg-[#050505] shadow-[inset_0_2px_4px_rgba(0,0,0,0.8)] border border-[#333] rounded-sm py-1">
-                                                    <div className="w-1 h-1 rounded-full bg-[#111] shadow-inner border border-[#222]"></div>
-                                                    <div className="w-1 h-1 rounded-full bg-[#111] shadow-inner border border-[#222]"></div>
-                                                </div>
-                                            </div>
-                                        )
-                                    )}
-                                </div>
-                                
-                                <div className="absolute inset-0 z-20 flex items-center justify-center">
-                                    <PeDroppableSlot 
-                                        slot={{ ...normalizedSubSlot, parent_instance_id: instance.id }} 
-                                        isOccupied={!!child} 
-                                        overlayClass={isDHoleSubSlot ? "w-[34px] h-[41px] rounded-full absolute" : "inset-0 rounded-sm absolute"}
-                                        className="flex items-center justify-center w-full h-full"
-                                    >
-                                        {child ? renderPEInstance(child, normalizedSubSlot, subLabelPlacement) : (
-                                            <div className={`opacity-0 hover:opacity-100 transition-opacity bg-white/10 flex items-center justify-center cursor-pointer ${isDHoleSubSlot ? 'w-[34px] h-[41px] rounded-full' : 'w-full h-full rounded'}`}>
-                                            </div>
-                                        )}
-                                    </PeDroppableSlot>
-                                </div>
+                    {instance.label && (
+                        <div
+                            className={`absolute ${isTop ? '-top-3' : '-bottom-3'} left-1/2 -translate-x-1/2 w-[150%] flex justify-center z-20`}
+                            title={instance.label}
+                        >
+                            <div className="bg-white text-black font-bold px-1 py-[1px] rounded shadow-sm text-[6px] truncate max-w-full border border-gray-400 leading-none">
+                                {instance.label}
                             </div>
-                        );
-                    })}
-                </div>
+                        </div>
+                    )}
 
-                {!isModule && (
-                    <div className="absolute bottom-0.5 text-[7px] font-bold text-gray-400 text-center w-full truncate pointer-events-none">
-                        {template.model_number || template.name}
+                    <div className="absolute inset-0 w-full h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 rounded z-[70] cursor-pointer">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleOpenLabelModal(instance); }}
+                            className="text-amber-400 hover:text-amber-300 p-1"
+                        >
+                            <Edit size={14} />
+                        </button>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); handleRemoveInstance(instance.id); }}
+                            className="text-red-500 hover:text-red-400 p-1"
+                        >
+                            <Trash2 size={14} />
+                        </button>
                     </div>
-                )}
-
-                <div className="absolute top-0 right-0 p-0.5 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 rounded-bl z-[80]">
-                    <button onClick={(e) => { e.stopPropagation(); handleOpenLabelModal(instance); }} className="text-amber-400 hover:text-amber-300 p-1"><Edit size={12} /></button>
-                    <button onClick={(e) => { e.stopPropagation(); handleRemoveInstance(instance.id); }} className="text-red-500 hover:text-red-400 p-1"><Trash2 size={12} /></button>
                 </div>
             </div>
         );
-    };
+    }
+
+    const slotCount = template.panel_slots.length;
+    const isModule = !!template.slot_type || (template.model_number || "").toLowerCase().includes('ucp');
+    const ruHeight = template.width_units >= 1 ? Math.round(template.width_units) : 1;
+
+    let gridCols = 1;
+    let gridRows = slotCount;
+
+    if (!isModule) {
+        gridRows = ruHeight;
+        gridCols = Math.ceil(slotCount / gridRows);
+    } else {
+        const moduleGrid = getModuleSlotGrid(template);
+        gridCols = moduleGrid.gridCols;
+        gridRows = moduleGrid.gridRows;
+    }
+
+    const isSelected = instance.id === selectedItemId;
+
+    return (
+        <div
+            className={`absolute inset-0 z-10 bg-[#1e1e1e] shadow-[inset_0_0_10px_rgba(0,0,0,0.5)] flex flex-col items-center group overflow-hidden cursor-pointer transition-all ${isSelected ? 'ring-2 ring-amber-500 border-amber-500 z-50' : 'border-x border-[#111]'}`}
+            onClick={(e) => { e.stopPropagation(); setSelectedItemId(instance.id); }}
+        >
+            {gridCols === 1 ? (
+                <>
+                    <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
+                    <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
+                </>
+            ) : (
+                <>
+                    <div className="absolute top-1.5 left-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
+                    <div className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
+                    <div className="absolute bottom-1.5 left-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
+                    <div className="absolute bottom-1.5 right-2 w-1.5 h-1.5 rounded-full bg-[#0a0a0a] border border-[#333] shadow-sm"></div>
+                </>
+            )}
+
+            {instance.label && (
+                <div className="absolute top-1 w-full flex justify-center z-50 pointer-events-none">
+                    <div className="bg-white text-black font-bold px-2 py-[2px] rounded shadow-sm text-[8px] truncate max-w-[90%] border border-gray-400 leading-none">
+                        {instance.label}
+                    </div>
+                </div>
+            )}
+
+            <div
+                className={`flex-grow w-full grid place-items-center gap-y-1 ${!isModule ? (instance.label ? 'px-8 pt-7 pb-4' : 'px-8 pt-2 pb-4') : (instance.label ? 'px-1 pt-7 pb-2' : 'px-1 py-1')} min-h-0`}
+                style={{
+                    gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${gridRows}, minmax(0, 1fr))`,
+                }}
+            >
+                {template.panel_slots.map((subSlot, idx) => {
+                    const subSlotId = subSlot.id || subSlot.name || `${instance.id}-sub-${idx}`;
+                    const normalizedSubSlot = { ...subSlot, id: subSlotId };
+
+                    const child = (instance.children || []).find(c => isSlotMatch(c.slot_id, normalizedSubSlot, idx));
+                    const isDHoleSubSlot = checkIsDHole(subSlot.accepted_module_type, subSlot.name);
+
+                    const row = Math.floor(idx / gridCols);
+                    let subLabelPlacement = 'top';
+
+                    if (slotCount === 1) {
+                        subLabelPlacement = 'bottom';
+                    } else if (isModule) {
+                        subLabelPlacement = row === 0 ? 'top' : 'bottom';
+                    } else {
+                        subLabelPlacement = row === 0 ? 'top' : 'bottom';
+                    }
+
+                    const isTopSub = subLabelPlacement === 'top';
+                    const emptyLabelPlacementClass = isTopSub ? '-top-4' : '-bottom-4';
+
+                    return (
+                        <div
+                            key={subSlotId}
+                            className="relative w-full h-full flex items-center justify-center min-h-0 min-w-0"
+                        >
+                            <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+                                {!child && (
+                                    isDHoleSubSlot ? (
+                                        <div className="relative flex items-center justify-center w-[34px] h-[41px]">
+                                            <ConnectorFace style="empty" />
+                                            <span className={`absolute ${emptyLabelPlacementClass} left-1/2 -translate-x-1/2 text-[5px] font-bold text-gray-500 px-1 text-center leading-tight truncate w-[150%]`}>
+                                                {subSlot.name || 'Empty'}
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="relative flex items-center justify-center w-[34px] h-[41px] flex-shrink-0">
+                                            <div className="w-[80%] h-[80%] flex flex-col justify-between items-center opacity-80 bg-[#050505] shadow-[inset_0_2px_4px_rgba(0,0,0,0.8)] border border-[#333] rounded-sm py-1">
+                                                <div className="w-1 h-1 rounded-full bg-[#111] shadow-inner border border-[#222]"></div>
+                                                <div className="w-1 h-1 rounded-full bg-[#111] shadow-inner border border-[#222]"></div>
+                                            </div>
+                                        </div>
+                                    )
+                                )}
+                            </div>
+
+                            <div className="absolute inset-0 z-20 flex items-center justify-center">
+                                <PeDroppableSlot
+                                    slot={{ ...normalizedSubSlot, parent_instance_id: instance.id }}
+                                    isOccupied={!!child}
+                                    overlayClass={isDHoleSubSlot ? "w-[34px] h-[41px] rounded-full absolute" : "inset-0 rounded-sm absolute"}
+                                    className="flex items-center justify-center w-full h-full"
+                                >
+                                    {child ? renderPEInstance(child, normalizedSubSlot, subLabelPlacement) : (
+                                        <div className={`opacity-0 hover:opacity-100 bg-white/10 flex items-center justify-center cursor-pointer ${isDHoleSubSlot ? 'w-[34px] h-[41px] rounded-full' : 'w-full h-full rounded'}`}>
+                                        </div>
+                                    )}
+                                </PeDroppableSlot>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {!isModule && (
+                <div className="absolute bottom-0.5 text-[7px] font-bold text-gray-400 text-center w-full truncate pointer-events-none">
+                    {template.model_number || template.name}
+                </div>
+            )}
+
+            <div className="absolute top-0 right-0 p-0.5 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 rounded-bl z-[80]">
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleOpenLabelModal(instance); }}
+                    className="text-amber-400 hover:text-amber-300 p-1"
+                >
+                    <Edit size={12} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleRemoveInstance(instance.id); }}
+                    className="text-red-500 hover:text-red-400 p-1"
+                >
+                    <Trash2 size={12} />
+                </button>
+            </div>
+        </div>
+    );
+};
 
     if (isShowLoading || isLoading) return <div className="p-8 text-center text-gray-400">Loading Panel Builder...</div>;
 

@@ -733,76 +733,184 @@ const WireDiagramView = () => {
     };
 
     const handleUpdateNode = async (updatedData) => {
-        if (!editingNode) return;
+    if (!editingNode) return;
 
-        try {
-            const { ip_address, ...nonIpData } = updatedData;
+    const nodeBeingEdited = editingNode;
+    const {
+        ip_address,
+        network_assignment,
+        ...nonIpData
+    } = updatedData;
 
-            let updatedInstance = await api.updateEquipmentInstance(editingNode.id, nonIpData);
-
-            if (ip_address !== undefined) {
-                try {
-                    await upsertRackEquipmentNetworkIp({
-                        api,
-                        showId,
-                        entityId: editingNode.id,
-                        ipAddress: ip_address,
-                        location: buildRackLocation(editingNode.data.rack_name, updatedInstance.ru_position)
-                    });
-
-                    updatedInstance = await api.updateEquipmentInstance(editingNode.id, { ip_address: ip_address || null });
-
-                    if (refreshNetworkIps) await refreshNetworkIps();
-                } catch (syncErr) {
-                    console.error("Wire Diagram IP sync failed", syncErr);
-                    toast.error(`IP sync failed: ${syncErr.message}`);
-                    return;
-                }
+    const assignmentForOptimisticUpdate = network_assignment || (
+        ip_address !== undefined
+            ? {
+                assignment_type: 'single',
+                ip_address,
+                ip_end: null,
+                trunk_mode: null,
+                trunk_label: null,
+                host_octet: null,
+                trunk_vlan_ids: [],
             }
+            : null
+    );
 
-            const templateMap = new Map();
-            if (libraryData && libraryData.equipment) {
-                libraryData.equipment.forEach(eq => templateMap.set(eq.id, eq));
-            }
+    const getOptimisticNetworkDisplay = (assignment) => {
+        if (!assignment) return nodeBeingEdited.data.network_assignment_display || nodeBeingEdited.data.ip_address || '';
 
-            let flattenedPorts = [];
-            if (updatedInstance.equipment_templates?.is_patch_panel) {
-                const allPanelInstances = await api.getAllPanelInstancesForShow(showId);
-                flattenedPorts = generatePatchPanelPorts(updatedInstance, allPanelInstances);
-            } else {
-                flattenedPorts = flattenNodePorts(updatedInstance, templateMap);
-            }
-
-            const enrichedItem = {
-                ...updatedInstance,
-                ip_address: ip_address !== undefined ? ip_address : updatedInstance.ip_address,
-                equipment_templates: {
-                    ...updatedInstance.equipment_templates,
-                    ports: flattenedPorts
-                }
-            };
-
-            setNodes((nds) =>
-                nds.map((n) => {
-                    if (n.id === editingNode.id) {
-                        const newLabel = enrichedItem.instance_name || n.data.label;
-                        return {
-                            ...n,
-                            data: {
-                                ...enrichedItem,
-                                label: newLabel,
-                            },
-                        };
-                    }
-                    return n;
-                })
-            );
-
-            handleCloseEditModal();
-        } catch (err) {
-            toast.error(`Error: ${err.message}`);
+        if (assignment.assignment_type === 'trunk') {
+            if (assignment.trunk_label) return assignment.trunk_label;
+            return assignment.trunk_mode === 'selected' ? 'TRK / Selected VLANs' : 'TRK / All VLANs';
         }
+
+        if (assignment.assignment_type === 'range') {
+            if (assignment.ip_address && assignment.ip_end) {
+                return `${assignment.ip_address} – ${assignment.ip_end}`;
+            }
+
+            return assignment.ip_address || '';
+        }
+
+        return assignment.ip_address || '';
     };
+
+    const optimisticNetworkDisplay = getOptimisticNetworkDisplay(assignmentForOptimisticUpdate);
+
+    // Close immediately so the UI behaves like Rack Builder.
+    handleCloseEditModal();
+
+    // Optimistically update the node before waiting on API calls.
+    setNodes((nds) =>
+        nds.map((n) => {
+            if (n.id !== nodeBeingEdited.id) return n;
+
+            const nextInstanceName = nonIpData.instance_name || n.data.instance_name;
+            const nextNetworkMetadata = assignmentForOptimisticUpdate
+                ? {
+                    ...(n.data.network_metadata || {}),
+                    ...assignmentForOptimisticUpdate,
+                    status: n.data.network_metadata?.status || 'assigned',
+                }
+                : n.data.network_metadata;
+
+            return {
+                ...n,
+                data: {
+                    ...n.data,
+                    ...nonIpData,
+                    instance_name: nextInstanceName,
+                    label: nextInstanceName || n.data.label,
+                    ip_address: assignmentForOptimisticUpdate
+                        ? assignmentForOptimisticUpdate.assignment_type === 'single'
+                            ? assignmentForOptimisticUpdate.ip_address || ''
+                            : ''
+                        : n.data.ip_address,
+                    network_assignment_display: assignmentForOptimisticUpdate
+                        ? optimisticNetworkDisplay
+                        : n.data.network_assignment_display,
+                    network_metadata: nextNetworkMetadata,
+                },
+            };
+        })
+    );
+
+    try {
+        let updatedInstance = await api.updateEquipmentInstance(nodeBeingEdited.id, nonIpData);
+
+        if (network_assignment !== undefined) {
+            try {
+                const locationStr = network_assignment.location
+                    || buildRackLocation(nodeBeingEdited.data.rack_name, updatedInstance.ru_position);
+
+                await upsertRackEquipmentNetworkIp({
+                    api,
+                    showId,
+                    entityId: nodeBeingEdited.id,
+                    assignmentType: network_assignment.assignment_type || 'single',
+                    ipAddress: network_assignment.ip_address,
+                    ipEnd: network_assignment.ip_end,
+                    department: network_assignment.department,
+                    location: locationStr,
+                    macAddress: network_assignment.mac_address,
+                    trunkMode: network_assignment.trunk_mode,
+                    trunkLabel: network_assignment.trunk_label,
+                    hostOctet: network_assignment.host_octet,
+                    trunkVlanIds: network_assignment.trunk_vlan_ids || [],
+                });
+
+                updatedInstance = await api.updateEquipmentInstance(nodeBeingEdited.id, {
+                    ip_address: network_assignment.assignment_type === 'single'
+                        ? network_assignment.ip_address || null
+                        : null,
+                });
+
+                if (refreshNetworkIps) {
+                    await refreshNetworkIps();
+                }
+            } catch (syncErr) {
+                console.error("Wire Diagram network assignment sync failed", syncErr);
+                toast.error(`Network assignment sync failed: ${syncErr.message}`);
+                return;
+            }
+        } else if (ip_address !== undefined) {
+            try {
+                await upsertRackEquipmentNetworkIp({
+                    api,
+                    showId,
+                    entityId: nodeBeingEdited.id,
+                    assignmentType: 'single',
+                    ipAddress: ip_address,
+                    location: buildRackLocation(nodeBeingEdited.data.rack_name, updatedInstance.ru_position),
+                });
+
+                updatedInstance = await api.updateEquipmentInstance(nodeBeingEdited.id, {
+                    ip_address: ip_address || null,
+                });
+
+                if (refreshNetworkIps) {
+                    await refreshNetworkIps();
+                }
+            } catch (syncErr) {
+                console.error("Wire Diagram IP sync failed", syncErr);
+                toast.error(`IP sync failed: ${syncErr.message}`);
+                return;
+            }
+        }
+
+        // For a normal name/IP edit, do not rebuild all panel ports.
+        // Keep existing ports unless the backend returned new template data.
+        setNodes((nds) =>
+            nds.map((n) => {
+                if (n.id !== nodeBeingEdited.id) return n;
+
+                const existingPorts = n.data.equipment_templates?.ports || [];
+                const nextInstanceName = updatedInstance.instance_name || n.data.instance_name || n.data.label;
+
+                return {
+                    ...n,
+                    data: {
+                        ...n.data,
+                        ...updatedInstance,
+                        label: nextInstanceName,
+                        equipment_templates: {
+                            ...(n.data.equipment_templates || {}),
+                            ...(updatedInstance.equipment_templates || {}),
+                            ports: existingPorts,
+                        },
+                    },
+                };
+            })
+        );
+
+        toast.success("Equipment updated successfully!");
+    } catch (err) {
+        toast.error(`Error: ${err.message}`);
+
+        // Re-sync the view if the optimistic save failed.
+        fetchData();
+    }
+};
 
     const onDragOver = useCallback((event) => {
         event.preventDefault();

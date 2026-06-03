@@ -288,57 +288,157 @@ const RackBuilderView = () => {
     };
 
     const handleUpdateEquipmentInstance = async (instanceId, updatedData) => {
-        try {
-            const { ip_address, ...nonIpData } = updatedData;
-            
-            // 1. Update non-IP equipment fields normally (instance_name, custom_fields, etc.)
-            let updatedInstance = await api.updateEquipmentInstance(instanceId, nonIpData);
-            
-            // 2. Sync IP to canonical network_ip_entries (Source of Truth)
-            if (ip_address !== undefined) {
-                try {
-                    const locationStr = buildRackLocation(activeRack?.rack_name, updatedData.ru_position || updatedInstance.ru_position);
-                    
-                    await upsertRackEquipmentNetworkIp({
-                        api,
-                        showId,
-                        entityId: instanceId,
-                        ipAddress: ip_address,
-                        location: locationStr
-                    });
-                    
-                    // 3. Update legacy rack_equipment_instances.ip_address only as a compatibility mirror
-                    // This follows a successful canonical sync.
-                    updatedInstance = await api.updateEquipmentInstance(instanceId, { ip_address: ip_address || null });
-                    
-                    if (refreshNetworkIps) await refreshNetworkIps();
-                } catch (syncErr) {
-                    console.error("Failed to sync IP to canonical table:", syncErr);
-                    toast.error(`Equipment updated, but IP sync failed: ${syncErr.message}`);
-                    return;
-                }
-            }
+    try {
+        const { ip_address, network_assignment, ...nonIpData } = updatedData;
 
-            setActiveRack(currentRack => {
-                const updatedItems = currentRack.equipment.map(item => {
-                    if (item.id === instanceId) {
-                        return { 
-                            ...item, 
-                            ...updatedInstance,
-                            equipment_templates: updatedInstance.equipment_templates || item.equipment_templates,
-                            ip_address: ip_address !== undefined ? ip_address : updatedInstance.ip_address
-                        };
-                    }
-                    return item;
+        // 1. Update non-network equipment fields normally.
+        let updatedInstance = await api.updateEquipmentInstance(instanceId, nonIpData);
+
+        // 2. Sync network assignment to canonical network_ip_entries.
+        if (network_assignment !== undefined) {
+            try {
+                const locationStr = network_assignment.location
+                    || buildRackLocation(activeRack?.rack_name, updatedData.ru_position || updatedInstance.ru_position);
+
+                await upsertRackEquipmentNetworkIp({
+                    api,
+                    showId,
+                    entityId: instanceId,
+                    assignmentType: network_assignment.assignment_type || 'single',
+                    ipAddress: network_assignment.ip_address,
+                    ipEnd: network_assignment.ip_end,
+                    department: network_assignment.department,
+                    location: locationStr,
+                    macAddress: network_assignment.mac_address,
+                    trunkMode: network_assignment.trunk_mode,
+                    trunkLabel: network_assignment.trunk_label,
+                    hostOctet: network_assignment.host_octet,
+                    trunkVlanIds: network_assignment.trunk_vlan_ids || [],
                 });
-                return { ...currentRack, equipment: updatedItems };
-            });
-            toast.success("Equipment updated successfully!");
-        } catch (error) {
-            console.error("Failed to update equipment:", error);
-            toast.error(`Error: ${error.message}`);
+
+                // Compatibility mirror only.
+                // Do not store trunk labels or IP ranges in rack_equipment_instances.ip_address.
+                updatedInstance = await api.updateEquipmentInstance(instanceId, {
+                    ip_address: network_assignment.assignment_type === 'single'
+                        ? network_assignment.ip_address || null
+                        : null,
+                });
+
+                if (refreshNetworkIps) {
+                    await refreshNetworkIps();
+                }
+            } catch (syncErr) {
+                console.error("Failed to sync network assignment to canonical table:", syncErr);
+                toast.error(`Equipment updated, but network assignment sync failed: ${syncErr.message}`);
+                return;
+            }
+        } else if (ip_address !== undefined) {
+            // Backward compatibility for older callers that still submit ip_address only.
+            try {
+                const locationStr = buildRackLocation(activeRack?.rack_name, updatedData.ru_position || updatedInstance.ru_position);
+
+                await upsertRackEquipmentNetworkIp({
+                    api,
+                    showId,
+                    entityId: instanceId,
+                    assignmentType: 'single',
+                    ipAddress: ip_address,
+                    location: locationStr,
+                });
+
+                updatedInstance = await api.updateEquipmentInstance(instanceId, {
+                    ip_address: ip_address || null,
+                });
+
+                if (refreshNetworkIps) {
+                    await refreshNetworkIps();
+                }
+            } catch (syncErr) {
+                console.error("Failed to sync IP to canonical table:", syncErr);
+                toast.error(`Equipment updated, but IP sync failed: ${syncErr.message}`);
+                return;
+            }
         }
-    };
+
+        // 3. Refresh the active rack item locally.
+        // The next context refresh will re-merge canonical network metadata.
+        setActiveRack(currentRack => {
+            if (!currentRack) return currentRack;
+
+            const updatedItems = currentRack.equipment.map(item => {
+                if (item.id !== instanceId) return item;
+
+                const mergedItem = {
+                    ...item,
+                    ...updatedInstance,
+                    equipment_templates: updatedInstance.equipment_templates || item.equipment_templates,
+                };
+
+                if (network_assignment !== undefined) {
+                    const assignmentType = network_assignment.assignment_type || 'single';
+
+                    return {
+                        ...mergedItem,
+                        ip_address: assignmentType === 'single'
+                            ? network_assignment.ip_address || null
+                            : null,
+                        network_assignment_display: (() => {
+                            if (assignmentType === 'trunk') {
+                                if (network_assignment.trunk_label) return network_assignment.trunk_label;
+                                if (network_assignment.host_octet) return `${network_assignment.trunk_mode === 'selected' ? 'Selected VLANs' : 'All VLANs'} / Host .${network_assignment.host_octet}`;
+                                return network_assignment.trunk_mode === 'selected' ? 'TRK / Selected VLANs' : 'TRK / All VLANs';
+                            }
+
+                            if (assignmentType === 'range') {
+                                return network_assignment.ip_address && network_assignment.ip_end
+                                    ? `${network_assignment.ip_address} – ${network_assignment.ip_end}`
+                                    : network_assignment.ip_address || '';
+                            }
+
+                            return network_assignment.ip_address || '';
+                        })(),
+                        network_metadata: {
+                            ...(item.network_metadata || {}),
+                            ...network_assignment,
+                            status: item.network_metadata?.status || 'assigned',
+                        },
+                    };
+                }
+
+                if (ip_address !== undefined) {
+                    return {
+                        ...mergedItem,
+                        ip_address,
+                        network_assignment_display: ip_address || '',
+                        network_metadata: {
+                            ...(item.network_metadata || {}),
+                            assignment_type: 'single',
+                            ip_address,
+                            ip_end: null,
+                            trunk_mode: null,
+                            trunk_label: null,
+                            host_octet: null,
+                            trunk_vlan_ids: [],
+                            status: item.network_metadata?.status || 'assigned',
+                        },
+                    };
+                }
+
+                return mergedItem;
+            });
+
+            return {
+                ...currentRack,
+                equipment: updatedItems,
+            };
+        });
+
+        toast.success("Equipment updated successfully!");
+    } catch (error) {
+        console.error("Failed to update equipment:", error);
+        toast.error(`Error: ${error.message}`);
+    }
+};
 
     const handleCreateUserEquipment = async (equipmentData) => {
         try {
