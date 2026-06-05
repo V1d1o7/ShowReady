@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import EquipmentForm from './EquipmentForm';
-import { Plus, Edit, Trash2 } from 'lucide-react';
-import PortManagerModal from './PortManagerModal';
+import EquipmentPortManager from './EquipmentPortManager';
 
 const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) => {
     const initialFormState = {
@@ -24,26 +23,6 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
     };
     const [formData, setFormData] = useState(initialFormState);
     const [ports, setPorts] = useState([]);
-    const [isPortModalOpen, setIsPortModalOpen] = useState(false);
-    const [editingPort, setEditingPort] = useState(null);
-
-    const handleDeletePort = (portId) => {
-        setPorts(ports.filter(p => p.id !== portId));
-    };
-
-    const handleEditPort = (port) => {
-        setEditingPort(port);
-        setIsPortModalOpen(true);
-    };
-
-    const handleSavePort = (updatedPort) => {
-        if (editingPort) {
-            setPorts(ports.map(p => p.id === updatedPort.id ? updatedPort : p));
-        } else {
-            setPorts([...ports, updatedPort]);
-        }
-        setEditingPort(null);
-    };
 
     useEffect(() => {
         if (isOpen) {
@@ -52,8 +31,7 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
         }
     }, [isOpen]);
 
-    const handleSubmit = (e) => {
-        e.preventDefault();
+    const handleSaveEquipment = () => {
         const dataToSubmit = {
             ...formData,
             ru_height: formData.is_module ? 0 : parseInt(formData.ru_height, 10),
@@ -73,56 +51,28 @@ const NewUserEquipmentModal = ({ isOpen, onClose, onSubmit, userFolderTree }) =>
     };
 
     return (
-        <>
-            <Modal isOpen={isOpen} onClose={onClose} title="Create New Equipment in Your Library">
-                <div className="p-6 max-h-[70vh] overflow-y-auto">
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <EquipmentForm
-                            formData={formData}
-                            onFormChange={setFormData}
-                            folderTree={userFolderTree}
-                            isNew={true}
-                        />
+        <Modal isOpen={isOpen} onClose={onClose} title="Create New Equipment in Your Library">
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+                <div className="space-y-4">
+                    <EquipmentForm
+                        formData={formData}
+                        onFormChange={setFormData}
+                        folderTree={userFolderTree}
+                        isNew={true}
+                    />
 
-                        {/* Port Management Section */}
-                        <div className="border-t border-gray-700 pt-4">
-                            <h3 className="text-md font-bold text-white mb-2">Ports ({ports.length})</h3>
-                            <div className="space-y-2 mb-4">
-                                {ports.map((port) => (
-                                    <div key={port.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm bg-gray-700 rounded-lg">
-                                        <span>{port.label} ({port.connector_type}) - {port.type}</span>
-                                        <div className="flex items-center gap-2">
-                                            <button type="button" onClick={(e) => { e.preventDefault(); handleEditPort(port); }} className="p-1 text-gray-400 hover:text-amber-400">
-                                                <Edit size={14} />
-                                            </button>
-                                            <button type="button" onClick={(e) => { e.preventDefault(); handleDeletePort(port.id); }} className="p-1 text-gray-400 hover:text-red-400">
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <button type="button" onClick={(e) => { e.preventDefault(); setEditingPort(null); setIsPortModalOpen(true); }} className="flex items-center justify-center gap-2 w-full px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors text-sm">
-                                <Plus size={16} /> Add New Port
-                            </button>
-                        </div>
+                    {/* Port Management Section */}
+                    <div className="border-t border-gray-700 pt-4">
+                        <EquipmentPortManager ports={ports} setPorts={setPorts} />
+                    </div>
 
-                        <div className="flex justify-end gap-4 pt-4">
-                            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
-                            <button type="submit" className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Create Equipment</button>
-                        </div>
-                    </form>
+                    <div className="flex justify-end gap-4 pt-4">
+                        <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white">Cancel</button>
+                        <button type="button" onClick={handleSaveEquipment} className="px-4 py-2 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black">Create Equipment</button>
+                    </div>
                 </div>
-            </Modal>
-            {isPortModalOpen && (
-                <PortManagerModal
-                    isOpen={isPortModalOpen}
-                    onClose={() => { setIsPortModalOpen(false); setEditingPort(null); }}
-                    onSave={handleSavePort}
-                    existingPort={editingPort}
-                />
-            )}
-        </>
+            </div>
+        </Modal>
     );
 };
 
