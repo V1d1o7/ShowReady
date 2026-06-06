@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5Rofiy609QflEawRQAWHGlpqdcoLMsgCTcXqkr8zAwqrj6YpU8Yd21HSzmgiFUb
+\restrict mHzOrnj2OcxjXKbIGbNCuAVIiCkpgoRZsnEGTRSl8CbdTua2OeMoBg1lgtY0PkU
 
 -- Dumped from database version 17.4
 -- Dumped by pg_dump version 17.6 (Debian 17.6-1.pgdg12+1)
@@ -270,6 +270,19 @@ CREATE TYPE auth.one_time_token_type AS ENUM (
 
 
 ALTER TYPE auth.one_time_token_type OWNER TO supabase_auth_admin;
+
+--
+-- Name: network_assignment_type; Type: TYPE; Schema: public; Owner: postgres
+--
+
+CREATE TYPE public.network_assignment_type AS ENUM (
+    'single',
+    'range',
+    'trunk'
+);
+
+
+ALTER TYPE public.network_assignment_type OWNER TO postgres;
 
 --
 -- Name: network_entity_type; Type: TYPE; Schema: public; Owner: postgres
@@ -3878,7 +3891,14 @@ CREATE TABLE public.network_ip_entries (
     notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT check_ip_range CHECK (((ip_end IS NULL) OR (ip_end >= ip_address)))
+    assignment_type public.network_assignment_type DEFAULT 'single'::public.network_assignment_type NOT NULL,
+    trunk_mode text,
+    trunk_vlan_ids uuid[] DEFAULT ARRAY[]::uuid[],
+    trunk_label text,
+    host_octet integer,
+    CONSTRAINT check_ip_range CHECK (((ip_end IS NULL) OR (ip_end >= ip_address))),
+    CONSTRAINT network_ip_entries_assignment_shape_check CHECK ((((assignment_type = 'single'::public.network_assignment_type) AND (ip_address IS NOT NULL) AND (ip_end IS NULL)) OR ((assignment_type = 'range'::public.network_assignment_type) AND (ip_address IS NOT NULL) AND (ip_end IS NOT NULL)) OR ((assignment_type = 'trunk'::public.network_assignment_type) AND (ip_address IS NULL) AND (ip_end IS NULL) AND (trunk_mode = ANY (ARRAY['all'::text, 'selected'::text]))))),
+    CONSTRAINT network_ip_entries_host_octet_check CHECK (((host_octet IS NULL) OR ((host_octet >= 1) AND (host_octet <= 254))))
 );
 
 
@@ -5886,6 +5906,13 @@ CREATE INDEX idx_rack_equipment_parent_item_id ON public.rack_equipment_instance
 
 
 --
+-- Name: network_ip_entries_show_entity_unique; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX network_ip_entries_show_entity_unique ON public.network_ip_entries USING btree (show_id, entity_type, entity_id) WHERE (entity_id IS NOT NULL);
+
+
+--
 -- Name: user_entitlements_user_id_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -7136,6 +7163,10 @@ CREATE POLICY "Allow viewing roster members on shared shows" ON public.roster FO
 --
 
 CREATE POLICY "Allow write access to show network IPs" ON public.network_ip_entries USING (((EXISTS ( SELECT 1
+   FROM public.shows s
+  WHERE ((s.id = network_ip_entries.show_id) AND (s.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
+   FROM public.show_collaborators sc
+  WHERE ((sc.show_id = network_ip_entries.show_id) AND (sc.user_id = auth.uid()) AND (sc.role = ANY (ARRAY['owner'::text, 'editor'::text]))))))) WITH CHECK (((EXISTS ( SELECT 1
    FROM public.shows s
   WHERE ((s.id = network_ip_entries.show_id) AND (s.user_id = auth.uid())))) OR (EXISTS ( SELECT 1
    FROM public.show_collaborators sc
@@ -8841,7 +8872,6 @@ GRANT ALL ON TABLE public.looms TO supabase_admin;
 -- Name: TABLE network_ip_entries; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON TABLE public.network_ip_entries TO anon;
 GRANT ALL ON TABLE public.network_ip_entries TO authenticated;
 GRANT ALL ON TABLE public.network_ip_entries TO service_role;
 
@@ -9537,5 +9567,5 @@ ALTER EVENT TRIGGER pgrst_drop_watch OWNER TO supabase_admin;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5Rofiy609QflEawRQAWHGlpqdcoLMsgCTcXqkr8zAwqrj6YpU8Yd21HSzmgiFUb
+\unrestrict mHzOrnj2OcxjXKbIGbNCuAVIiCkpgoRZsnEGTRSl8CbdTua2OeMoBg1lgtY0PkU
 
