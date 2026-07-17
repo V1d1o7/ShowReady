@@ -3,8 +3,9 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { LayoutContext } from '../contexts/LayoutContext';
+import { useAuth } from '../contexts/AuthContext';
 import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
 import PayPeriodSettingsModal from '../components/PayPeriodSettingsModal';
@@ -14,6 +15,7 @@ import { calculateWeeklyTotals } from '../utils/hoursCalculations';
 const HoursTrackingView = () => {
     const { setShouldScroll } = useContext(LayoutContext);
     const { showId, showData, onSave } = useShow();
+    const { profile } = useAuth();
     const location = useLocation();
 
     // Enable scrolling for this view
@@ -104,10 +106,27 @@ const HoursTrackingView = () => {
     };
     
     const handleSaveSettings = async (newSettings) => {
-        await onSave({ info: { ...showData.info, ...newSettings } });
+        const { labor_budget, ...restSettings } = newSettings;
+        let savedBudget = timesheet?.labor_budget;
         
-        if (newSettings.pay_period_start_day !== undefined) {
-            const newStartDay = parseInt(newSettings.pay_period_start_day, 10);
+        try {
+            if (labor_budget !== undefined) {
+                const amount = labor_budget === '' || labor_budget === null ? null : parseFloat(labor_budget);
+                await api.updateShowBudget(showId, { allocated_amount: amount });
+                savedBudget = amount;
+            }
+        } catch (err) {
+            console.error("Failed to save labor budget:", err);
+            toast.error("Failed to save labor budget.");
+        }
+
+        // Optimistically update timesheet local state to prevent any latency flash
+        setTimesheet(prev => prev ? { ...prev, labor_budget: savedBudget } : prev);
+
+        await onSave({ info: { ...showData.info, ...restSettings } });
+        
+        if (restSettings.pay_period_start_day !== undefined) {
+            const newStartDay = parseInt(restSettings.pay_period_start_day, 10);
             const current = new Date(weekStartDate);
             const currentDay = current.getDay();
             
@@ -117,7 +136,13 @@ const HoursTrackingView = () => {
             
             setWeekStartDate(newDate); 
         } else {
-            fetchTimesheet();
+            // Silently background refresh the timesheet data without triggering full-page loading flash
+            try {
+                const data = await api.getWeeklyTimesheet(showId, formatDate(weekStartDate));
+                setTimesheet(data);
+            } catch (error) { 
+                console.error("Failed to silently fetch timesheet:", error); 
+            }
         }
     };
 
@@ -159,7 +184,7 @@ const HoursTrackingView = () => {
         return date;
     });
 
-    if (isLoading) return <p className="text-white text-center p-8">Loading timesheet...</p>;
+    if (isLoading && !timesheet) return <p className="text-white text-center p-8">Loading timesheet...</p>;
     if (!timesheet) return <p className="text-white text-center p-8">No timesheet data available.</p>;
 
     const grandTotals = (calculatedTimesheet?.crew_hours || []).reduce((acc, member) => {
@@ -171,7 +196,6 @@ const HoursTrackingView = () => {
 
     return (
         <div className="p-4 sm:p-6 lg:p-8">
-            <Toaster position="bottom-center" />
             <header className="flex items-center justify-between pb-4 border-b border-gray-700">
                 <div className="flex items-center gap-4">
                     <button onClick={() => changeWeek(-1)} className="p-2 rounded-md hover:bg-gray-700"><ChevronLeft size={20} /></button>
@@ -255,6 +279,32 @@ const HoursTrackingView = () => {
                             <td className="px-3 py-2 text-center font-bold text-white">{grandTotals.ot.toFixed(2)}</td>
                             <td className="px-3 py-2 text-center font-bold text-white">${grandTotals.cost.toFixed(2)}</td>
                         </tr>
+                        {profile?.permitted_features?.includes('budget_tools') && (
+                            <tr className="border-t border-gray-700">
+                                <td colSpan={2} className="px-3 py-2 text-left font-bold text-white uppercase">Labor Budget</td>
+                                <td colSpan={10} className="px-3 py-2 text-right font-bold">
+                                    {timesheet?.labor_budget !== null && timesheet?.labor_budget !== undefined ? (
+                                        (() => {
+                                            const allocated = parseFloat(timesheet.labor_budget);
+                                            const historical = parseFloat(timesheet.historical_labor_cost_excluding_current_week || 0);
+                                            const currentWeekCost = parseFloat(grandTotals.cost || 0);
+                                            const totalCost = historical + currentWeekCost;
+                                            const remaining = allocated - totalCost;
+                                            const isOverBudget = remaining < 0;
+                                            const colorClass = isOverBudget ? 'text-red-500' : 'text-emerald-400';
+                                            return (
+                                                <span className={colorClass}>
+                                                    Allocated: ${allocated.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 
+                                                    Remaining Balance: ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                            );
+                                        })()
+                                    ) : (
+                                        <span className="text-gray-400">No budget allocated</span>
+                                    )}
+                                </td>
+                            </tr>
+                        )}
                     </tfoot>
                 </table>
             </main>
@@ -271,7 +321,12 @@ const HoursTrackingView = () => {
                 grandTotals={grandTotals}
             />
 
-            <PayPeriodSettingsModal isOpen={isSettingsModalOpen} onClose={() => setIsSettingsModalOpen(false)} settings={showData?.info || {}} onSave={handleSaveSettings} />
+            <PayPeriodSettingsModal 
+                isOpen={isSettingsModalOpen} 
+                onClose={() => setIsSettingsModalOpen(false)} 
+                settings={{ ...(showData?.info || {}), labor_budget: timesheet?.labor_budget }} 
+                onSave={handleSaveSettings} 
+            />
             <CalculationInfoModal isOpen={isInfoModalOpen} onClose={() => setIsInfoModalOpen(false)} dailyThreshold={timesheet?.ot_daily_threshold || 10} />
             
             {/* ExportHoursModal has been completely removed! */}

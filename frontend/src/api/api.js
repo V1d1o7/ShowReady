@@ -632,6 +632,14 @@ export const api = {
     // --- Timesheets ---
     getWeeklyTimesheet: async (showId, weekStartDate) => fetch(`/api/shows/${showId}/timesheet?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
     
+    getShowBudget: async (showId) => fetch(`/api/shows/${showId}/budget`, { headers: await getAuthHeader() }).then(handleResponse),
+
+    updateShowBudget: async (showId, budgetData) => fetch(`/api/shows/${showId}/budget`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(budgetData)
+    }).then(handleResponse),
+    
     updateWeeklyTimesheet: async (showId, timesheetData) => fetch(`/api/shows/${showId}/timesheet`, { 
         method: 'PUT', 
         headers: await getAuthHeader(), 

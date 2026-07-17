@@ -804,6 +804,7 @@ ALL_FEATURES = [
     {"key": "networking_dns", "name": "Networking DNS", "paywalled": True},
     {"key": "networking_proxy", "name": "Networking Proxy", "paywalled": True},
     {"key": "networking_integrations", "name": "Networking Integrations", "paywalled": True},
+    {"key": "budget_tools", "name": "Budget Tools", "paywalled": True},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:

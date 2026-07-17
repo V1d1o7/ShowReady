@@ -276,6 +276,11 @@ class WeeklyTimesheet(BaseModel):
     ot_weekly_threshold: float
     pay_period_start_day: Optional[int] = 0
     crew_hours: List[CrewMemberHours]
+    labor_budget: Optional[float] = None
+    historical_labor_cost_excluding_current_week: Optional[float] = 0.0
+
+class BudgetUpdate(BaseModel):
+    allocated_amount: Optional[float] = None
 
 class TimesheetEmailPayload(BaseModel):
     recipient_emails: List[str]
