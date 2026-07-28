@@ -1,96 +1,113 @@
-# ShowReady: Production Label & Rack Design Suite
+# ShowReady: The Live Production Management & System Design Suite
 
 ![ShowReady Logo](frontend/public/logo.png)
 
-**Tired of messy labels and confusing rack diagrams? ShowReady is here to help!**
+**Streamline production layouts, automate labeling, track crew hours with precise calculations, and keep your entire team in sync.**
 
-ShowReady is a powerful, all-in-one web application designed specifically for the fast-paced world of theatre and live production. It streamlines your workflow, helping you create, manage, and print professional loom and case labels, as well as design and visualize your equipment racks. Say goodbye to last-minute sharpie-on-gaff-tape labels and hello to organized, professional-grade production management.
+ShowReady is the ultimate workspace designed specifically for live events, theatre, broadcast, and touring professionals. From drag-and-drop rack building and visual wire diagrams to automated timesheet generation and contextual show communication, ShowReady replaces fragmented spreadsheets and ad-hoc drawings with a single, unified source of truth.
 
-## ✨ Features
+---
 
-ShowReady is packed with features to make your life easier.
+## 🎨 Interactive Product Overview
 
-### 📝 Dual Label Editors
+Explore the core feature suites that make ShowReady the go-to platform for production design and management.
 
-Two purpose-built editors for all your labeling needs.
+### 1. Production Design & System Modeling
 
-*   **Loom Label Editor**: Perfect for creating small-format, detailed labels for individual cables and looms.
-*   **Case Label Editor**: Design large-format, easy-to-read labels for all your road cases.
+Translate complex physical setups into interactive digital blueprints.
 
-<img width="1923" height="953" alt="image" src="https://github.com/user-attachments/assets/88b4eedf-c5af-4a0f-b24c-a872d701cc64" />
+*   **Drag-and-Drop Rack Builder**: Design and visualize equipment racks in real time. Model fractional-width gear with multi-sided placement (front, rear, left, right).
+*   **Modular Chassis & Slots**: Populate equipment templates with slot-specific modules (connector plates, interface cards), tracking custom configurations down to the individual slot level.
+*   **Canvas Wire Diagrams**: Lay out your equipment on a multi-page interactive canvas. Connect device ports to build visual signal flow mappings.
+*   **Patch Panel Builder**: Create custom patch panels, mount connectors, and visually patch signals between chassis and external panels.
 
-### 🚀 Show Manager
+![Rack Builder & Modular Chassis Workspace](https://via.placeholder.com/1200x800.png?text=Rack+Builder+and+Modular+Chassis+Workspace+Screenshot)
+*Interactive Drag-and-Drop Rack Builder featuring fractional-width gear and slot assignment.*
 
-Keep your projects organized with the centralized Show Manager.
+---
 
-*   Create separate profiles for each show.
-*   Add custom logos and contact information to your labels for a professional touch.
+### 2. Advanced Cable & Case Labeling
 
-<img width="1919" height="959" alt="image" src="https://github.com/user-attachments/assets/4ab09620-d149-4129-b864-4958a2be8412" />
+Generate high-density, professional production labels directly from your show's database.
 
-### 💾 Saved Label Sheets
+*   **Loom Label Editor**: Design multi-layered cable looms with color-coded origin/destination markers, custom cable lengths, and custom descriptions.
+*   **Case Label Editor**: Design large-format case labels complete with custom show logos, contact information, and barcodes.
+*   **Label Sheet Placement**: Print with zero waste. Digitally place labels on partially used sticker sheets (Avery or custom templates) so you can print single labels without throwing away standard stock sheets.
+*   **Loom Builder Sheet Exports**: Automatically compile multiple looms into print-ready, high-resolution PDF lists for quick on-site deployment.
 
-Never re-type the same label list again!
+![Loom and Case Label Editors](https://via.placeholder.com/1200x800.png?text=Loom+and+Case+Label+Editors+Screenshot)
+*Loom and Case Label Editors showing print-preview sheets and print-stock alignment.*
 
-*   Save and load entire sheets of loom or case labels.
-*   Perfect for reprinting common label sets for recurring jobs.
+---
 
-### 🖨️ Advanced Print Placement
+### 3. Labor Operations & Hours Tracking
 
-Save paper and time with our smart printing options.
+Manage crew roles, rates, and timesheets in a single, high-efficiency grid interface.
 
-*   Visually place labels on a digital sheet to print on partially used label stock.
-*   Ideal for one-off corrections without wasting a full sheet.
+*   **Unified Roster & Show Crew**: Maintain a master labor roster and seamlessly assign crew members to individual shows with role-specific hourly or daily rates.
+*   **Flexible Roles**: Assign a single crew member to multiple roles or rate categories on the same show.
+*   **Bulk Editable Timesheets**: Track hours in a lightning-fast, spreadsheet-like grid view. Log daily total hours per crew member across a weekly cycle.
+*   **Automated Overtime (OT) Engine**: Implements a robust calculation engine:
+    *   **Daily & Weekly Overtime**: Automatically flags and bills hours exceeding daily and weekly thresholds.
+    *   **Day Rates**: Seamlessly integrates flat Day Rates that cover a base number of hours, absorbing hourly entries up to the threshold, with hours beyond treated as overtime.
+    *   **Live Summaries**: Instantly compute and display total regular hours, overtime hours, and combined labor costs.
 
-<img width="1917" height="959" alt="image" src="https://github.com/user-attachments/assets/19608602-803c-4e79-aa19-6704d34db988" />
+![Hours Tracking and Timesheet Grid](https://via.placeholder.com/1200x800.png?text=Labor+Timesheet+and+OT+Waterfall+Grid+Screenshot)
+*The spreadsheet-style timesheet interface with automatic calculations and live labor cost summaries.*
 
-### 🏗️ Drag-and-Drop Rack Builder
+---
 
-Design and visualize your AV and equipment racks with ease.
+### 4. Network & Infrastructure Management
 
-*   Drag and drop equipment from the library to build your rack.
-*   Create a virtual representation of your physical setup.
-*   Generates a clean, readable wire diagram.
+Document and plan production networks before stepping foot on site.
 
-<img width="1919" height="959" alt="image" src="https://github.com/user-attachments/assets/15db5cce-87e5-4882-a213-a420e5ee2159" />
+*   **VLAN Definition Matrix**: Catalog production VLANs with custom IDs, descriptions, and color-coded tags.
+*   **IP Allocation Matrix**: Allocate static and dynamic IP pools for production subnets. Associate IPs directly with equipment instances defined in your racks.
 
-### 📚 Equipment Library & Admin Panel
+![Network and IP Allocation Matrix](https://via.placeholder.com/1200x800.png?text=VLAN+and+IP+Allocation+Workspace+Screenshot)
+*Subnet planning grid mapping VLAN IDs, static IP assignments, and equipment rack hosts.*
 
-Manage your equipment inventory with a powerful library system.
+---
 
-*   Comes with a default library of common AV equipment.
-*   Create, edit, and manage your own custom equipment templates.
-*   An admin panel to manage the default equipment library.
+### 5. Communications & Collaboration
 
-<img width="1917" height="957" alt="image" src="https://github.com/user-attachments/assets/a8011336-ca70-41f7-a7ba-ca4f2e444270" />
+Keep production managers, project engineers, and client representatives perfectly aligned.
 
-### supabase Integration
+*   **Rich Text Communications**: Compose professional update emails using a full-featured, rich-text WYSIWYG editor.
+*   **Variable Substitution Templates**: Personalize bulk communications using dynamic merge tags (e.g., `{{firstName}}`, `{{showName}}`, `{{weekStart}}`).
+*   **Contextual Notes**: Create, edit, and link notes anywhere in the application. Notes can attach globally to a show, or pin directly to specific racks, looms, equipment instances, or roster members.
+*   **Show Collaboration & Permissions**: Share shows with specific team members. Collaborate concurrently with granular, role-based feature permissions.
 
-Leverages the power of Supabase for a secure and scalable backend.
+![Communications and Email Composer](https://via.placeholder.com/1200x800.png?text=Tiptap+Communications+Suite+Screenshot)
+*Polished email editor with variable substitution sidebar and live recipient preview panels.*
 
-*   User authentication and SSO.
-*   Data management for shows, libraries, and racks.
+---
 
-## 🛠️ Tech Stack
+## 🛠️ Technology Stack
 
-*   **Backend**: Python with FastAPI
-*   **Frontend**: React, Tailwind CSS
-*   **Database & Auth**: Supabase
-*   **UI Components**: Lucide Icons, React Hot Toast
-*   **Drag & Drop**: @dnd-kit
-*   **Diagramming**: React Flow
+ShowReady is built on a highly modern, fast, and scalable stack:
 
-## 🚀 Future Features
+*   **Backend Framework**: Python 3.10+ with [FastAPI](https://fastapi.tiangolo.com/) for high-performance API routing.
+*   **Frontend UI**: [React](https://react.dev/) built with [Tailwind CSS](https://tailwindcss.com/) for a sleek, responsive, dark-themed interface.
+*   **Interactive Canvas**: [React Flow](https://reactflow.dev/) powering custom interactive signal-flow wire diagrams.
+*   **Drag-and-Drop Engines**: [@dnd-kit](https://dndkit.com/) for smooth rack slot and chassis placement.
+*   **Data & Security**: Secure user access and data storage powered by PostgreSQL and token-based session management.
+*   **PDF Generation Engines**: Vector PDF rendering for generating high-precision layouts, timesheet summaries, and labels on the fly.
 
-ShowReady is constantly evolving. Here are some of the features we're planning to add:
+---
 
-*   **Switch Config**: Manage and document network switch configurations.
-*   **Patch Panel Design/Layout**: Design and visualize patch panel layouts.
-*   **Loom Designer/Cable Schedule**: Create detailed cable schedules and loom designs.
-*   **And many more!**
+## 🚀 On the Horizon (Roadmap)
+
+We are constantly building more features to expand the platform's capabilities:
+
+*   **Integrated Scheduling Engine**: Shift planners and crew calendars.
+*   **Expanded Switch Configuration**: Extended CLI generation and config parsing for network switches.
+*   **Visual Label Editor (V3)**: An interactive canvas-based layout editor for custom sticker sheets.
+*   **Extended API Integrations**: Secure endpoints for syncing timesheet and scheduling data with popular tools.
+*   **Advanced Labor and Equipment Budgeting**: Seamless project-cost calculators and rate sheet sheets.
+
+---
 
 ## 🙏 Acknowledgements
 
-A big thank you to the open-source libraries and tools that made ShowReady possible.
-
----
+ShowReady is made possible by the incredible communities behind FastAPI, React, Tailwind CSS, React Flow, and other open-source libraries.
