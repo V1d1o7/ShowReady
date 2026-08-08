@@ -279,6 +279,8 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId, initialData 
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Rate ($)</label>
                                 <input
                                     type="number"
+                                    step="0.01"
+                                    min="0"
                                     value={rate}
                                     onChange={(e) => setRate(e.target.value)}
                                     onFocus={(e) => e.target.select()}

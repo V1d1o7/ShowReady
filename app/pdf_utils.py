@@ -418,7 +418,10 @@ def generate_crew_audit_pdf(user: dict, show: dict, audit_data: dict, show_logo_
         last_name = roster.get('last_name', '')
         
         story.append(Paragraph(f"{first_name} {last_name} - {crew_member.get('position', 'N/A')}", styles["MemberHeader"]))
-        rate_str = f"${crew_member['daily_rate']}/day" if crew_member['rate_type'] == 'daily' else f"${crew_member['hourly_rate']}/hr"
+        
+        daily_rate = float(crew_member.get('daily_rate') or 0)
+        hourly_rate = float(crew_member.get('hourly_rate') or 0)
+        rate_str = f"${daily_rate:,.2f}/day" if crew_member.get('rate_type') == 'daily' else f"${hourly_rate:,.2f}/hr"
         story.append(Paragraph(f"Rate: {rate_str}", styles["Normal"]))
         story.append(Spacer(1, 6))
 

@@ -256,7 +256,11 @@ const HoursTrackingView = () => {
                                         </button>
                                     </div>
                                 </td>
-                                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-400">{member.rate_type === 'daily' ? `$${member.daily_rate}/day` : `$${member.hourly_rate}/hr`}</td>
+                                <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-400">
+                                    {member.rate_type === 'daily' 
+                                        ? `$${Number(member.daily_rate || 0).toFixed(2)}/day` 
+                                        : `$${Number(member.hourly_rate || 0).toFixed(2)}/hr`}
+                                </td>
                                 {dates.map(date => {
                                     const dateString = formatDate(date);
                                     return (

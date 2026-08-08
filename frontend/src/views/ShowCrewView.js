@@ -160,7 +160,9 @@ const ShowCrewView = () => {
                                         </td>
                                         <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
                                         <td className="px-3 py-4 text-sm text-gray-300">
-                                            {member.rate_type === 'daily' ? `$${member.daily_rate}/day` : `$${member.hourly_rate}/hr`}
+                                            {member.rate_type === 'daily' 
+                                                ? `$${Number(member.daily_rate || 0).toFixed(2)}/day` 
+                                                : `$${Number(member.hourly_rate || 0).toFixed(2)}/hr`}
                                         </td>
                                         <td className="px-3 py-4 text-sm text-gray-300">{member.roster.email}</td>
                                         <td className="py-4 pl-3 pr-4 text-right text-sm font-medium">
