@@ -118,7 +118,7 @@ def calculate_week_cost(crew_hours: list, dates: list, ot_daily_threshold: float
     return total_cost_grand
 
 # This helper function is the core logic 
-async def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, supabase: Client) -> WeeklyTimesheet: 
+def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, supabase: Client) -> WeeklyTimesheet:
     week_end_date = week_start_date + timedelta(days=6) 
 
     # Get current user's roster_id from their roster entry 
@@ -263,16 +263,16 @@ async def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.
         historical_labor_cost_excluding_current_week=historical_cost
     ) 
 
-@router.get("/timesheet", response_model=WeeklyTimesheet) 
-async def get_weekly_timesheet( 
-    show_id: int,  
-    week_start_date: date = Query(...),  
-    user=Depends(get_user),  
-    supabase: Client = Depends(get_supabase_client), 
-    show_branding: bool = Depends(get_branding_visibility) 
-): 
-    """Gets all data needed to display a weekly timesheet.""" 
-    return await get_timesheet_data(show_id, week_start_date, user.id, supabase) 
+@router.get("/timesheet", response_model=WeeklyTimesheet)
+def get_weekly_timesheet(
+    show_id: int,
+    week_start_date: date = Query(...),
+    user=Depends(get_user),
+    supabase: Client = Depends(get_supabase_client),
+    show_branding: bool = Depends(get_branding_visibility)
+):
+    """Gets all data needed to display a weekly timesheet."""
+    return get_timesheet_data(show_id, week_start_date, user.id, supabase)
 
 @router.put("/timesheet") 
 async def update_weekly_timesheet( 
@@ -335,10 +335,10 @@ async def get_timesheet_pdf(
         except Exception: 
             pass 
 
-    # 2. Fetch Timesheet Data 
-    timesheet_data = await get_timesheet_data(show_id, week_start_date, user.id, supabase) 
+    # 2. Fetch Timesheet Data
+    timesheet_data = get_timesheet_data(show_id, week_start_date, user.id, supabase)
 
-    show_logo_bytes = None 
+    show_logo_bytes = None
     if timesheet_data.logo_path: 
         try: 
             show_logo_bytes = supabase.storage.from_('logos').download(timesheet_data.logo_path) 
@@ -492,7 +492,7 @@ async def email_weekly_timesheet(
         except Exception: pass 
 
     # 3. Fetch Timesheet Data
-    timesheet_data = await get_timesheet_data(show_id, week_start_date, user.id, supabase) 
+    timesheet_data = get_timesheet_data(show_id, week_start_date, user.id, supabase)
     
     # 3b. Fetch Show Info (PM Details)
     show_res = supabase.table('shows').select('data').eq('id', show_id).single().execute()

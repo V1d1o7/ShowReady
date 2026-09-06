@@ -245,7 +245,7 @@ async def delete_panel_instance(instance_id: uuid.UUID, user = Depends(get_user)
     return
 
 @router.get("/shows/{show_id}/panel-instances", response_model=List[PanelEquipmentInstance])
-async def get_all_panel_instances_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def get_all_panel_instances_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves ALL panel equipment instances for a given show, primarily for depth rendering and export."""
     # 1. Get all racks for the show
     racks_res = supabase.table('racks').select('id').eq('show_id', show_id).execute()

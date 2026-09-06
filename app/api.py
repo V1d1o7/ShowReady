@@ -6,6 +6,7 @@ from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
 from gotrue.errors import AuthApiError
 import io
+import time
 import traceback
 from pydantic import BaseModel
 import uuid
@@ -45,24 +46,94 @@ from .models import HoursPDFPayload
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY") # This is now the ANON Key
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
 # This client uses the ANON key. It is restricted by RLS.
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+class TokenUser:
+    """
+    Lightweight stand-in for the gotrue User object, built from verified JWT claims.
+    Exposes only the attributes the codebase actually reads off ``user``.
+    """
+    __slots__ = ("id", "email", "phone", "app_metadata", "user_metadata")
+
+    def __init__(self, claims: dict):
+        self.id = claims.get("sub")
+        self.email = claims.get("email") or ""
+        self.phone = claims.get("phone") or ""
+        self.app_metadata = claims.get("app_metadata") or {}
+        self.user_metadata = claims.get("user_metadata") or {}
+
+
+def _verify_token_locally(token: str) -> "TokenUser":
+    """
+    Verifies a Supabase access token (or an admin impersonation token, which is signed
+    with the same secret) locally, with no network call to GoTrue.
+    Raises jwt.PyJWTError subclasses on failure so callers can decide how to handle it.
+    """
+    if not SUPABASE_JWT_SECRET:
+        raise jwt.InvalidKeyError("SUPABASE_JWT_SECRET is not configured")
+    claims = jwt.decode(
+        token,
+        SUPABASE_JWT_SECRET,
+        algorithms=["HS256"],
+        audience="authenticated",
+        leeway=30,  # tolerate minor clock skew between this host and Supabase
+        options={"require": ["exp", "sub"]},
+    )
+    return TokenUser(claims)
+
+
+def _authenticate_token(token: str):
+    """
+    Resolve a bearer token to a user object. Fast path is local JWT verification;
+    on anything other than a clean expiry we fall back to GoTrue so behaviour stays
+    identical for unusual tokens.
+    """
+    try:
+        return _verify_token_locally(token)
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token has expired")
+    except jwt.PyJWTError:
+        try:
+            user_response = supabase.auth.get_user(token)
+            return user_response.user
+        except AuthApiError as e:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def _token_from_request(request: Request) -> Optional[str]:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    return auth_header.replace("Bearer ", "")
+
 
 def get_supabase_client(request: Request = None) -> Client:
     """
     Returns a user-scoped client if a token is present in the request.
     This ensures all database queries respect Row Level Security (RLS).
+    The authenticated client is memoized on request.state so a single request
+    builds at most one client even though this runs as several dependencies.
     """
     if request:
-        auth_header = request.headers.get("Authorization")
-        if auth_header:
-            token = auth_header.replace("Bearer ", "")
-            return create_client(
-                SUPABASE_URL, 
-                SUPABASE_KEY, 
+        token = _token_from_request(request)
+        if token:
+            cached = getattr(request.state, "_sb_client", None)
+            if cached is not None and getattr(request.state, "_sb_client_token", None) == token:
+                return cached
+            client = create_client(
+                SUPABASE_URL,
+                SUPABASE_KEY,
                 options=ClientOptions(headers={"Authorization": f"Bearer {token}"})
             )
+            request.state._sb_client = client
+            request.state._sb_client_token = token
+            return client
     return supabase
 
 def get_service_client() -> Client:
@@ -80,31 +151,31 @@ BUCKET_NAME = "logos"
 
 # --- User Authentication Dependency ---
 async def get_user(request: Request):
-    """Dependency to get user from Supabase JWT in Authorization header."""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header:
+    """Dependency to get user from Supabase JWT in Authorization header.
+
+    Verifies the token locally (no GoTrue round-trip) and memoizes the result on
+    request.state so the activity-tracking middleware and every other dependency
+    on the same request reuse it.
+    """
+    token = _token_from_request(request)
+    if not token:
         raise HTTPException(status_code=401, detail="Authorization header missing")
-    
-    token = auth_header.replace("Bearer ", "")
-    
-    try:
-        user_response = supabase.auth.get_user(token)
-        return user_response.user
-    except AuthApiError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
+
+    cached = getattr(request.state, "_auth_user", None)
+    if cached is not None and getattr(request.state, "_auth_token", None) == token:
+        return cached
+
+    user = _authenticate_token(token)
+    request.state._auth_user = user
+    request.state._auth_token = token
+    return user
 
 # --- Token Dependency for File Uploads ---
 async def get_user_from_token(authorization: str = Header(...)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
     token = authorization.split(" ")[1]
-    try:
-        user_response = supabase.auth.get_user(token)
-        return user_response.user
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token for user")
+    return _authenticate_token(token)
 
 
 # --- Admin Authentication Dependency ---
@@ -358,7 +429,7 @@ async def create_default_equipment(
     return response.data[0]
 
 @router.get("/admin/library", tags=["Admin"])
-async def get_admin_library(admin_user = Depends(get_admin_user)):
+def get_admin_library(admin_user = Depends(get_admin_user)):
     """Admin: Fetches the default library tree for the admin panel."""
     try:
         # Use Service Client to ensure Admin sees all default items
@@ -822,6 +893,39 @@ def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
                 roles.add(str(role_val).strip())
     return roles
 
+# --- Feature restriction cache ---------------------------------------------------
+# feature_restrictions is a tiny, near-static table that was previously read on every
+# paywalled request. Cache the whole table in-process with a short TTL; admin edits
+# call _invalidate_feature_restrictions_cache() for immediate propagation.
+_FEATURE_RESTRICTIONS_CACHE = {"expires_at": 0.0, "data": None}
+_FEATURE_RESTRICTIONS_TTL = 60.0
+
+
+def _invalidate_feature_restrictions_cache():
+    _FEATURE_RESTRICTIONS_CACHE["expires_at"] = 0.0
+
+
+def _get_feature_restrictions(supabase: Client) -> dict:
+    """Returns {feature_name: [permitted_tier_lower, ...]}, cached."""
+    cache = _FEATURE_RESTRICTIONS_CACHE
+    now = time.monotonic()
+    if cache["data"] is not None and now < cache["expires_at"]:
+        return cache["data"]
+    try:
+        res = supabase.table('feature_restrictions').select('feature_name, permitted_tiers').execute()
+        data = {
+            row['feature_name']: [t.lower() for t in (row.get('permitted_tiers') or [])]
+            for row in (res.data or [])
+        }
+        cache["data"] = data
+        cache["expires_at"] = now + _FEATURE_RESTRICTIONS_TTL
+        return data
+    except Exception:
+        if cache["data"] is not None:
+            return cache["data"]
+        raise
+
+
 def feature_check(feature_name: str, paywalled: bool = True):
     """
     Dependency factory with added DEBUGGING to trace evaluation failures.
@@ -831,27 +935,23 @@ def feature_check(feature_name: str, paywalled: bool = True):
         # 1. Fetch User Roles for Admin Check
         user_roles = get_user_roles_sync(user.id, supabase)
         if 'global_admin' in user_roles:
-            return 
+            return
 
         # 2. Fetch User Profile and Tier
         profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user.id).single().execute()
         if not profile_res.data:
             raise HTTPException(status_code=403, detail="User profile not found.")
-        
+
         raw_tier = profile_res.data.get('tiers', {}).get('name')
         user_tier = raw_tier.lower() if raw_tier else None
-        
+
         # 3. Fetch Entitlements
         entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
         is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
 
-        # 4. Fetch Feature Restrictions from DB
-        restriction_res = supabase.table('feature_restrictions').select('permitted_tiers').eq('feature_name', feature_name).maybe_single().execute()
-        
-        permitted_tiers = []
-        if restriction_res and restriction_res.data:
-            permitted_tiers = [t.lower() for t in (restriction_res.data.get('permitted_tiers') or [])]
-        
+        # 4. Feature Restrictions (cached, near-static table)
+        permitted_tiers = _get_feature_restrictions(supabase).get(feature_name, [])
+
 
         # 5. Layered Evaluation
         # Tier Check
@@ -940,6 +1040,7 @@ async def update_feature_restriction(
         raise HTTPException(status_code=500, detail="Failed to update feature restriction.")
     
     admin_client.rpc('increment_permissions_version', {}).execute()
+    _invalidate_feature_restrictions_cache()
 
     return response.data[0]
 
@@ -1589,7 +1690,7 @@ async def list_library_racks(from_library: bool = False, user = Depends(get_user
     return response.data
 
 @router.get("/shows/{show_id}/racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
-async def list_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def list_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all racks for a show, including a flag indicating if they have notes."""
     # 1. Get all racks for the show
     # FIX: Removed user_id check to allow collaborators
@@ -1613,7 +1714,7 @@ async def list_racks_for_show(show_id: int, user = Depends(get_user), supabase: 
     return racks
 
 @router.get("/racks/{rack_id}", response_model=Rack, tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
-async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get the rack data
     # FIX: Removed .eq('user_id', ...) check
     response = supabase.table('racks').select('*').eq('id', str(rack_id)).execute()
@@ -1653,13 +1754,14 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     # 5. Create a lookup map for easy access
     template_map = {template['id']: template for template in templates_data}
     
-    # 6. Fetch notes for the rack and its equipment
-    rack_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').eq('parent_entity_id', str(rack_id)).execute()
-    rack_data['has_notes'] = bool(rack_notes_res.data)
-
+    # 6. Fetch notes for the rack and its equipment (single query)
     equipment_ids = [str(instance['id']) for instance in equipment_instances]
-    equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', equipment_ids).execute()
-    equipment_with_notes = {note['parent_entity_id'] for note in equipment_notes_res.data}
+    notes_res = supabase.table('notes').select('parent_entity_id, parent_entity_type') \
+        .in_('parent_entity_type', ['rack', 'equipment_instance']) \
+        .in_('parent_entity_id', [str(rack_id)] + equipment_ids) \
+        .execute()
+    rack_data['has_notes'] = any(n['parent_entity_type'] == 'rack' for n in notes_res.data)
+    equipment_with_notes = {n['parent_entity_id'] for n in notes_res.data if n['parent_entity_type'] == 'equipment_instance'}
 
     # 7. Attach the full template data and notes status to each equipment instance
     for instance in equipment_instances:
@@ -1670,7 +1772,7 @@ async def get_rack(rack_id: uuid.UUID, user = Depends(get_user), supabase: Clien
     return rack_data
 
 @router.get("/shows/{show_id}/detailed_racks", response_model=List[Rack], tags=["Racks"], dependencies=[Depends(feature_check("rack_builder"))])
-async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     # 1. Get all racks for the show
     racks_res = supabase.table('racks').select('*').eq('show_id', show_id).execute()
     if not racks_res.data:
@@ -1702,14 +1804,15 @@ async def get_detailed_racks_for_show(show_id: int, user = Depends(get_user), su
             rack_equipment_map[rack_id] = []
         rack_equipment_map[rack_id].append(instance)
 
-    # 5. Fetch notes and assemble the final rack objects
+    # 5. Fetch notes (single query for racks + equipment) and assemble the final rack objects
     all_instance_ids = [str(inst['id']) for inst in all_instances]
-    
-    rack_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'rack').in_('parent_entity_id', rack_ids).execute()
-    racks_with_notes = {note['parent_entity_id'] for note in rack_notes_res.data}
 
-    equipment_notes_res = supabase.table('notes').select('parent_entity_id').eq('parent_entity_type', 'equipment_instance').in_('parent_entity_id', all_instance_ids).execute()
-    equipment_with_notes = {note['parent_entity_id'] for note in equipment_notes_res.data}
+    notes_res = supabase.table('notes').select('parent_entity_id, parent_entity_type') \
+        .in_('parent_entity_type', ['rack', 'equipment_instance']) \
+        .in_('parent_entity_id', [str(rid) for rid in rack_ids] + all_instance_ids) \
+        .execute()
+    racks_with_notes = {n['parent_entity_id'] for n in notes_res.data if n['parent_entity_type'] == 'rack'}
+    equipment_with_notes = {n['parent_entity_id'] for n in notes_res.data if n['parent_entity_type'] == 'equipment_instance'}
 
     for instance in all_instances:
         instance['has_notes'] = str(instance['id']) in equipment_with_notes
@@ -2306,7 +2409,7 @@ async def remove_equipment_from_rack(instance_id: uuid.UUID, user = Depends(get_
 
 # --- Library Management Endpoints ---
 @router.get("/library", tags=["Library"])
-async def get_library(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def get_library(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Fetches the entire library tree for the logged-in user."""
     try:
         folders_response = supabase.table('folders').select('*').or_(f'user_id.eq.{user.id},is_default.eq.true').execute()
@@ -2486,7 +2589,7 @@ async def create_connection(connection_data: ConnectionCreate, user = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/shows/{show_id}/unassigned_equipment", tags=["Wire Diagram"], response_model=List[RackEquipmentInstanceWithTemplate])
-async def get_unassigned_equipment(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def get_unassigned_equipment(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves all equipment for a show that has not been assigned to a wire diagram page."""
     try:
         # First, get all racks for the given show and user
@@ -2577,7 +2680,7 @@ def collect_recursive_ports(assignments, parent_template, module_template_map, p
     return ports
 
 @router.get("/shows/{show_id}/connections", tags=["Wire Diagram"], dependencies=[Depends(feature_check("wire_diagram"))])
-async def get_connections_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+def get_connections_for_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     try:
         conn_res = supabase.table('connections').select('*').eq('show_id', show_id).execute()
         connections = conn_res.data or []

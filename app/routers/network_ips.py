@@ -149,8 +149,12 @@ async def _ensure_show_access(show_id: int, supabase: Client):
 
 
 @router.get("/shows/{show_id}/network/ips", response_model=List[NetworkIpEntryResponse])
-async def get_network_ips(show_id: int, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    await _ensure_show_access(show_id, supabase)
+def get_network_ips(show_id: int, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    # Run in the threadpool (sync def) so the blocking supabase calls don't stall the
+    # event loop while the wire-diagram / rack-builder views load in parallel.
+    show_res = supabase.table("shows").select("id").eq("id", show_id).single().execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found or access denied.")
 
     res = (
         supabase.table("network_ip_entries")

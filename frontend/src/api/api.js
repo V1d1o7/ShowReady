@@ -56,7 +56,36 @@ const handleResponse = async (res) => {
     return res;
 };
 
+// --- Equipment library cache ---------------------------------------------------
+// The user + admin equipment libraries almost never change but were refetched on
+// every mount of the Rack Builder and Wire Diagram. Cache them briefly in memory;
+// mutation handlers call api.invalidateLibraryCache() and the whole thing self-
+// expires after LIBRARY_CACHE_TTL_MS as a backstop.
+const LIBRARY_CACHE_TTL_MS = 30000;
+const _libraryCache = { user: null, admin: null };
+
+const _cachedFetch = async (slot, loader) => {
+    const hit = _libraryCache[slot];
+    if (hit && Date.now() - hit.at < LIBRARY_CACHE_TTL_MS) {
+        return hit.data;
+    }
+    const data = await loader();
+    _libraryCache[slot] = { at: Date.now(), data };
+    return data;
+};
+
+// Pass-through that clears the library cache after a mutation resolves.
+const _bustLib = (result) => {
+    _libraryCache.user = null;
+    _libraryCache.admin = null;
+    return result;
+};
+
 export const api = {
+    invalidateLibraryCache: () => {
+        _libraryCache.user = null;
+        _libraryCache.admin = null;
+    },
     // --- Shows ---
     getShows: async () => fetch('/api/shows', { headers: await getAuthHeader() }).then(handleResponse),
     getShow: async (showId) => fetch(`/api/shows/${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
@@ -175,7 +204,7 @@ export const api = {
     }).then(handleResponse),
     
     getEquipmentTemplates: async () => fetch('/api/equipment', { headers: await getAuthHeader() }).then(handleResponse),
-    getLibrary: async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse),
+    getLibrary: async () => _cachedFetch('user', async () => fetch('/api/library', { headers: await getAuthHeader() }).then(handleResponse)),
     
     moveEquipmentInRack: async (instanceId, newPositionData) => fetch(`/api/racks/equipment/${instanceId}`, { 
         method: 'PUT', 
@@ -237,70 +266,70 @@ export const api = {
     deleteAdminPanelTemplate: async (id) => fetch(`/api/panels/admin/templates/${id}`, { method: 'DELETE', headers: await getAuthHeader() }).then(handleResponse),
 
     // --- Admin Equipment Library ---
-    getAdminLibrary: async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse),
+    getAdminLibrary: async () => _cachedFetch('admin', async () => fetch('/api/admin/library', { headers: await getAuthHeader() }).then(handleResponse)),
     
-    createAdminFolder: async (folderData) => fetch('/api/admin/folders', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    updateAdminFolder: async (folderId, folderData) => fetch(`/api/admin/folders/${folderId}`, { 
+    createAdminFolder: async (folderData) => fetch('/api/admin/folders', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(folderData)
+    }).then(handleResponse).then(_bustLib),
+
+    updateAdminFolder: async (folderId, folderData) => fetch(`/api/admin/folders/${folderId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(folderData)
+    }).then(handleResponse).then(_bustLib),
+
+    deleteAdminFolder: async (folderId) => fetch(`/api/admin/folders/${folderId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(_bustLib),
+
+    createAdminEquipment: async (equipmentData) => fetch('/api/admin/equipment', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(equipmentData)
+    }).then(handleResponse).then(_bustLib),
+
+    updateAdminEquipment: async (equipmentId, equipmentData) => fetch(`/api/admin/equipment/${equipmentId}`, {
         method: 'PUT', 
         headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    deleteAdminFolder: async (folderId) => fetch(`/api/admin/folders/${folderId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    createAdminEquipment: async (equipmentData) => fetch('/api/admin/equipment', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    updateAdminEquipment: async (equipmentId, equipmentData) => fetch(`/api/admin/equipment/${equipmentId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, { method: 'DELETE', headers: await getAuthHeader() }),
+        body: JSON.stringify(equipmentData)
+    }).then(handleResponse).then(_bustLib),
+
+    deleteAdminEquipment: async (equipmentId) => fetch(`/api/admin/equipment/${equipmentId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(_bustLib),
 
     // --- User Library ---
-    createUserFolder: async (folderData) => fetch('/api/library/folders', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    updateUserFolder: async (folderId, folderData) => fetch(`/api/library/folders/${folderId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(folderData) 
-    }).then(handleResponse),
-    
-    deleteUserFolder: async (folderId) => fetch(`/api/library/folders/${folderId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    createUserEquipment: async (equipmentData) => fetch('/api/library/equipment', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    updateUserEquipment: async (equipmentId, equipmentData) => fetch(`/api/library/equipment/${equipmentId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(equipmentData) 
-    }).then(handleResponse),
-    
-    deleteUserEquipment: async (equipmentId) => fetch(`/api/library/equipment/${equipmentId}`, { method: 'DELETE', headers: await getAuthHeader() }),
-    
-    copyEquipmentToLibrary: async (copyData) => fetch('/api/library/copy_equipment', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(copyData) 
-    }).then(handleResponse),
+    createUserFolder: async (folderData) => fetch('/api/library/folders', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(folderData)
+    }).then(handleResponse).then(_bustLib),
+
+    updateUserFolder: async (folderId, folderData) => fetch(`/api/library/folders/${folderId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(folderData)
+    }).then(handleResponse).then(_bustLib),
+
+    deleteUserFolder: async (folderId) => fetch(`/api/library/folders/${folderId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(_bustLib),
+
+    createUserEquipment: async (equipmentData) => fetch('/api/library/equipment', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(equipmentData)
+    }).then(handleResponse).then(_bustLib),
+
+    updateUserEquipment: async (equipmentId, equipmentData) => fetch(`/api/library/equipment/${equipmentId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(equipmentData)
+    }).then(handleResponse).then(_bustLib),
+
+    deleteUserEquipment: async (equipmentId) => fetch(`/api/library/equipment/${equipmentId}`, { method: 'DELETE', headers: await getAuthHeader() }).then(_bustLib),
+
+    copyEquipmentToLibrary: async (copyData) => fetch('/api/library/copy_equipment', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(copyData)
+    }).then(handleResponse).then(_bustLib),
 
     // --- Admin Switch Config ---
     getSwitchModels: async () => fetch('/api/v1/admin/switch_models', { headers: await getAuthHeader() }).then(handleResponse),

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { Routes, Route, useNavigate, useParams, Outlet, Navigate, useLocation } from 'react-router-dom';
 import { supabase, api } from './api/api';
 import toast, { Toaster } from 'react-hot-toast';
@@ -11,42 +11,14 @@ import { ToastProvider } from './contexts/ToastContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { LayoutContext } from './contexts/LayoutContext';
 
-// Views
+// Views — shell views stay eager; heavy feature/admin views are code-split so their
+// large dependencies (React Flow, dagre, dnd-kit, Tiptap, etc.) leave the initial bundle.
 import Auth from './views/Auth';
 import DashboardView from './views/DashboardView';
 import ShowView from './views/ShowView';
-import AccountView from './views/AccountView';
-import AdvancedSSOView from './views/AdvancedSSOView';
+import ShowInfoView from './views/ShowInfoView';
 import AdminLayout from './layouts/AdminLayout';
 import ShowLayout from './layouts/ShowLayout';
-import EmailView from './views/admin/EmailView';
-import AdminEquipmentLibraryView from './views/admin/EquipmentLibraryView';
-import UserManagementView from './views/admin/UserManagementView';
-import MetricsView from './views/admin/MetricsView';
-import RbacView from './views/admin/RbacView';
-import SwitchModelView from './views/admin/SwitchModelView';
-import PanelLibraryView from './views/admin/PanelLibraryView';
-import UserLibraryView from './views/UserLibraryView';
-import EquipmentLibraryView from './views/EquipmentLibraryView';
-import UserRackBuilderView from './views/UserRackBuilderView';
-import ShowInfoView from './views/ShowInfoView';
-import LoomLabelView from './views/LoomLabelView';
-import CaseLabelView from './views/CaseLabelView';
-// REMOVED: LabelEngineView import
-import RackBuilderView from './views/RackBuilderView';
-import WireDiagramView from './views/WireDiagramView';
-import LoomBuilderView from './views/LoomBuilderView';
-import VLANView from './views/VLANView';
-import NetworkIpsView from './views/NetworkIpsView';
-import PanelBuilderView from './views/PanelBuilderView';
-import RosterView from './views/RosterView';
-import ShowCrewView from './views/ShowCrewView';
-import HoursTrackingView from './views/HoursTrackingView';
-import SwitchConfigView from './views/SwitchConfigView';
-import TemplateManager from './views/settings/TemplateManager';
-import ShowTeamView from './views/ShowTeamView';
-import LabelTemplateListView from './views/library/LabelTemplateListView';
-import LabelTemplateBuilder from './views/settings/LabelTemplateBuilder';
 
 // Components
 import NewShowModal from './components/NewShowModal';
@@ -54,6 +26,35 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
 import ConfirmationModal from './components/ConfirmationModal';
 import ImpersonationBanner from './components/ImpersonationBanner';
+
+const AccountView = lazy(() => import('./views/AccountView'));
+const AdvancedSSOView = lazy(() => import('./views/AdvancedSSOView'));
+const EmailView = lazy(() => import('./views/admin/EmailView'));
+const AdminEquipmentLibraryView = lazy(() => import('./views/admin/EquipmentLibraryView'));
+const UserManagementView = lazy(() => import('./views/admin/UserManagementView'));
+const MetricsView = lazy(() => import('./views/admin/MetricsView'));
+const RbacView = lazy(() => import('./views/admin/RbacView'));
+const SwitchModelView = lazy(() => import('./views/admin/SwitchModelView'));
+const PanelLibraryView = lazy(() => import('./views/admin/PanelLibraryView'));
+const UserLibraryView = lazy(() => import('./views/UserLibraryView'));
+const EquipmentLibraryView = lazy(() => import('./views/EquipmentLibraryView'));
+const UserRackBuilderView = lazy(() => import('./views/UserRackBuilderView'));
+const LoomLabelView = lazy(() => import('./views/LoomLabelView'));
+const CaseLabelView = lazy(() => import('./views/CaseLabelView'));
+const RackBuilderView = lazy(() => import('./views/RackBuilderView'));
+const WireDiagramView = lazy(() => import('./views/WireDiagramView'));
+const LoomBuilderView = lazy(() => import('./views/LoomBuilderView'));
+const VLANView = lazy(() => import('./views/VLANView'));
+const NetworkIpsView = lazy(() => import('./views/NetworkIpsView'));
+const PanelBuilderView = lazy(() => import('./views/PanelBuilderView'));
+const RosterView = lazy(() => import('./views/RosterView'));
+const ShowCrewView = lazy(() => import('./views/ShowCrewView'));
+const HoursTrackingView = lazy(() => import('./views/HoursTrackingView'));
+const SwitchConfigView = lazy(() => import('./views/SwitchConfigView'));
+const TemplateManager = lazy(() => import('./views/settings/TemplateManager'));
+const ShowTeamView = lazy(() => import('./views/ShowTeamView'));
+const LabelTemplateListView = lazy(() => import('./views/library/LabelTemplateListView'));
+const LabelTemplateBuilder = lazy(() => import('./views/settings/LabelTemplateBuilder'));
 
 
 const MainLayout = ({ session }) => {
@@ -146,6 +147,7 @@ const MainLayout = ({ session }) => {
                             <Toaster position="bottom-center" />
                             <Navbar />
                             <main className={`flex-grow min-h-0 ${shouldScroll ? 'overflow-y-auto' : ''}`}>
+                              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="text-xl text-gray-400">Loading...</div></div>}>
                                 <Routes>
                                     <Route
                                         path="/"
@@ -217,6 +219,7 @@ const MainLayout = ({ session }) => {
                                         <Route path="panel-library" element={<PanelLibraryView />} />
                                     </Route>
                                 </Routes>
+                              </Suspense>
                             </main>
                             <NewShowModal
                                 isOpen={isNewShowModalOpen}
@@ -244,27 +247,43 @@ const ShowWrapper = ({ onShowUpdate }) => {
     const [racks, setRacks] = useState([]);
     const [networkIps, setNetworkIps] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRackDataLoading, setIsRackDataLoading] = useState(true);
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Rack + network-IP data is only needed by a few tabs (Rack Builder, Wire Diagram,
+    // Network IPs, Panels). Load it in the background so the show shell and the other
+    // tabs (Info, Hours, Comms, Labels) are not gated on it.
+    const fetchRackData = useCallback(async (showIdArg) => {
+        if (!showIdArg) return;
+        setIsRackDataLoading(true);
+        try {
+            const [racksData, ipsData] = await Promise.all([
+                api.getDetailedRacksForShow(showIdArg),
+                api.getNetworkIps(showIdArg)
+            ]);
+            setRacks(racksData || []);
+            setNetworkIps(ipsData || []);
+        } catch (error) {
+            console.error("Failed to fetch rack/network data:", error);
+        } finally {
+            setIsRackDataLoading(false);
+        }
+    }, []);
 
     const fetchShowData = useCallback(async () => {
         setIsLoading(true);
         try {
             const fullShowObject = await api.getShowByName(showName);
-            const [racksData, ipsData] = await Promise.all([
-                api.getDetailedRacksForShow(fullShowObject.id),
-                api.getNetworkIps(fullShowObject.id)
-            ]);
             setShowData(fullShowObject); // Store the full object
-            setRacks(racksData);
-            setNetworkIps(ipsData || []);
+            setIsLoading(false);         // unblock the shell as soon as the show resolves
+            fetchRackData(fullShowObject.id); // background, not awaited
         } catch (error) {
             console.error("Failed to fetch show data by name:", error);
-            navigate('/');
-        } finally {
             setIsLoading(false);
+            navigate('/');
         }
-    }, [showName, navigate]);
+    }, [showName, navigate, fetchRackData]);
 
     useEffect(() => {
         if (showName) {
@@ -318,17 +337,18 @@ const ShowWrapper = ({ onShowUpdate }) => {
     const providerShowData = showData ? showData.data : null;
 
     return (
-        <ShowProvider value={{ 
-            showData: providerShowData, 
-            racks, 
+        <ShowProvider value={{
+            showData: providerShowData,
+            racks,
             networkIps,
-            onSave: handleSaveShowData, 
-            isLoading, 
-            showId, 
-            refreshRacks: fetchShowData, 
+            onSave: handleSaveShowData,
+            isLoading,
+            isRackDataLoading,
+            showId,
+            refreshRacks: () => fetchRackData(showId),
             refreshNetworkIps,
-            has_notes, 
-            showOwnerId 
+            has_notes,
+            showOwnerId
         }}>
             <Outlet />
         </ShowProvider>

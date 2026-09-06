@@ -18,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from datetime import datetime, timedelta, timezone
 from .api import get_supabase_client, get_user
 from .api import router as api_router
@@ -73,49 +74,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# In-process throttle: {user_id: last_write_time}. Keeps the common request path
+# free of any DB call; a stale/missing entry just means one extra write.
+_ACTIVITY_WRITE_INTERVAL = timedelta(minutes=5)
+_last_activity_write = {}
+
+
 @app.middleware("http")
 async def track_user_activity(request: Request, call_next):
     """
-    Middleware to track user activity on API routes.
-    Updates the 'last_active_at' timestamp in the user's profile.
+    Middleware to track user activity on API routes. Updates 'last_active_at' at most
+    once per user per interval, and only as a background task after the response so it
+    never adds latency to the request.
     """
+    user = None
+    should_record = False
+
     if request.url.path.startswith("/api/"):
         try:
-            # Note: get_user also reads the request header
+            # Local JWT verification; result is memoized on request.state and reused by
+            # the endpoint's own Depends(get_user).
             user = await get_user(request)
-            if user:
-                # --- CHANGED THIS LINE ---
-                # Pass the request so we get the AUTHENTICATED client
-                supabase_client = get_supabase_client(request) 
-                
-                now = datetime.now(timezone.utc)
-                
-                # Fetch the last active time from the profile
-                # Using the authenticated client ensures RLS allows us to see our own profile
-                profile_res = supabase_client.table('profiles').select('last_active_at').eq('id', user.id).maybe_single().execute()
-                
-                if profile_res.data:
-                    # ... (Keep rest of the logic unchanged) ...
-                    last_active_str = profile_res.data.get('last_active_at')
-                    
-                    should_update = True
-                    if last_active_str:
-                        last_active_at = datetime.fromisoformat(last_active_str)
-                        if now - last_active_at < timedelta(minutes=5):
-                            should_update = False
-                    
-                    if should_update:
-                        supabase_client.table('profiles').update({'last_active_at': now.isoformat()}).eq('id', user.id).execute()
-
-        except HTTPException as e:
-            if e.status_code == 401:
-                pass
-            else:
-                print(f"Error in activity tracking middleware: {e.detail}")
+        except HTTPException:
+            user = None
         except Exception as e:
             print(f"An unexpected error occurred in activity tracking middleware: {e}")
+            user = None
+
+        if user:
+            now = datetime.now(timezone.utc)
+            last = _last_activity_write.get(str(user.id))
+            if last is None or now - last >= _ACTIVITY_WRITE_INTERVAL:
+                should_record = True
+                _last_activity_write[str(user.id)] = now
 
     response = await call_next(request)
+
+    if should_record and user:
+        supabase_client = get_supabase_client(request)
+        user_id = str(user.id)
+
+        def _write_last_active():
+            try:
+                supabase_client.table('profiles').update(
+                    {'last_active_at': datetime.now(timezone.utc).isoformat()}
+                ).eq('id', user_id).execute()
+            except Exception as e:
+                print(f"Activity tracking write failed: {e}")
+
+        response.background = BackgroundTask(_write_last_active)
+
     return response
 
 
