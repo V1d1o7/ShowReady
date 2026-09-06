@@ -1,18 +1,38 @@
-fastapi
-uvicorn
-pydantic
-supabase
-gotrue
-python-dotenv
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
-cryptography
-reportlab>=4.0.0
-Pillow
-python-multipart
-cairosvg
-pypdf
+# Pinned to the versions this app is known to run on. A previous
+# `pip install -U -r requirements.txt` against an unpinned file pulled
+# supabase 2.18->2.31, fastapi 0.116->0.141, pydantic 2.11->2.13,
+# reportlab 4->5, pillow 11->12, etc. and broke startup
+# (supabase-py 2.19+ reworked ClientOptions/auth wiring -> app/api.py
+# get_supabase_client). Bump deliberately, one at a time, with testing.
+# Do NOT run `pip install -U` against this file.
+
+fastapi==0.116.1
+uvicorn==0.35.0
+pydantic==2.11.7
+supabase==2.18.1          # hard-pins postgrest 1.1.1 / realtime 2.7.0 / supabase-auth 2.12.3 / storage3 0.12.1 / supabase-functions 0.10.1
+gotrue==2.12.4            # app imports gotrue.errors.AuthApiError directly
+python-dotenv==1.1.1
+google-api-python-client==2.179.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.2
+cryptography==45.0.7
+reportlab==4.4.3
+Pillow==11.3.0
+python-multipart==0.0.20
+cairosvg==2.8.2
+pypdf==6.0.0
 pytest
-PyJWT
-apscheduler
+PyJWT==2.10.1
+apscheduler==3.11.3      # keep on 3.x; 4.0 is an incompatible rewrite
+
+# --- Security-patched transitive deps (independent of the pins above) ---
+# requests <2.32.4: .netrc credential leak on cross-host redirect (GHSA-9hjg-9r4m-mvj7),
+#   Proxy-Authorization leak (CVE-2023-32681), verify=False session persistence (CVE-2024-35195)
+requests>=2.32.4
+# urllib3 1.26.x: strip Proxy-Authorization on redirect (CVE-2024-37891),
+#   don't forward body/Authorization across hosts on redirect (CVE-2023-45803 + follow-ups)
+urllib3>=1.26.20,<2
+# certifi <2024.07.04: bundled again-distrusted CA roots (CVE-2024-39689, CVE-2023-37920)
+certifi>=2024.7.4
+# idna <3.7: quadratic-time DoS in idna.encode (CVE-2024-3651)
+idna>=3.7
