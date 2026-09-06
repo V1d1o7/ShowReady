@@ -2038,7 +2038,16 @@ async def add_equipment_to_rack(
         raise HTTPException(status_code=404, detail="Equipment template not found")
         
     template = template_res.data
-    
+
+    # Modules (SFPs, PCIe/VFC cards, etc.) are not rack-mountable — they are
+    # installed into a host device's slot via module_assignments, never placed
+    # directly into a rack unit.
+    if template.get('is_module'):
+        raise HTTPException(
+            status_code=400,
+            detail="Modules can't be placed in a rack. Drop the module onto a device to install it."
+        )
+
     # Get all equipment in the show for nomenclature calculation
     show_id = rack_res.data['show_id']
     # FIX: Remove user_id check

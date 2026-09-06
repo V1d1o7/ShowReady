@@ -3,6 +3,7 @@ import { Folder as FolderIcon, ChevronRight, ChevronDown, Trash2, Edit, Copy } f
 import { api } from '../api/api';
 import EditUserFolderModal from './EditUserFolderModal';
 import EditUserEquipmentModal from './EditUserEquipmentModal';
+import { isModuleTemplate } from '../utils/moduleHelpers';
 
 const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment, onEditItem, showDefaultLibrary = true }) => {
     const [expandedFolders, setExpandedFolders] = useState({});
@@ -183,7 +184,11 @@ const UserTreeView = ({ library, onDragStart, onDeleteFolder, onDeleteEquipment,
                 >
                     <div className="flex-grow">
                         <p className="font-bold text-sm truncate">{node.model_number} <span className="text-gray-400 font-normal">({node.width}-width)</span></p>
-                        <p className="text-xs text-gray-400">{node.manufacturer} - {node.ru_height}RU</p>
+                        <p className="text-xs text-gray-400">
+                            {node.manufacturer} - {isModuleTemplate(node)
+                                ? `Module${node.module_type ? ` (${node.module_type})` : ''}`
+                                : `${node.ru_height}RU`}
+                        </p>
                     </div>
                     {isUserItem && (
                         <div className="ml-auto flex items-center opacity-0 group-hover:opacity-100 transition-opacity">

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
 import { Plus, HardDrive } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import { isModuleTemplate } from '../utils/moduleHelpers';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
@@ -210,7 +211,21 @@ const UserRackBuilderView = () => {
             setDragOverData(null);
         };
 
-        if (!draggedItem || !dragOverData || !activeRack || dragOverData.rackId !== activeRack.id) {
+        if (!draggedItem || !activeRack) {
+            cleanup();
+            return;
+        }
+
+        // Modules (SFPs, PCIe cards, etc.) can't be racked — they install into a
+        // device via the Configure Modules dialog, not a rack unit.
+        const draggedTemplate = draggedItem.isNew ? draggedItem.item : draggedItem.item?.equipment_templates;
+        if (draggedItem.isNew && isModuleTemplate(draggedTemplate)) {
+            toast.error("Modules can't be racked. Drop the module onto a device to install it.");
+            cleanup();
+            return;
+        }
+
+        if (!dragOverData || dragOverData.rackId !== activeRack.id) {
             cleanup();
             return;
         }

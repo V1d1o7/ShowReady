@@ -1,11 +1,18 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useContext } from 'react';
 import { Plus, LogOut } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import ShowCard from '../components/ShowCard';
+import { LayoutContext } from '../contexts/LayoutContext';
 
 const DashboardView = ({ shows, onSelectShow, onNewShow, onDeleteShow, onToggleArchive, isLoading, user }) => {
     const [profile, setProfile] = useState(null);
     const [profileLoading, setProfileLoading] = useState(true);
+    const { setShouldScroll } = useContext(LayoutContext);
+
+    useEffect(() => {
+        setShouldScroll(true);
+        return () => setShouldScroll(false);
+    }, [setShouldScroll]);
 
     useEffect(() => {
         const fetchProfile = async () => {

@@ -7,6 +7,31 @@ export const IPV4_REGEX = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0
 export const isValidIpv4 = (ip) => Boolean(ip && IPV4_REGEX.test(String(ip).trim()));
 
 /**
+ * Converts a dotted-quad IPv4 string to an unsigned 32-bit integer.
+ * Returns null when the input is not a valid IPv4 address.
+ */
+export const ipv4ToLong = (ip) => {
+    if (!isValidIpv4(ip)) return null;
+    return String(ip).trim().split('.').reduce((acc, octet) => (acc * 256) + Number(octet), 0);
+};
+
+/**
+ * True when `ip` falls within the inclusive range [start, end].
+ * When `end` is missing/blank the range collapses to the single address `start`.
+ * Any invalid input yields false.
+ */
+export const isIpInRange = (ip, start, end) => {
+    const target = ipv4ToLong(ip);
+    const low = ipv4ToLong(start);
+    if (target === null || low === null) return false;
+
+    const high = end ? ipv4ToLong(end) : low;
+    if (high === null) return false;
+
+    return target >= Math.min(low, high) && target <= Math.max(low, high);
+};
+
+/**
  * Builds a location string for rack equipment.
  */
 export const buildRackLocation = (rackName, ruPosition) => {

@@ -4,11 +4,13 @@ import toast from 'react-hot-toast';
 import EditInstanceModal from './EditInstanceModal';
 import PanelConfigurationModal from './PanelConfigurationModal';
 import ConfigureModulesModal from './ConfigureModulesModal';
+import { isModuleTemplate } from '../utils/moduleHelpers';
 
 const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNotes, equipmentLibrary }) => {
     const [isDragging, setIsDragging] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isConfigureModalOpen, setIsConfigureModalOpen] = useState(false);
+    const [droppedModule, setDroppedModule] = useState(null);
     const template = item.equipment_templates || {};
 
     const renderPanelPreview = () => {
@@ -66,11 +68,62 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
         const draggedItemData = e.dataTransfer.getData('application/json');
         if (!draggedItemData) return;
 
-        const draggedItem = JSON.parse(draggedItemData);
-        if (draggedItem.isNew && draggedItem.item.is_module) {
-            // Instead of complex logic, just open the configuration modal
-            setIsConfigureModalOpen(true);
+        let draggedItem;
+        try {
+            draggedItem = JSON.parse(draggedItemData);
+        } catch {
+            return;
         }
+
+        const droppedTemplate = draggedItem.isNew ? draggedItem.item : draggedItem.item?.equipment_templates;
+
+        // Only modules can be installed into a device. A rack-mountable device
+        // dropped here is ignored (it belongs in a rack unit, not a slot).
+        if (!isModuleTemplate(droppedTemplate)) return;
+
+        if (!canConfigure) {
+            toast.error(`${template.model_number || 'This device'} has no module slots to install into.`);
+            return;
+        }
+
+        // Patch panels mount modules through their own configuration flow.
+        if (isPatchPanel) {
+            setDroppedModule(droppedTemplate);
+            setIsConfigureModalOpen(true);
+            return;
+        }
+
+        // Slotted devices (switch SFP cage, computer PCIe, etc.): drop straight
+        // into the first compatible empty slot. To choose a specific slot the
+        // user opens Configure Modules themselves.
+        const slots = template.slots || [];
+        const assignments = item.module_assignments || {};
+        const moduleType = (droppedTemplate.module_type || '').toLowerCase().trim();
+
+        const slotAccepts = (slot) => {
+            const accepts = (slot.accepted_module_type || '').toLowerCase().trim();
+            return !accepts || accepts === moduleType;
+        };
+
+        const targetSlot = slots.find(slot => !assignments[slot.id || slot.name] && slotAccepts(slot));
+
+        if (!targetSlot) {
+            toast.error(
+                slots.some(slotAccepts)
+                    ? `All compatible slots on ${template.model_number || 'this device'} are full.`
+                    : `${droppedTemplate.model_number || 'This module'} isn't compatible with any slot on ${template.model_number || 'this device'}.`
+            );
+            return;
+        }
+
+        const slotId = targetSlot.id || targetSlot.name;
+        onUpdate(item.id, { module_assignments: { ...assignments, [slotId]: droppedTemplate.id } });
+        toast.success(`Installed ${droppedTemplate.model_number || 'module'} in ${targetSlot.name || 'slot'}.`);
+    };
+
+    const closeConfigureModal = () => {
+        setIsConfigureModalOpen(false);
+        setDroppedModule(null);
     };
 
     const bottomPosition = (item.ru_position - 1) * 25;
@@ -153,18 +206,20 @@ const PlacedEquipmentItem = ({ item, onDelete, onDragStart, onUpdate, onOpenNote
                 isPatchPanel ? (
                     <PanelConfigurationModal
                         isOpen={true}
-                        onClose={() => setIsConfigureModalOpen(false)}
+                        onClose={closeConfigureModal}
                         chassisInstance={item}
                         onSave={onUpdate}
                         equipmentLibrary={equipmentLibrary}
+                        droppedModule={droppedModule}
                     />
                 ) : (
                     <ConfigureModulesModal
                         isOpen={true}
-                        onClose={() => setIsConfigureModalOpen(false)}
+                        onClose={closeConfigureModal}
                         chassisInstance={item}
                         onSave={onUpdate}
                         equipmentLibrary={equipmentLibrary}
+                        droppedModule={droppedModule}
                     />
                 )
             )}

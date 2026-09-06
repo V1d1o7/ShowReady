@@ -29,7 +29,9 @@ async def generate_vlan_script(
     The user must have collaborator access to the show.
     """
     # 1. Verify user has access to the show and get its ID.
-    show_res = supabase.table('shows').select('id').eq('id', show_id).eq('user_id', user.id).single().execute()
+    # Rely on RLS / show_collaborators membership rather than a strict owner
+    # check so shared collaborators can also download the VLAN script.
+    show_res = supabase.table('shows').select('id').eq('id', show_id).single().execute()
     if not show_res.data:
         raise HTTPException(status_code=404, detail="Show not found or access denied.")
 

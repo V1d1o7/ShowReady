@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import PlacedEquipmentItem from './PlacedEquipmentItem';
 import GhostEquipmentItem from './GhostEquipmentItem';
+import { isModuleTemplate } from '../utils/moduleHelpers';
 
 const RackBackgroundGrid = ({ height }) => {
     const rus = Array.from({ length: height }, (_, i) => i);
@@ -40,8 +41,15 @@ const RackComponent = ({
 
         const rackBody = e.currentTarget.getBoundingClientRect();
         const template = draggedItem.isNew ? draggedItem.item : draggedItem.item.equipment_templates;
-        
+
         if (!template) return;
+
+        // Modules can't occupy a rack unit — don't show a placement ghost for
+        // them. They're installed by dropping onto a placed device.
+        if (draggedItem.isNew && isModuleTemplate(template)) {
+            onDragOverRack(null);
+            return;
+        }
 
         const x = e.clientX - rackBody.left;
         const y = e.clientY - rackBody.top;

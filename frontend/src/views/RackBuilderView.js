@@ -7,6 +7,7 @@ import {
     clearRackEquipmentNetworkIp,
     buildRackLocation
 } from '../utils/networkIpHelpers';
+import { isModuleTemplate } from '../utils/moduleHelpers';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
 import NewRackModal from '../components/NewRackModal';
@@ -634,7 +635,22 @@ const RackBuilderView = () => {
             setDragOverData(null);
         };
 
-        if (!draggedItem || !dragOverData || !activeRack || dragOverData.rackId !== activeRack.id) {
+        if (!draggedItem || !activeRack) {
+            cleanup();
+            return;
+        }
+
+        // Modules (SFPs, PCIe cards, etc.) can't be racked — they install into a
+        // device. Drop them directly onto a placed device instead (handled by
+        // PlacedEquipmentItem).
+        const draggedTemplate = draggedItem.isNew ? draggedItem.item : draggedItem.item?.equipment_templates;
+        if (draggedItem.isNew && isModuleTemplate(draggedTemplate)) {
+            toast.error("Modules can't be racked. Drop the module onto a device to install it.");
+            cleanup();
+            return;
+        }
+
+        if (!dragOverData || dragOverData.rackId !== activeRack.id) {
             cleanup();
             return;
         }

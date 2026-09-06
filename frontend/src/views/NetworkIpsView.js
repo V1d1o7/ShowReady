@@ -3,13 +3,14 @@ import { useShow } from '../contexts/ShowContext';
 import { useModal } from '../contexts/ModalContext';
 import { useToast } from '../contexts/ToastContext';
 import { api } from '../api/api';
-import { Plus, Edit, Trash2, Columns, GripVertical, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Edit, Trash2, Columns, GripVertical, RotateCcw, ArrowUpDown, ArrowUp, ArrowDown, Search, X } from 'lucide-react';
 import {
     buildRackLocation,
     buildEquipmentDeviceLabel,
     formatNetworkAssignment,
     getNetworkIpForEquipment,
     isValidIpv4,
+    isIpInRange,
 } from '../utils/networkIpHelpers';
 import Modal from '../components/Modal';
 import NetworkAssignmentFields, {
@@ -145,6 +146,9 @@ const NetworkIpsView = () => {
     const [editingIp, setEditingIp] = useState(null);
     const [formData, setFormData] = useState(initialFormState);
     const [networkAssignment, setNetworkAssignment] = useState(emptyNetworkAssignment);
+
+    const [searchTerm, setSearchTerm] = useState('');
+    const searchInputRef = React.useRef(null);
 
     const [showColDropdown, setShowColDropdown] = useState(false);
     const [columnPrefs, setColumnPrefs] = useState(loadColumnPrefs);
@@ -295,11 +299,35 @@ const NetworkIpsView = () => {
         }
     }, [getDeviceName, getEquipmentForIp]);
 
+    const filteredNetworkIps = useMemo(() => {
+        const raw = searchTerm.trim();
+        if (!raw) return networkIps;
+
+        const q = raw.toLowerCase();
+        const queryIsIp = isValidIpv4(raw);
+
+        return networkIps.filter(ip => {
+            // Device name match.
+            if (getDeviceName(ip).toLowerCase().includes(q)) return true;
+
+            // Plain substring match against either end of the assignment.
+            const addr = (ip.ip_address || '').toLowerCase();
+            const end = (ip.ip_end || '').toLowerCase();
+            if (addr.includes(q) || (end && end.includes(q))) return true;
+
+            // Block match: a fully-typed IP that falls inside a range /
+            // reservation block (ip_address..ip_end) counts as a hit.
+            if (queryIsIp && ip.ip_address && isIpInRange(raw, ip.ip_address, ip.ip_end)) return true;
+
+            return false;
+        });
+    }, [networkIps, searchTerm, getDeviceName]);
+
     const sortedNetworkIps = useMemo(() => {
         const sortableColumn = DEFAULT_COLUMN_PREFS.find(column => column.id === sortPrefs.key && column.sortable !== false);
-        if (!sortableColumn) return [...networkIps];
+        if (!sortableColumn) return [...filteredNetworkIps];
 
-        return [...networkIps].sort((a, b) => {
+        return [...filteredNetworkIps].sort((a, b) => {
             const primaryA = getSortValue(a, sortPrefs.key);
             const primaryB = getSortValue(b, sortPrefs.key);
 
@@ -328,7 +356,7 @@ const NetworkIpsView = () => {
 
             return sortPrefs.direction === 'desc' ? -result : result;
         });
-    }, [networkIps, sortPrefs, getSortValue]);
+    }, [filteredNetworkIps, sortPrefs, getSortValue]);
 
     const fetchIps = useCallback(async ({ silent = false } = {}) => {
         if (!showId || !refreshNetworkIps) return;
@@ -388,6 +416,11 @@ const NetworkIpsView = () => {
             if (e.key.toLowerCase() === 'n') {
                 e.preventDefault();
                 if (!isModalOpen) handleOpenModal();
+            } else if (e.key === '/') {
+                if (!isModalOpen) {
+                    e.preventDefault();
+                    searchInputRef.current?.focus();
+                }
             } else if (e.key === 'Escape') {
                 if (isModalOpen) handleCloseModal();
                 if (showColDropdown) setShowColDropdown(false);
@@ -812,11 +845,46 @@ const NetworkIpsView = () => {
                 <div>
                     <h1 className="text-2xl font-bold text-white">Network IPs</h1>
                     <p className="text-sm text-gray-400 mt-1">
-                        Track rack equipment IPs, ranges, reservations, and trunk/multi-VLAN assignments for this show.
+                        {searchTerm.trim()
+                            ? `Showing ${sortedNetworkIps.length} of ${networkIps.length} assignment${networkIps.length === 1 ? '' : 's'} matching “${searchTerm.trim()}”.`
+                            : 'Track rack equipment IPs, ranges, reservations, and trunk/multi-VLAN assignments for this show.'}
                     </p>
                 </div>
 
                 <div className="flex items-center gap-4">
+                    <div className="relative">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    e.stopPropagation();
+                                    if (searchTerm) {
+                                        setSearchTerm('');
+                                    } else {
+                                        e.currentTarget.blur();
+                                    }
+                                }
+                            }}
+                            placeholder="Search IP or device…"
+                            aria-label="Search network IPs by IP address or device name"
+                            className="w-64 bg-gray-700 border border-gray-600 rounded-lg py-2 pl-9 pr-8 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500"
+                        />
+                        {searchTerm && (
+                            <button
+                                type="button"
+                                onClick={() => { setSearchTerm(''); searchInputRef.current?.focus(); }}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                                aria-label="Clear search"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+
                     <div className="relative">
                         <button
                             onClick={() => setShowColDropdown(!showColDropdown)}
@@ -981,7 +1049,9 @@ const NetworkIpsView = () => {
                             )) : (
                                 <tr>
                                     <td colSpan={visibleTableColumns.length} className="text-center py-10 text-gray-400">
-                                        No network assignments found. Click "New IP Entry" or press N.
+                                        {searchTerm.trim()
+                                            ? `No network assignments match "${searchTerm.trim()}".`
+                                            : 'No network assignments found. Click "New IP Entry" or press N.'}
                                     </td>
                                 </tr>
                             )}
