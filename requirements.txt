@@ -1,7 +1,7 @@
 # Pinned to the versions this app is known to run on. A previous
 # `pip install -U -r requirements.txt` against an unpinned file pulled
 # supabase 2.18->2.31, fastapi 0.116->0.141, pydantic 2.11->2.13,
-# reportlab 4->5, pillow 11->12, etc. and broke startup
+# reportlab 4->5, etc. and broke startup
 # (supabase-py 2.19+ reworked ClientOptions/auth wiring -> app/api.py
 # get_supabase_client). Bump deliberately, one at a time, with testing.
 # Do NOT run `pip install -U` against this file.
@@ -17,10 +17,10 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.2
 cryptography==45.0.7
 reportlab==4.4.3
-Pillow==11.3.0
-python-multipart==0.0.20
+Pillow==12.3.0          # 12.2.0: FITS GZIP decompression-bomb fix; 12.3.0: JPEG2000 tiled-decode buffer growth DoS (GHSA-vjc4-5qp5-m44j) + others
+python-multipart==0.0.32
 cairosvg==2.8.2
-pypdf==6.0.0
+pypdf==6.18.0           # 6.14.1/6.14.2: unterminated inline-image infinite-loop fixes (content-stream parsing / ASCII85 / ASCIIHex)
 pytest
 PyJWT==2.10.1
 apscheduler==3.11.3      # keep on 3.x; 4.0 is an incompatible rewrite
