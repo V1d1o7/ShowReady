@@ -11,7 +11,7 @@ uvicorn==0.35.0
 pydantic==2.11.7
 supabase==2.18.1          # hard-pins postgrest 1.1.1 / realtime 2.7.0 / supabase-auth 2.12.3 / storage3 0.12.1 / supabase-functions 0.10.1
 gotrue==2.12.4            # app imports gotrue.errors.AuthApiError directly
-python-dotenv==1.1.1
+python-dotenv==1.2.3    # 1.2.2: set_key/unset_key symlink-follow arbitrary file overwrite (app only uses load_dotenv)
 google-api-python-client==2.179.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.2
