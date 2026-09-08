@@ -15,14 +15,14 @@ python-dotenv==1.1.1
 google-api-python-client==2.179.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.2
-cryptography==45.0.7
+cryptography==50.0.1    # X.509 path-validation DoS, SECT EC small-subgroup check, PKCS7 decrypt Bleichenbacher oracle (all fixed by <=50.0.0)
 reportlab==4.4.3
 Pillow==12.3.0          # 12.2.0: FITS GZIP decompression-bomb fix; 12.3.0: JPEG2000 tiled-decode buffer growth DoS (GHSA-vjc4-5qp5-m44j) + others
 python-multipart==0.0.32
-cairosvg==2.8.2
+cairosvg==2.9.1        # 2.9.0: recursive <use> amplification DoS cap; 2.9.1: long-path exponential render fix
 pypdf==6.18.0           # 6.14.1/6.14.2: unterminated inline-image infinite-loop fixes (content-stream parsing / ASCII85 / ASCIIHex)
 pytest
-PyJWT==2.10.1
+PyJWT==2.13.0          # 2.12.0: reject unknown crit header; 2.13.0: block JWK-as-HMAC-secret algorithm confusion
 apscheduler==3.11.3      # keep on 3.x; 4.0 is an incompatible rewrite
 
 # --- Security-patched transitive deps (independent of the pins above) ---
