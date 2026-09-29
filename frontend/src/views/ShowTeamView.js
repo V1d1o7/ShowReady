@@ -6,7 +6,7 @@ import Card from '../components/Card';
 import Modal from '../components/Modal';
 import ConfirmationModal from '../components/ConfirmationModal'; //
 import InputField from '../components/InputField';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { Users, UserPlus, Trash2, Shield, Search, Info } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -124,8 +124,7 @@ const ShowTeamView = () => {
 
     return (
         <div className="max-w-7xl mx-auto">
-            <Toaster position="bottom-center" />
-            
+
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-white flex items-center gap-2">

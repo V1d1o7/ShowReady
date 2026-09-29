@@ -4,12 +4,17 @@ import { api } from '../api/api';
 import toast from 'react-hot-toast';
 import TiptapEditor from './TiptapEditor';
 import InputField from './InputField';
+import ShiftDateListEditor from './ShiftDateListEditor';
+import { formatShiftsForEmail } from './CrewStatusBadge';
 import useHotkeys from '../hooks/useHotkeys';
 
 // Define available variables for on-the-fly editing
 const VARIABLES = {
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{tags}}', '{{rosteredEmail}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
+    // acceptLink/declineLink are resolved server-side, one unique link per recipient —
+    // never substituted client-side like the others. {{schedule}} for CREW is likewise
+    // resolved server-side, from that recipient's actual assigned dates.
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{acceptLink}}', '{{declineLink}}', '{{tags}}', '{{rosteredEmail}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
     HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 
@@ -23,13 +28,13 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
     // Core Email Fields
     const [subject, setSubject] = useState('');
     const [body, setBody] = useState('');
-    const [toEmail, setToEmail] = useState(''); 
-    const [isSending, setIsSending] = useState(false);
+    const [toEmail, setToEmail] = useState('');
 
     // Roster Specific
     const [shows, setShows] = useState([]);
-    const [selectedShowId, setSelectedShowId] = useState(''); 
-    const [scheduleText, setScheduleText] = useState('');
+    const [selectedShowId, setSelectedShowId] = useState('');
+    const [selectedShowRole, setSelectedShowRole] = useState(null);
+    const [shifts, setShifts] = useState([{ shift_date: '', call_time: '', end_time: '', notes: '' }]);
 
     // Crew Specific (New Fields)
     const [callTime, setCallTime] = useState('');
@@ -52,11 +57,11 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
             setToEmail('');
             setSelectedTemplateId('');
             setSelectedShowId('');
-            setScheduleText('');
+            setSelectedShowRole(null);
+            setShifts([{ shift_date: '', call_time: '', end_time: '', notes: '' }]);
             setCallTime(''); // Reset
             setNotes('');    // Reset
             setVenueDetails(''); // Reset
-            setIsSending(false);
         }
     }, [isOpen, category, showId]);
 
@@ -99,6 +104,47 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
         }
     };
 
+    // Pre-plan a show's dates on the Schedule tab (blank planning days, or crew already
+    // pinned to real dates), then pick that show here and its dates fill in automatically —
+    // no retyping. Still fully editable: add extra dates or remove ones you don't want to ask about.
+    useEffect(() => {
+        if (!isOpen || category !== 'ROSTER' || !selectedShowId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const [scheduleDates, crew, show] = await Promise.all([
+                    api.getScheduleDates(selectedShowId),
+                    api.getShowCrew(selectedShowId),
+                    api.getShow(selectedShowId),
+                ]);
+                if (cancelled) return;
+                setSelectedShowRole(show?.current_user_role || null);
+
+                const byDate = {};
+                (scheduleDates || []).forEach(d => {
+                    byDate[d.shift_date] = { shift_date: d.shift_date, call_time: '', end_time: '', notes: d.notes || '' };
+                });
+                (crew || []).forEach(member => {
+                    (member.shifts || []).forEach(s => {
+                        const existing = byDate[s.shift_date];
+                        if (!existing) {
+                            byDate[s.shift_date] = { shift_date: s.shift_date, call_time: s.call_time || '', end_time: s.end_time || '', notes: s.notes || '' };
+                        } else if (!existing.call_time && s.call_time) {
+                            existing.call_time = s.call_time;
+                            existing.end_time = s.end_time || '';
+                        }
+                    });
+                });
+
+                const merged = Object.values(byDate).sort((a, b) => a.shift_date.localeCompare(b.shift_date));
+                setShifts(merged.length > 0 ? merged : [{ shift_date: '', call_time: '', end_time: '', notes: '' }]);
+            } catch (error) {
+                console.error('Failed to load show dates:', error);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [selectedShowId, category, isOpen]);
+
     const handleTemplateChange = (e) => {
         const templateId = e.target.value;
         setSelectedTemplateId(templateId);
@@ -122,11 +168,12 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
             const selectedShow = shows.find(s => s.id === parseInt(selectedShowId));
             const showName = selectedShow ? selectedShow.name : '[Show Name]';
             processed = processed.replace(/{{showName}}/g, showName);
-            
-            // FIX: Convert newlines to <br> tags for HTML rendering
-            const formattedSchedule = (scheduleText || '[Schedule]').replace(/\n/g, '<br>');
-            processed = processed.replace(/{{schedule}}/g, formattedSchedule);
-        } 
+
+            const validShifts = shifts.filter(s => s.shift_date);
+            processed = processed.replace(/{{schedule}}/g, validShifts.length ? formatShiftsForEmail(validShifts) : '[Schedule]');
+            // {{acceptLink}} / {{declineLink}} are deliberately left untouched here — the
+            // backend resolves those per recipient when it actually sends the call.
+        }
         else if (category === 'CREW') {
             // New logic for Crew variables
             // UPDATED: Handle newlines for Call Time
@@ -147,38 +194,55 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
         return processed;
     };
 
-    const handleSend = async () => {
-        setIsSending(true);
-        const toastId = toast.loading("Sending emails...");
-
-        try {
-            const finalSubject = processContent(subject);
-            const finalBody = processContent(body);
-
-            if (category === 'HOURS') {
-                const recipient_emails = toEmail.split(',').map(e => e.trim()).filter(e => e);
-                await api.emailTimesheet(showId, weekStartDate, {
-                    recipient_emails,
-                    subject: finalSubject,
-                    body: finalBody
-                });
-            } else {
-                const payload = {
-                    recipient_ids: recipients.map(r => r.id),
-                    category: category,
-                    subject: finalSubject,
-                    body: finalBody
-                };
-                await api.sendCommunication(payload);
-            }
-            
-            toast.success("Emails sent successfully!", { id: toastId });
-            onClose();
-        } catch (error) {
-            toast.error(`Failed to send: ${error.message}`, { id: toastId });
-        } finally {
-            setIsSending(false);
+    // Sending happens in the background: the backend call can take a while (one email per
+    // recipient, sent in a loop), so we kick it off, close the modal immediately, and let a
+    // toast report success/failure whenever the request actually finishes.
+    const handleSend = () => {
+        if (category === 'ROSTER' && !selectedShowId) {
+            toast.error("Select a show first.");
+            return;
         }
+        if (category === 'ROSTER' && selectedShowRole === 'viewer') {
+            toast.error("You have view-only access to that show, so you can't send availability calls for it.");
+            return;
+        }
+
+        const finalSubject = processContent(subject);
+        const finalBody = processContent(body);
+
+        let sendPromise;
+        if (category === 'HOURS') {
+            const recipient_emails = toEmail.split(',').map(e => e.trim()).filter(e => e);
+            sendPromise = api.emailTimesheet(showId, weekStartDate, {
+                recipient_emails,
+                subject: finalSubject,
+                body: finalBody
+            });
+        } else if (category === 'ROSTER') {
+            const validShifts = shifts
+                .filter(s => s.shift_date)
+                .map(s => ({ shift_date: s.shift_date, call_time: s.call_time || null, end_time: s.end_time || null, notes: s.notes || null }));
+            sendPromise = api.sendAvailabilityCall(selectedShowId, {
+                roster_ids: recipients.map(r => r.id),
+                shifts: validShifts,
+                subject: finalSubject,
+                body: finalBody,
+            });
+        } else {
+            sendPromise = api.sendCommunication({
+                recipient_ids: recipients.map(r => r.id),
+                category: category,
+                subject: finalSubject,
+                body: finalBody
+            });
+        }
+
+        onClose();
+
+        const toastId = toast.loading("Sending emails...");
+        sendPromise
+            .then(() => toast.success("Emails sent successfully!", { id: toastId }))
+            .catch((error) => toast.error(`Failed to send: ${error.message}`, { id: toastId }));
     };
 
     if (!isOpen) return null;
@@ -228,27 +292,33 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                     )}
 
                     {category === 'ROSTER' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-b border-gray-700 pb-6">
+                        <div className="border-b border-gray-700 pb-6 space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-400 mb-1">Select Show</label>
-                                <select 
-                                    value={selectedShowId} 
+                                <select
+                                    value={selectedShowId}
                                     onChange={(e) => setSelectedShowId(e.target.value)}
                                     className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:border-amber-500"
                                 >
                                     <option value="">-- Choose Show --</option>
                                     {shows.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                                 </select>
+                                {selectedShowRole === 'viewer' && (
+                                    <p className="text-xs text-amber-400 mt-1">
+                                        You have view-only access to this show, so you can't send an availability call for it.
+                                    </p>
+                                )}
                             </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-400 mb-1">Schedule / Dates</label>
-                                <textarea 
-                                    value={scheduleText}
-                                    onChange={(e) => setScheduleText(e.target.value)}
-                                    placeholder="e.g. Dec 3, 5, & 13"
-                                    className="w-full p-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500 h-[80px] resize-none font-sans"
-                                />
-                            </div>
+                            <ShiftDateListEditor shifts={shifts} onChange={setShifts} label="Dates You're Checking Availability For" />
+                            <p className="text-xs text-gray-500">
+                                Pulled in automatically from that show's Schedule tab (planning days and any dates
+                                crew are already pinned to) — add extras or remove any you don't need to ask about.
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                Each recipient gets their own link — Accept lets them pick exactly which of these dates
+                                work, Decline turns down all of them. Responses show up in that show's Crew tab under
+                                "Available for This Show" for you to assign.
+                            </p>
                         </div>
                     )}
 
@@ -319,13 +389,13 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
 
                 <div className="p-4 bg-gray-900 border-t border-gray-700 flex justify-end gap-3 rounded-b-lg">
                     <button onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded font-medium">Cancel</button>
-                    <button 
-                        onClick={handleSend} 
-                        disabled={isSending}
-                        className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded flex items-center gap-2 disabled:opacity-50"
+                    <button
+                        onClick={handleSend}
+                        disabled={category === 'ROSTER' && selectedShowRole === 'viewer'}
+                        className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <Send size={18} />
-                        {isSending ? 'Sending...' : 'Send'}
+                        Send
                     </button>
                 </div>
             </div>

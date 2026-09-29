@@ -20,7 +20,7 @@ import RackSideView from '../components/RackSideView';
 import RackExportModal from '../components/RackExportModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import PowerReportModal from '../components/PowerReportModal';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
 import { useAuth } from '../contexts/AuthContext';
@@ -796,8 +796,7 @@ const RackBuilderView = () => {
 
     return (
         <div className="flex flex-row gap-8 h-full" onDragEnd={handleDragEnd}>
-            <Toaster position="bottom-center" />
-            
+
             {isSidebarCollapsed ? (
                 <div className="p-2">
                     <button onClick={() => setIsSidebarCollapsed(false)} className="p-2 text-gray-400 hover:text-amber-400">

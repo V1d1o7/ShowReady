@@ -612,7 +612,31 @@ export const api = {
         body: JSON.stringify(rosterData), 
     }).then(handleResponse),
     
-    deleteRosterMember: async (rosterId) => fetch(`/api/roster/${rosterId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
+    deleteRosterMember: async (rosterId) => fetch(`/api/roster/${rosterId}`, { method: 'DELETE', headers: await getAuthHeader(), }).then(handleResponse),
+
+    getRosterMember: async (rosterId) => fetch(`/api/roster/${rosterId}`, { headers: await getAuthHeader() }).then(handleResponse),
+
+    eraseRosterMember: async (rosterId) => fetch(`/api/roster/${rosterId}/erase`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    // --- Roster Custom Fields ---
+    getRosterCustomFields: async () => fetch('/api/roster_custom_fields', { headers: await getAuthHeader() }).then(handleResponse),
+
+    createRosterCustomField: async (data) => fetch('/api/roster_custom_fields', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    updateRosterCustomField: async (fieldId, data) => fetch(`/api/roster_custom_fields/${fieldId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    deleteRosterCustomField: async (fieldId) => fetch(`/api/roster_custom_fields/${fieldId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
 
     // --- Show Crew ---
     getShowCrew: async (showId) => fetch(`/api/shows/${showId}/crew`, { headers: await getAuthHeader() }).then(handleResponse),
@@ -637,10 +661,92 @@ export const api = {
         body: JSON.stringify(data), 
     }).then(handleResponse),
     
-    updateShowCrewMember: async (showCrewId, data) => fetch(`/api/show_crew/${showCrewId}`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(data), 
+    updateShowCrewMember: async (showCrewId, data) => fetch(`/api/show_crew/${showCrewId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    // --- Schedule (availability calls / pool / assignment) ---
+    sendAvailabilityCall: async (showId, data) => fetch(`/api/v1/shows/${showId}/availability-calls`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    getAvailabilityPool: async (showId) => fetch(`/api/v1/shows/${showId}/availability`, {
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    assignFromAvailability: async (responseId, data) => fetch(`/api/v1/availability/${responseId}/assign`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    updateAvailabilityStatus: async (responseId, status) => fetch(`/api/v1/availability/${responseId}`, {
+        method: 'PATCH',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ status }),
+    }).then(handleResponse),
+
+    dismissAvailability: async (showId, ids, dismissed = true) => fetch(`/api/v1/shows/${showId}/availability/dismiss`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ ids, dismissed }),
+    }).then(handleResponse),
+
+    addToAvailabilityPool: async (showId, data) => fetch(`/api/v1/shows/${showId}/availability/manual`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    upsertCrewShift: async (showCrewId, shiftDate, data) => fetch(`/api/v1/schedule/${showCrewId}/shifts/${shiftDate}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    deleteCrewShift: async (showCrewId, shiftDate) => fetch(`/api/v1/schedule/${showCrewId}/shifts/${shiftDate}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    updateCrewShiftStatus: async (showCrewId, shiftDate, status) => fetch(`/api/v1/schedule/${showCrewId}/shifts/${shiftDate}/status`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ status }),
+    }).then(handleResponse),
+
+    // Persisted "blank" planning days on the Schedule view — pinned to the
+    // calendar independent of whether anyone's actually assigned to them yet.
+    getScheduleDates: async (showId) => fetch(`/api/v1/shows/${showId}/schedule-dates`, {
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    addScheduleDate: async (showId, shiftDate, notes = null) => fetch(`/api/v1/shows/${showId}/schedule-dates`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ shift_date: shiftDate, notes }),
+    }).then(handleResponse),
+
+    deleteScheduleDate: async (showId, shiftDate) => fetch(`/api/v1/shows/${showId}/schedule-dates/${shiftDate}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    // Public, unauthenticated — the Decline click itself happens on the backend
+    // (the email button links straight to it); Accept lands here so the person can
+    // pick which dates actually work. No session exists for the person responding.
+    getPublicAvailability: async (token) => fetch(`/api/public/availability/${token}`, {
+        headers: { 'Content-Type': 'application/json' },
+    }).then(handleResponse),
+
+    respondToAvailability: async (token, dates) => fetch(`/api/public/availability/${token}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dates }),
     }).then(handleResponse),
 
     // --- User SMTP ---

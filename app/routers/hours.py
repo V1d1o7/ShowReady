@@ -1,20 +1,67 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from supabase import Client
-from app.api import get_user, get_branding_visibility, get_supabase_client
+from app.api import get_user, get_branding_visibility, get_supabase_client, feature_check
 from app.models import ( 
     TimesheetEntryCreate, WeeklyTimesheet,  
     CrewMemberHours, TimesheetEmailPayload, BudgetUpdate
 ) 
 from app.user_email import send_email_with_user_smtp, SMTPSettings
 # NOTE: Make sure to import generate_crew_audit_pdf once it's created in pdf_utils.py!
-from app.pdf_utils import generate_hours_pdf 
-from fastapi.responses import Response 
-import uuid 
-from typing import List, Optional 
-from datetime import date, timedelta 
+from app.pdf_utils import generate_hours_pdf
+from fastapi.responses import Response
+import uuid
+from typing import List, Optional
+from datetime import date, timedelta, time as time_cls
 
-router = APIRouter(prefix="/shows/{show_id}", tags=["Timesheets"]) 
+router = APIRouter(prefix="/shows/{show_id}", tags=["Timesheets"])
+
+# Sensible default when a show hasn't configured its own break rules yet: a
+# 1hr unpaid lunch on any shift of 5+ hours. An explicit empty list (the user
+# deleted every rule and saved) means "no automatic breaks" and is respected
+# as-is — only a missing key falls back to this default.
+DEFAULT_BREAK_RULES = [{"threshold_hours": 5, "break_minutes": 60}]
+
+def _parse_time_str(t) -> Optional[time_cls]:
+    if not t:
+        return None
+    if isinstance(t, time_cls):
+        return t
+    try:
+        parts = str(t).split(':')
+        hour, minute = int(parts[0]), int(parts[1])
+        second = int(parts[2]) if len(parts) > 2 else 0
+        return time_cls(hour=hour, minute=minute, second=second)
+    except (ValueError, IndexError):
+        return None
+
+def compute_shift_paid_hours(call_time, end_time, break_rules: list) -> float:
+    """Duration between call_time and end_time (crossing midnight if end <=
+    call), minus the unpaid break for the highest break-rule threshold the
+    shift's raw duration meets. Returns 0.0 if either time is missing/unparseable."""
+    call_t = _parse_time_str(call_time)
+    end_t = _parse_time_str(end_time)
+    if call_t is None or end_t is None:
+        return 0.0
+
+    call_minutes = call_t.hour * 60 + call_t.minute + call_t.second / 60
+    end_minutes = end_t.hour * 60 + end_t.minute + end_t.second / 60
+    raw_minutes = end_minutes - call_minutes
+    if raw_minutes <= 0:
+        raw_minutes += 24 * 60
+
+    raw_hours = raw_minutes / 60.0
+
+    applicable = [
+        r for r in (break_rules or [])
+        if raw_hours >= float(r.get('threshold_hours', 0) or 0)
+    ]
+    break_minutes = 0.0
+    if applicable:
+        best = max(applicable, key=lambda r: float(r.get('threshold_hours', 0) or 0))
+        break_minutes = float(best.get('break_minutes', 0) or 0)
+
+    return round(max(0.0, raw_hours - break_minutes / 60.0), 2)
 
 def calculate_week_cost(crew_hours: list, dates: list, ot_daily_threshold: float, ot_weekly_threshold: float) -> float:
     # crew_hours is a list of dicts, each with:
@@ -136,11 +183,15 @@ def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, 
     info_data = show_data.get('info', {}) or {} 
 
     logo_path = info_data.get('logo_path') 
-    ot_daily_threshold = info_data.get('ot_daily_threshold', 10) 
-    ot_weekly_threshold = info_data.get('ot_weekly_threshold', 40) 
-    pay_period_start_day = info_data.get('pay_period_start_day', 0) 
+    ot_daily_threshold = info_data.get('ot_daily_threshold', 10)
+    ot_weekly_threshold = info_data.get('ot_weekly_threshold', 40)
+    pay_period_start_day = info_data.get('pay_period_start_day', 0)
+    schedule_autofill_enabled = info_data.get('schedule_autofill_enabled', True)
+    break_rules = info_data.get('break_rules')
+    if break_rules is None:
+        break_rules = DEFAULT_BREAK_RULES
 
-    # 2. Get Show Crew and their Roster info 
+    # 2. Get Show Crew and their Roster info
     crew_res = supabase.table('show_crew').select('*, roster(*)').eq('show_id', show_id).execute() 
 
     # Sort crew members: current user first, then alphabetically by first name 
@@ -172,22 +223,50 @@ def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, 
         else:
             other_hours_by_date.append(h)
 
-    assembled_crew_hours = [] 
-    for c in sorted_crew_data: 
+    # 3b. Shift-based autofill: for any (crew, date) in this week that has no
+    # saved timesheet entry, pull the assigned shift's call/end time (if both
+    # are set) and fill in the break-adjusted duration. A shift with no
+    # end_time is left alone — the user hasn't said when it ends yet. A shift
+    # marked no_show or cancelled never autofills — there's nothing to pay.
+    shift_map = {}  # {show_crew_id: {date_str: {'call_time':, 'end_time':, 'status':}}}
+    if schedule_autofill_enabled and show_crew_ids:
+        shifts_res = supabase.table('show_crew_shifts') \
+            .select('show_crew_id, shift_date, call_time, end_time, status') \
+            .in_('show_crew_id', show_crew_ids) \
+            .gte('shift_date', str(week_start_date)) \
+            .lte('shift_date', str(week_end_date)) \
+            .execute()
+        for s in shifts_res.data:
+            if s.get('status') in ('no_show', 'cancelled'):
+                continue
+            shift_map.setdefault(s['show_crew_id'], {})[s['shift_date']] = s
+
+    assembled_crew_hours = []
+    for c in sorted_crew_data:
         roster_info = c.get('roster') or {}
-        assembled_crew_hours.append( 
-            CrewMemberHours( 
-                show_crew_id=c['id'], 
-                roster_id=c.get('roster_id'), # Pass the roster_id for grouping logic 
-                first_name=roster_info.get('first_name'), 
-                last_name=roster_info.get('last_name'), 
+        member_hours = dict(hours_map.get(c['id'], {}))
+        auto_filled_dates = []
+        for shift_date_str, shift in shift_map.get(c['id'], {}).items():
+            if shift_date_str in member_hours:
+                continue  # a saved/manual entry already exists — never overwrite it
+            paid_hours = compute_shift_paid_hours(shift.get('call_time'), shift.get('end_time'), break_rules)
+            if paid_hours > 0:
+                member_hours[shift_date_str] = paid_hours
+                auto_filled_dates.append(shift_date_str)
+        assembled_crew_hours.append(
+            CrewMemberHours(
+                show_crew_id=c['id'],
+                roster_id=c.get('roster_id'), # Pass the roster_id for grouping logic
+                first_name=roster_info.get('first_name'),
+                last_name=roster_info.get('last_name'),
                 position=c.get('position'), # Pass the position for the line item
-                rate_type=c['rate_type'], 
-                hourly_rate=c['hourly_rate'], 
-                daily_rate=c['daily_rate'], 
-                hours_by_date=hours_map.get(c['id'], {}) 
-            ) 
-        ) 
+                rate_type=c['rate_type'],
+                hourly_rate=c['hourly_rate'],
+                daily_rate=c['daily_rate'],
+                hours_by_date=member_hours,
+                auto_filled_dates=auto_filled_dates
+            )
+        )
 
     # 5. Group other entries by their week start date
     def get_week_start(d: date, start_day: int) -> date:
@@ -263,7 +342,7 @@ def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, 
         historical_labor_cost_excluding_current_week=historical_cost
     ) 
 
-@router.get("/timesheet", response_model=WeeklyTimesheet)
+@router.get("/timesheet", response_model=WeeklyTimesheet, dependencies=[Depends(feature_check("crew"))])
 def get_weekly_timesheet(
     show_id: int,
     week_start_date: date = Query(...),
@@ -274,8 +353,8 @@ def get_weekly_timesheet(
     """Gets all data needed to display a weekly timesheet."""
     return get_timesheet_data(show_id, week_start_date, user.id, supabase)
 
-@router.put("/timesheet") 
-async def update_weekly_timesheet( 
+@router.put("/timesheet", dependencies=[Depends(feature_check("crew"))])
+async def update_weekly_timesheet(
     show_id: int,  
     timesheet: WeeklyTimesheet,  
     user=Depends(get_user),  
@@ -306,8 +385,8 @@ async def update_weekly_timesheet(
         print(f"Error during bulk update: {e}") 
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}") 
 
-@router.get("/timesheet/pdf") 
-async def get_timesheet_pdf( 
+@router.get("/timesheet/pdf", dependencies=[Depends(feature_check("crew"))])
+async def get_timesheet_pdf(
     show_id: int,  
     week_start_date: date = Query(...),  
     user=Depends(get_user),  
@@ -369,7 +448,7 @@ async def get_timesheet_pdf(
     ) 
 
 # --- NEW ENDPOINT FOR CREW AUDIT ---
-@router.get("/timesheet/audit/pdf")
+@router.get("/timesheet/audit/pdf", dependencies=[Depends(feature_check("crew"))])
 async def get_crew_audit_pdf(
     show_id: int,
     show_crew_ids: List[str] = Query(..., description="List of show_crew_ids to audit"),
@@ -460,15 +539,18 @@ async def get_crew_audit_pdf(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-@router.post("/timesheet/email") 
-async def email_weekly_timesheet( 
-    show_id: int,  
-    payload: TimesheetEmailPayload, 
-    week_start_date: date = Query(...),  
-    user=Depends(get_user),  
-    supabase: Client = Depends(get_supabase_client) 
-): 
-    """Emails the weekly timesheet with PDF attachment."""
+@router.post("/timesheet/email", dependencies=[Depends(feature_check("crew"))])
+async def email_weekly_timesheet(
+    show_id: int,
+    payload: TimesheetEmailPayload,
+    background_tasks: BackgroundTasks,
+    week_start_date: date = Query(...),
+    user=Depends(get_user),
+    supabase: Client = Depends(get_supabase_client)
+):
+    """Emails the weekly timesheet with PDF attachment. The PDF is generated inline (needed to
+    build the response), but the actual SMTP send is queued as a background task so the request
+    doesn't sit waiting on the mail server."""
     user_id = user.id 
     
     # 1. Fetch SMTP Settings
@@ -559,35 +641,34 @@ async def email_weekly_timesheet(
 <head>
   <meta charset="utf-8">
   <style>
-    body {{ margin: 0; padding: 0; width: 100% !important; background-color: #111827; }}
+    body {{ margin: 0; padding: 0; width: 100% !important; background-color: #111827; color: #F9FAFB; }}
     table {{ border-collapse: collapse; }}
   </style>
 </head>
-<body style="margin: 0; padding: 0; width: 100% !important; background-color: #111827;">
+<body style="margin: 0; padding: 0; width: 100% !important; background-color: #111827; color: #F9FAFB;">
   {body}
 </body>
 </html>"""
 
-    # 7. Send Email
-    try: 
-        await run_in_threadpool( 
-            send_email_with_user_smtp, 
-            smtp_settings=smtp_settings, 
-            recipient_emails=payload.recipient_emails, 
-            subject=subject, 
-            html_body=final_html_body, 
-            attachment_blob=pdf_bytes, 
-            attachment_filename=filename 
-        ) 
-        return {"message": "Email sent successfully."} 
-    except Exception as e: 
-        import traceback 
-        print(f"Error sending email: {e}") 
-        traceback.print_exc() 
-        raise HTTPException(status_code=500, detail=f"Failed to send email: {repr(e)}")
+    # 7. Queue the send — happens after the response goes out.
+    def _send():
+        try:
+            send_email_with_user_smtp(
+                smtp_settings=smtp_settings,
+                recipient_emails=payload.recipient_emails,
+                subject=subject,
+                html_body=final_html_body,
+                attachment_blob=pdf_bytes,
+                attachment_filename=filename
+            )
+        except Exception as e:
+            print(f"Failed to send timesheet email to {payload.recipient_emails}: {e}")
+
+    background_tasks.add_task(_send)
+    return {"message": "Email queued for sending."}
 
 
-@router.get("/budget")
+@router.get("/budget", dependencies=[Depends(feature_check("crew"))])
 async def get_show_budget(
     show_id: int,
     user=Depends(get_user),
@@ -603,7 +684,7 @@ async def get_show_budget(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/budget")
+@router.put("/budget", dependencies=[Depends(feature_check("crew"))])
 async def update_show_budget(
     show_id: int,
     budget_data: BudgetUpdate,

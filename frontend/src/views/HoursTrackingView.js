@@ -3,7 +3,6 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { LayoutContext } from '../contexts/LayoutContext';
-import { useAuth } from '../contexts/AuthContext';
 import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PdfPreviewModal from '../components/PdfPreviewModal';
@@ -15,7 +14,6 @@ import { calculateWeeklyTotals } from '../utils/hoursCalculations';
 const HoursTrackingView = () => {
     const { setShouldScroll } = useContext(LayoutContext);
     const { showId, showData, onSave } = useShow();
-    const { profile } = useAuth();
     const location = useLocation();
 
     // Enable scrolling for this view
@@ -222,8 +220,23 @@ const HoursTrackingView = () => {
                 </div>
             </header>
 
+            {(calculatedTimesheet?.crew_hours || []).some(m => m.auto_filled_dates?.length > 0) && (
+                <p className="mt-3 text-xs text-gray-400 flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 rounded-sm border border-amber-500/70 ring-1 ring-amber-500/40 bg-gray-800" />
+                    Auto-filled from the Schedule tab — edit and save to override.
+                </p>
+            )}
+
             <main className="mt-6 overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-700">
+                <table className="min-w-full table-fixed divide-y divide-gray-700">
+                    <colgroup>
+                        <col style={{ width: '220px' }} />
+                        <col style={{ width: '110px' }} />
+                        {dates.map(date => <col key={date.toISOString()} style={{ width: '68px' }} />)}
+                        <col style={{ width: '90px' }} />
+                        <col style={{ width: '90px' }} />
+                        <col style={{ width: '100px' }} />
+                    </colgroup>
                     <thead className="bg-gray-800">
                         <tr>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Crew Member</th>
@@ -241,11 +254,11 @@ const HoursTrackingView = () => {
                     <tbody className="bg-gray-900 divide-y divide-gray-700">
                         {(calculatedTimesheet?.crew_hours || []).map(member => (
                             <tr key={member.show_crew_id} className="group hover:bg-gray-800 transition-colors">
-                                <td className="px-3 py-2 whitespace-nowrap">
-                                    <div className="flex items-center justify-between">
-                                        <div>
-                                            <p className="font-medium text-white">{member.first_name} {member.last_name}</p>
-                                            <p className="text-sm text-gray-400">{member.position}</p>
+                                <td className="px-3 py-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="font-medium text-white truncate">{member.first_name} {member.last_name}</p>
+                                            <p className="text-sm text-gray-400 truncate">{member.position}</p>
                                         </div>
                                         <button 
                                             onClick={() => handleGenerateCrewAudit([member.show_crew_id])}
@@ -263,9 +276,17 @@ const HoursTrackingView = () => {
                                 </td>
                                 {dates.map(date => {
                                     const dateString = formatDate(date);
+                                    const isAutoFilled = member.auto_filled_dates?.includes(dateString);
                                     return (
                                         <td key={dateString} className="px-3 py-2 whitespace-nowrap">
-                                            <input type="number" value={member.hours_by_date[dateString] ?? ''} onChange={(e) => handleHoursChange(member.show_crew_id, dateString, e.target.value)} className="w-16 bg-gray-800 border border-gray-700 rounded-md p-1 text-center" placeholder="0" />
+                                            <input
+                                                type="number"
+                                                value={member.hours_by_date[dateString] ?? ''}
+                                                onChange={(e) => handleHoursChange(member.show_crew_id, dateString, e.target.value)}
+                                                className={`w-16 bg-gray-800 border rounded-md p-1 text-center ${isAutoFilled ? 'border-amber-500/70 ring-1 ring-amber-500/40' : 'border-gray-700'}`}
+                                                placeholder="0"
+                                                title={isAutoFilled ? 'Auto-filled from the Schedule tab — edit and save to override.' : undefined}
+                                            />
                                         </td>
                                     );
                                 })}
@@ -283,32 +304,30 @@ const HoursTrackingView = () => {
                             <td className="px-3 py-2 text-center font-bold text-white">{grandTotals.ot.toFixed(2)}</td>
                             <td className="px-3 py-2 text-center font-bold text-white">${grandTotals.cost.toFixed(2)}</td>
                         </tr>
-                        {profile?.permitted_features?.includes('budget_tools') && (
-                            <tr className="border-t border-gray-700">
-                                <td colSpan={2} className="px-3 py-2 text-left font-bold text-white uppercase">Labor Budget</td>
-                                <td colSpan={10} className="px-3 py-2 text-right font-bold">
-                                    {timesheet?.labor_budget !== null && timesheet?.labor_budget !== undefined ? (
-                                        (() => {
-                                            const allocated = parseFloat(timesheet.labor_budget);
-                                            const historical = parseFloat(timesheet.historical_labor_cost_excluding_current_week || 0);
-                                            const currentWeekCost = parseFloat(grandTotals.cost || 0);
-                                            const totalCost = historical + currentWeekCost;
-                                            const remaining = allocated - totalCost;
-                                            const isOverBudget = remaining < 0;
-                                            const colorClass = isOverBudget ? 'text-red-500' : 'text-emerald-400';
-                                            return (
-                                                <span className={colorClass}>
-                                                    Allocated: ${allocated.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 
-                                                    Remaining Balance: ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                                </span>
-                                            );
-                                        })()
-                                    ) : (
-                                        <span className="text-gray-400">No budget allocated</span>
-                                    )}
-                                </td>
-                            </tr>
-                        )}
+                        <tr className="border-t border-gray-700">
+                            <td colSpan={2} className="px-3 py-2 text-left font-bold text-white uppercase">Labor Budget</td>
+                            <td colSpan={10} className="px-3 py-2 text-right font-bold">
+                                {timesheet?.labor_budget !== null && timesheet?.labor_budget !== undefined ? (
+                                    (() => {
+                                        const allocated = parseFloat(timesheet.labor_budget);
+                                        const historical = parseFloat(timesheet.historical_labor_cost_excluding_current_week || 0);
+                                        const currentWeekCost = parseFloat(grandTotals.cost || 0);
+                                        const totalCost = historical + currentWeekCost;
+                                        const remaining = allocated - totalCost;
+                                        const isOverBudget = remaining < 0;
+                                        const colorClass = isOverBudget ? 'text-red-500' : 'text-emerald-400';
+                                        return (
+                                            <span className={colorClass}>
+                                                Allocated: ${allocated.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} |
+                                                Remaining Balance: ${remaining.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </span>
+                                        );
+                                    })()
+                                ) : (
+                                    <span className="text-gray-400">No budget allocated</span>
+                                )}
+                            </td>
+                        </tr>
                     </tfoot>
                 </table>
             </main>

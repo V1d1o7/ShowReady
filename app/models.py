@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any, Literal
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, time
 from decimal import Decimal
 
 # --- User Model ---
@@ -90,6 +90,10 @@ class SSOConfig(BaseModel):
     config: Dict[str, str]
 
 # --- Show Information Models ---
+class BreakRule(BaseModel):
+    threshold_hours: float
+    break_minutes: float
+
 class ShowInfo(BaseModel):
     show_name: Optional[str] = None
     status: Optional[str] = 'active'
@@ -111,6 +115,8 @@ class ShowInfo(BaseModel):
     ot_daily_threshold: Optional[float] = 10.0
     ot_weekly_threshold: Optional[float] = 40.0
     pay_period_start_day: Optional[int] = 0
+    schedule_autofill_enabled: Optional[bool] = True
+    break_rules: Optional[List[BreakRule]] = None
 
 # --- Loom Label Models ---
 class LoomLabel(BaseModel):
@@ -203,6 +209,8 @@ class RosterMemberBase(BaseModel):
     email: Optional[str] = None
     position: Optional[str] = None
     tags: List[str] = []
+    status: Literal['active', 'inactive'] = 'active'
+    custom_fields: Dict[str, Any] = {}
 
 class RosterMemberCreate(RosterMemberBase):
     pass
@@ -212,10 +220,72 @@ class RosterMember(RosterMemberBase):
     user_id: uuid.UUID
     created_at: datetime
     has_notes: Optional[bool] = False
+    erased_at: Optional[datetime] = None
 
 class RosterMemberAndShowCrewCreate(RosterMemberCreate):
     show_id: int
     position: Optional[str] = None
+
+class RosterMemberStats(BaseModel):
+    shows_worked: int
+    completed_count: int
+    no_show_count: int
+    no_show_rate: float
+    invites_sent: int
+    accepted_count: int
+    decline_count: int
+    accept_rate: float
+    decline_rate: float
+
+class ShowCrewShiftEntry(BaseModel):
+    id: uuid.UUID
+    shift_date: date
+    call_time: Optional[time] = None
+    end_time: Optional[time] = None
+    notes: Optional[str] = None
+    status: Optional[str] = 'scheduled'
+
+class RosterMemberAssignment(BaseModel):
+    show_crew_id: uuid.UUID
+    show_id: int
+    show_name: str
+    position: Optional[str] = None
+    rate_type: Optional[str] = None
+    hourly_rate: Optional[float] = None
+    daily_rate: Optional[float] = None
+    status: str
+    requested_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = None
+    shifts: List[ShowCrewShiftEntry] = []
+
+class RosterMemberDetail(RosterMember):
+    assignments: List[RosterMemberAssignment] = []
+    stats: RosterMemberStats
+
+# --- Roster Custom Field Definitions ---
+CustomFieldType = Literal['text', 'number', 'date', 'yesno', 'dropdown']
+
+class RosterCustomFieldDefinitionCreate(BaseModel):
+    label: str
+    field_type: CustomFieldType
+    options: List[str] = []
+
+class RosterCustomFieldDefinitionUpdate(BaseModel):
+    label: Optional[str] = None
+    options: Optional[List[str]] = None
+    sort_order: Optional[int] = None
+
+class RosterCustomFieldDefinition(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    key: str
+    label: str
+    field_type: str
+    options: List[str] = []
+    sort_order: int
+    created_at: datetime
+
+ShowCrewStatusLiteral = Literal['pending', 'confirmed', 'declined', 'cancelled', 'completed', 'no_show']
 
 class ShowCrewMember(BaseModel):
     id: uuid.UUID
@@ -225,19 +295,25 @@ class ShowCrewMember(BaseModel):
     hourly_rate: Optional[float] = None
     daily_rate: Optional[float] = None
     rate_type: Optional[str] = None
+    status: str = 'confirmed'
+    requested_at: Optional[datetime] = None
+    responded_at: Optional[datetime] = None
     roster: RosterMember
+    shifts: List[ShowCrewShiftEntry] = []
 
 class ShowCrewMemberCreate(BaseModel):
     position: Optional[str] = None
     rate_type: Optional[str] = 'hourly'
     hourly_rate: Optional[float] = 0.0
     daily_rate: Optional[float] = 0.0
+    status: ShowCrewStatusLiteral = 'confirmed'
 
 class ShowCrewMemberUpdate(BaseModel):
     position: Optional[str] = None
     hourly_rate: Optional[float] = None
     daily_rate: Optional[float] = None
     rate_type: Optional[str] = None
+    status: Optional[ShowCrewStatusLiteral] = None
 
 # --- Hours Tracking Models ---
 class TimesheetEntryBase(BaseModel):
@@ -265,6 +341,7 @@ class CrewMemberHours(BaseModel):
     hourly_rate: Optional[float] = 0.0
     daily_rate: Optional[float] = 0.0
     hours_by_date: Dict[date, float] = Field(default_factory=dict)
+    auto_filled_dates: List[date] = Field(default_factory=list)
 
 class WeeklyTimesheet(BaseModel):
     show_id: int

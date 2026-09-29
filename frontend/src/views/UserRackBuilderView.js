@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/api';
 import { Plus, HardDrive } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { isModuleTemplate } from '../utils/moduleHelpers';
 import UserTreeView from '../components/UserTreeView';
 import RackList from '../components/RackList';
@@ -345,7 +345,6 @@ const UserRackBuilderView = () => {
 
     return (
         <div className="flex flex-row gap-8 h-full" onDragEnd={handleDragEnd}>
-            <Toaster position="bottom-center" />
             <RackList
                 racks={racks}
                 onSelectRack={onSelectRack}

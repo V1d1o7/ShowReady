@@ -309,6 +309,45 @@ def create_feedback_email_html(feedback_type: str, feedback: str, user_profile: 
     """
     return html_template
 
+def _format_shift_date_label(shift_date: str) -> str:
+    try:
+        return datetime.strptime(shift_date, '%Y-%m-%d').strftime('%a, %b ') + str(int(shift_date.split('-')[2]))
+    except (ValueError, IndexError):
+        return shift_date
+
+def _format_shift_time_label(time_str) -> str:
+    if not time_str:
+        return None
+    try:
+        h, m = str(time_str).split(':')[:2]
+        return datetime.strptime(f"{h}:{m}", '%H:%M').strftime('%-I:%M %p')
+    except ValueError:
+        return None
+
+def format_shift_schedule_html(shifts) -> str:
+    """Renders a list of shifts ({shift_date, call_time, end_time, notes}) as one glanceable
+    block per date — date/time as a bold header line, notes (if any) underneath it — instead
+    of flattening every date into a single comma-joined line or, worse, concatenating every
+    shift's notes into one undifferentiated blob disconnected from which date they belong to."""
+    if not shifts:
+        return ""
+    blocks = []
+    for shift in shifts:
+        date_label = _format_shift_date_label(shift['shift_date'])
+        start = _format_shift_time_label(shift.get('call_time'))
+        end = _format_shift_time_label(shift.get('end_time'))
+        time_label = f"{start} – {end}" if start and end else start
+        header = f"{date_label} — {time_label}" if time_label else date_label
+        notes_html = ""
+        if shift.get('notes'):
+            notes_html = f'<div style="color:#9CA3AF;font-size:13px;margin-top:2px;">{escape(shift["notes"])}</div>'
+        blocks.append(
+            '<div style="margin-bottom:10px;">'
+            f'<div style="color:#F5F0FA;font-size:14px;font-weight:bold;">{escape(header)}</div>'
+            f'{notes_html}</div>'
+        )
+    return "".join(blocks)
+
 def send_email(recipient_email: str, subject: str, html_content: str, sender: SenderIdentity, reply_to_email: str = None):
     try:
         creds = service_account.Credentials.from_service_account_file(

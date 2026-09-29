@@ -1076,7 +1076,7 @@ def generate_racks_pdf(payload: RackPDFPayload, show_branding: bool = True) -> i
     buffer.seek(0)
     return buffer
 
-def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = True, panel_export_data: Optional[List[dict]] = None) -> io.BytesIO:
+def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = True, panel_export_data: Optional[List[dict]] = None, template_lookup: Optional[Dict[str, dict]] = None) -> io.BytesIO:
     merger = PdfWriter()
     has_pages = False
 
@@ -1090,29 +1090,51 @@ def generate_combined_rack_pdf(payload: RackPDFPayload, show_branding: bool = Tr
 
     if payload.include_equipment_list:
         equipment_counts = {}
+        template_lookup = template_lookup or {}
         all_equipment_instances = {str(equip.id): equip for rack in payload.racks for equip in rack.equipment}
-        
+
+        def resolve_assignment(assignment_data):
+            # An assignment value is either a plain instance/template id, or a
+            # {id, assignments} structure carrying nested slot selections.
+            if isinstance(assignment_data, dict):
+                return assignment_data.get('id'), (assignment_data.get('assignments') or {})
+            if hasattr(assignment_data, 'id'):
+                return assignment_data.id, (getattr(assignment_data, 'assignments', None) or {})
+            return assignment_data, {}
+
+        def process_slot_assignment(assignment_data, counts):
+            if not assignment_data: return
+            target_id, sub_assignments = resolve_assignment(assignment_data)
+            if not target_id: return
+            target_id_str = str(target_id)
+
+            # Case 1: the slot points at a real rack_equipment_instances row
+            # (legacy per-instance module flow) - recurse using its own data.
+            child_item = all_equipment_instances.get(target_id_str)
+            if child_item:
+                process_equipment(child_item, counts)
+                return
+
+            # Case 2: the slot points directly at an equipment_templates id
+            # (current "Configure Modules" flow) - no instance row exists for
+            # it, so count the template itself and recurse into any nested
+            # slot selections carried in the assignment blob.
+            template = template_lookup.get(target_id_str)
+            if not template: return
+            key = (template.get('manufacturer') or 'N/A', template.get('model_number') or 'N/A')
+            counts[key] = counts.get(key, 0) + 1
+            for sub_assignment_data in sub_assignments.values():
+                process_slot_assignment(sub_assignment_data, counts)
+
         def process_equipment(item, counts):
             template = item.equipment_templates
             if not template: return
             key = (template.manufacturer or 'N/A', template.model_number or 'N/A')
             counts[key] = counts.get(key, 0) + 1
-            
-            if template.is_patch_panel and item.module_assignments:
-                for slot_name, assignment_data in item.module_assignments.items():
-                    if not assignment_data: continue
-                    target_id = None
-                    if isinstance(assignment_data, dict):
-                        target_id = assignment_data.get('id')
-                    elif hasattr(assignment_data, 'id'):
-                        target_id = assignment_data.id
-                    else:
-                        target_id = assignment_data
 
-                    if target_id:
-                        child_item = all_equipment_instances.get(str(target_id))
-                        if child_item:
-                            process_equipment(child_item, counts)
+            if item.module_assignments:
+                for assignment_data in item.module_assignments.values():
+                    process_slot_assignment(assignment_data, counts)
 
         for rack in payload.racks:
             for item in rack.equipment:

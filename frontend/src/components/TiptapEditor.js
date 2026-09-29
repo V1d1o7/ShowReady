@@ -10,10 +10,27 @@ import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { Paragraph } from '@tiptap/extension-paragraph';
 import { Heading } from '@tiptap/extension-heading';
+import { TextStyle, Color } from '@tiptap/extension-text-style';
+import { TextAlign } from '@tiptap/extension-text-align';
 
-import { Bold, Italic, Strikethrough, List, ListOrdered, Link2, Image as ImageIcon, Table as TableIcon, Code, FileCode } from 'lucide-react';
+import {
+    Bold, Italic, Underline as UnderlineIcon, Strikethrough, List, ListOrdered, Link2,
+    Image as ImageIcon, Table as TableIcon, Code, FileCode, Heading1, Heading2, Heading3,
+    Pilcrow, Quote, Minus, Undo2, Redo2, Eraser, Palette, AlignLeft, AlignCenter, AlignRight
+} from 'lucide-react';
 import Modal from './Modal';
 import InputField from './InputField';
+
+// Brand swatches matching the default email template color scheme (see communications.py)
+const COLOR_SWATCHES = [
+    { label: 'White', value: '#F9FAFB' },
+    { label: 'Light Gray', value: '#D1D5DB' },
+    { label: 'Muted Gray', value: '#9CA3AF' },
+    { label: 'Teal', value: '#14B8A6' },
+    { label: 'Blue', value: '#3B82F6' },
+    { label: 'Amber', value: '#F59E0B' },
+    { label: 'Red', value: '#EF4444' },
+];
 
 // --- CUSTOM EXTENSIONS TO PRESERVE STYLES ---
 
@@ -174,15 +191,16 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
     
     // Modal State
     const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
-    const [urlModalType, setUrlModalType] = useState(null); 
+    const [urlModalType, setUrlModalType] = useState(null);
     const [urlInputValue, setUrlInputValue] = useState('');
+    const [isColorMenuOpen, setIsColorMenuOpen] = useState(false);
 
     const editor = useEditor({
         extensions: [
             StarterKit.configure({
                 paragraph: false,
                 heading: false,
-                code: false, 
+                code: false,
                 link: false, // FIX: Disable StarterKit's link extension to avoid duplicate warning
             }),
             CustomParagraph,
@@ -198,9 +216,14 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
                 resizable: false, // Disable resizing handles
                 allowTableNodeSelection: false, // Stop the table from being selected as a block
             }),
-            TableRow, 
+            TableRow,
             TableHeader,
             CustomTableCell,
+            TextStyle,
+            Color,
+            TextAlign.configure({
+                types: ['paragraph', 'heading'],
+            }),
         ],
         content: value,
         onUpdate: ({ editor }) => {
@@ -262,6 +285,16 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
         setUrlInputValue('');
         setUrlModalType('image');
         setIsUrlModalOpen(true);
+    }, [editor]);
+
+    const applyColor = useCallback((color) => {
+        editor.chain().focus().setColor(color).run();
+        setIsColorMenuOpen(false);
+    }, [editor]);
+
+    const clearColor = useCallback(() => {
+        editor.chain().focus().unsetColor().run();
+        setIsColorMenuOpen(false);
     }, [editor]);
 
     const handleUrlSubmit = (e) => {
@@ -337,22 +370,86 @@ const TiptapEditor = ({ value, onChange, placeholder, onEditorInstance }) => {
                     
                     <div className="w-px h-6 bg-gray-600 mx-1" />
 
-                    <div className={`flex gap-1 ${isSourceMode ? 'opacity-30 pointer-events-none' : ''}`}>
-                        <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')}><Bold size={16} /></ToolbarButton>
-                        <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')}><Italic size={16} /></ToolbarButton>
-                        <ToolbarButton onClick={() => editor.chain().focus().toggleStrike().run()} isActive={editor.isActive('strike')}><Strikethrough size={16} /></ToolbarButton>
-                        <ToolbarButton onClick={() => editor.chain().focus().toggleCode().run()} isActive={editor.isActive('code')}><Code size={16} /></ToolbarButton>
-                        
+                    <div className={`flex flex-wrap items-center gap-1 ${isSourceMode ? 'opacity-30 pointer-events-none' : ''}`}>
+                        <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title="Undo"><Undo2 size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title="Redo"><Redo2 size={16} /></ToolbarButton>
+
                         <div className="w-px h-6 bg-gray-600 mx-1" />
-                        
-                        <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')}><List size={16} /></ToolbarButton>
-                        <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')}><ListOrdered size={16} /></ToolbarButton>
-                        
+
+                        <ToolbarButton onClick={() => editor.chain().focus().setParagraph().run()} isActive={editor.isActive('paragraph')} title="Paragraph"><Pilcrow size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} isActive={editor.isActive('heading', { level: 1 })} title="Heading 1"><Heading1 size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} isActive={editor.isActive('heading', { level: 2 })} title="Heading 2"><Heading2 size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()} isActive={editor.isActive('heading', { level: 3 })} title="Heading 3"><Heading3 size={16} /></ToolbarButton>
+
                         <div className="w-px h-6 bg-gray-600 mx-1" />
-                        
-                        <ToolbarButton onClick={openLinkModal} isActive={editor.isActive('link')}><Link2 size={16} /></ToolbarButton>
-                        <ToolbarButton onClick={openImageModal}><ImageIcon size={16} /></ToolbarButton>
-                        <ToolbarButton onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon size={16} /></ToolbarButton>
+
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')} title="Bold"><Bold size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')} title="Italic"><Italic size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleUnderline().run()} isActive={editor.isActive('underline')} title="Underline"><UnderlineIcon size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleStrike().run()} isActive={editor.isActive('strike')} title="Strikethrough"><Strikethrough size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleCode().run()} isActive={editor.isActive('code')} title="Inline Code"><Code size={16} /></ToolbarButton>
+
+                        <div className="relative">
+                            <ToolbarButton onClick={() => setIsColorMenuOpen(o => !o)} isActive={isColorMenuOpen || !!editor.getAttributes('textStyle').color} title="Text Color">
+                                <Palette size={16} />
+                            </ToolbarButton>
+                            {isColorMenuOpen && (
+                                <>
+                                    {/* Click-away layer */}
+                                    <div className="fixed inset-0 z-10" onClick={() => setIsColorMenuOpen(false)} />
+                                    <div className="absolute left-0 top-full mt-1 z-20 p-3 bg-gray-800 border border-gray-700 rounded-lg shadow-xl w-52">
+                                        <div className="grid grid-cols-4 gap-2 mb-3">
+                                            {COLOR_SWATCHES.map(swatch => (
+                                                <button
+                                                    key={swatch.value}
+                                                    type="button"
+                                                    title={swatch.label}
+                                                    onClick={() => applyColor(swatch.value)}
+                                                    className="w-8 h-8 rounded-md border border-gray-600 hover:scale-110 transition-transform"
+                                                    style={{ backgroundColor: swatch.value }}
+                                                />
+                                            ))}
+                                        </div>
+                                        <label className="flex items-center gap-2 mb-2 text-xs text-gray-300">
+                                            <input
+                                                type="color"
+                                                value={editor.getAttributes('textStyle').color || '#F9FAFB'}
+                                                onChange={(e) => applyColor(e.target.value)}
+                                                className="w-8 h-8 p-0 bg-transparent border border-gray-600 rounded cursor-pointer"
+                                            />
+                                            Custom color
+                                        </label>
+                                        <button
+                                            type="button"
+                                            onClick={clearColor}
+                                            className="w-full text-left text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-700"
+                                        >
+                                            Remove color
+                                        </button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <ToolbarButton onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()} title="Clear Formatting"><Eraser size={16} /></ToolbarButton>
+
+                        <div className="w-px h-6 bg-gray-600 mx-1" />
+
+                        <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('left').run()} isActive={editor.isActive({ textAlign: 'left' })} title="Align Left"><AlignLeft size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('center').run()} isActive={editor.isActive({ textAlign: 'center' })} title="Align Center"><AlignCenter size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('right').run()} isActive={editor.isActive({ textAlign: 'right' })} title="Align Right"><AlignRight size={16} /></ToolbarButton>
+
+                        <div className="w-px h-6 bg-gray-600 mx-1" />
+
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')} title="Bullet List"><List size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')} title="Numbered List"><ListOrdered size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().toggleBlockquote().run()} isActive={editor.isActive('blockquote')} title="Quote"><Quote size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Horizontal Rule"><Minus size={16} /></ToolbarButton>
+
+                        <div className="w-px h-6 bg-gray-600 mx-1" />
+
+                        <ToolbarButton onClick={openLinkModal} isActive={editor.isActive('link')} title="Link"><Link2 size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={openImageModal} title="Image"><ImageIcon size={16} /></ToolbarButton>
+                        <ToolbarButton onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="Insert Table"><TableIcon size={16} /></ToolbarButton>
                     </div>
                 </div>
 

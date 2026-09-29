@@ -9,10 +9,11 @@ import ConfirmationModal from '../../components/ConfirmationModal';
 
 const TABS = ['ROSTER', 'CREW', 'HOURS'];
 
-// UPDATED VARIABLES LIST 
+// acceptLink/declineLink are resolved server-side, one unique link per recipient —
+// available to type into a template, but never substituted client-side like the others.
 const VARIABLES = {
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{tags}}', '{{rosteredEmail}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{callTime}}', '{{notes}}', '{{venue}}'], // Added callTime, notes, venue
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{acceptLink}}', '{{declineLink}}', '{{tags}}', '{{rosteredEmail}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
     HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 

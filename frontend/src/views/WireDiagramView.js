@@ -10,7 +10,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { Download, Plus, Search } from 'lucide-react';
 import dagre from 'dagre';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 import { api } from '../api/api';
 import DeviceNode from '../components/DeviceNode';
@@ -1121,7 +1121,6 @@ const WireDiagramView = () => {
 
     return (
         <div className="h-full w-full flex flex-row rounded-xl bg-gray-800/50" data-testid="wire-diagram-view">
-            <Toaster position="bottom-center" />
             <CustomDragLayer draggingItem={draggingItem} />
             <LibrarySidebar
                 unassignedEquipment={unassignedEquipment}

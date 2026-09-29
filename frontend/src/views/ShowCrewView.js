@@ -1,43 +1,65 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useContext } from 'react';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
+import { LayoutContext } from '../contexts/LayoutContext';
 import { Plus, Trash2, Mail, Check, Edit } from 'lucide-react';
 import AddCrewFromRosterModal from '../components/AddCrewFromRosterModal';
+import AssignFromPoolModal from '../components/AssignFromPoolModal';
+import AvailabilityPoolSection from '../components/AvailabilityPoolSection';
 import ConfirmationModal from '../components/ConfirmationModal';
 import EmailComposeModal from '../components/EmailComposeModal';
+import StatusBadge, { formatShiftsSummary } from '../components/CrewStatusBadge';
 import useHotkeys from '../hooks/useHotkeys';
 import toast from 'react-hot-toast';
 
 const ShowCrewView = () => {
-    const { showId } = useShow();
+    const { setShouldScroll } = useContext(LayoutContext);
+    const { showId, canEditShow } = useShow();
     const [crew, setCrew] = useState([]);
+    const [pool, setPool] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [editingMember, setEditingMember] = useState(null); // New state for editing
     const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null });
     const [selectedCrewIds, setSelectedCrewIds] = useState([]);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
+    const [assigningResponse, setAssigningResponse] = useState(null);
+
+    useEffect(() => {
+        setShouldScroll(true);
+        return () => setShouldScroll(false);
+    }, [setShouldScroll]);
 
     // Keyboard Shortcuts
     useHotkeys({
-        'a': () => setIsAddModalOpen(true)
+        'a': () => { if (canEditShow) setIsAddModalOpen(true); }
     });
 
-    const fetchCrew = async () => {
-        setIsLoading(true);
+    const fetchCrew = useCallback(async (silent = false) => {
+        if (!silent) setIsLoading(true);
         try {
-            const data = await api.getShowCrew(showId);
-            setCrew(data);
-        } catch (error) {
-            console.error("Failed to fetch show crew:", error);
+            const [crewResult, poolResult] = await Promise.allSettled([
+                api.getShowCrew(showId),
+                api.getAvailabilityPool(showId),
+            ]);
+            if (crewResult.status === 'fulfilled') {
+                setCrew(crewResult.value);
+            } else {
+                console.error("Failed to fetch show crew:", crewResult.reason);
+            }
+            if (poolResult.status === 'fulfilled') {
+                setPool(poolResult.value);
+            } else {
+                console.error("Failed to fetch availability pool:", poolResult.reason);
+            }
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [showId]);
 
     useEffect(() => {
         if (showId) fetchCrew();
-    }, [showId]);
+    }, [showId, fetchCrew]);
 
     const handleRemoveCrew = (crewMember) => {
         setConfirmModal({
@@ -77,7 +99,7 @@ const ShowCrewView = () => {
     };
 
     const handleSelectOne = (rosterId) => {
-        setSelectedCrewIds(prev => 
+        setSelectedCrewIds(prev =>
             prev.includes(rosterId) ? prev.filter(id => id !== rosterId) : [...prev, rosterId]
         );
     };
@@ -95,11 +117,11 @@ const ShowCrewView = () => {
     // Custom Styled Checkbox Component
     const StyledCheckbox = ({ checked, onChange }) => (
         <label className="relative flex items-center cursor-pointer">
-            <input 
-                type="checkbox" 
-                className="sr-only peer" 
-                checked={checked} 
-                onChange={onChange} 
+            <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={checked}
+                onChange={onChange}
             />
             <div className={`w-5 h-5 border-2 rounded transition-colors flex items-center justify-center
                 ${checked ? 'bg-amber-500 border-amber-500' : 'border-gray-500 hover:border-gray-400 bg-transparent'}
@@ -114,14 +136,16 @@ const ShowCrewView = () => {
             <header className="flex items-center justify-between pb-6 border-b border-gray-700">
                 <h1 className="text-2xl font-bold text-white">Show Crew</h1>
                 <div className="flex gap-4">
-                    {selectedCrewIds.length > 0 && (
+                    {canEditShow && selectedCrewIds.length > 0 && (
                         <button onClick={handleEmailSelected} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
                             <Mail size={18} /> Email Selected ({selectedCrewIds.length})
                         </button>
                     )}
-                    <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">
-                        <Plus size={18} /> Add Crew
-                    </button>
+                    {canEditShow && (
+                        <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 transition-colors">
+                            <Plus size={18} /> Add Crew
+                        </button>
+                    )}
                 </div>
             </header>
 
@@ -129,87 +153,114 @@ const ShowCrewView = () => {
                 {isLoading ? (
                     <div className="text-center text-gray-500">Loading crew...</div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-700">
-                            <thead className="bg-gray-800">
-                                <tr>
-                                    <th className="w-12 px-4 py-3">
-                                        <StyledCheckbox 
-                                            checked={crew.length > 0 && selectedCrewIds.length === crew.length}
-                                            onChange={handleSelectAll}
-                                        />
-                                    </th>
-                                    <th className="px-3 py-3 text-left text-sm font-semibold text-white">Name</th>
-                                    <th className="px-3 py-3 text-left text-sm font-semibold text-white">Position</th>
-                                    <th className="px-3 py-3 text-left text-sm font-semibold text-white">Rate</th>
-                                    <th className="px-3 py-3 text-left text-sm font-semibold text-white">Email</th>
-                                    <th className="relative py-3 pl-3 pr-4"><span className="sr-only">Actions</span></th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-800 bg-gray-900">
-                                {crew.map(member => (
-                                    <tr key={member.id} className="hover:bg-gray-800/50 transition-colors">
-                                        <td className="px-4 py-4">
-                                            <StyledCheckbox 
-                                                checked={selectedCrewIds.includes(member.roster.id)}
-                                                onChange={() => handleSelectOne(member.roster.id)}
-                                            />
-                                        </td>
-                                        <td className="px-3 py-4 text-sm font-medium text-white">
-                                            {member.roster.first_name} {member.roster.last_name}
-                                        </td>
-                                        <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
-                                        <td className="px-3 py-4 text-sm text-gray-300">
-                                            {member.rate_type === 'daily' 
-                                                ? `$${Number(member.daily_rate || 0).toFixed(2)}/day` 
-                                                : `$${Number(member.hourly_rate || 0).toFixed(2)}/hr`}
-                                        </td>
-                                        <td className="px-3 py-4 text-sm text-gray-300">{member.roster.email}</td>
-                                        <td className="py-4 pl-3 pr-4 text-right text-sm font-medium">
-                                            <div className="flex items-center justify-end gap-2">
-                                                <button 
-                                                    onClick={() => handleEdit(member)} 
-                                                    className="text-gray-500 hover:text-blue-400 transition-colors"
-                                                    title="Edit Details"
-                                                >
-                                                    <Edit size={18} />
-                                                </button>
-                                                <button 
-                                                    onClick={() => handleRemoveCrew(member)} 
-                                                    className="text-gray-500 hover:text-red-500 transition-colors"
-                                                    title="Remove Crew Member"
-                                                >
-                                                    <Trash2 size={18} />
-                                                </button>
-                                            </div>
-                                        </td>
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-700">
+                                <thead className="bg-gray-800">
+                                    <tr>
+                                        {canEditShow && (
+                                            <th className="w-12 px-4 py-3">
+                                                <StyledCheckbox
+                                                    checked={crew.length > 0 && selectedCrewIds.length === crew.length}
+                                                    onChange={handleSelectAll}
+                                                />
+                                            </th>
+                                        )}
+                                        <th className="px-3 py-3 text-left text-sm font-semibold text-white">Name</th>
+                                        <th className="px-3 py-3 text-left text-sm font-semibold text-white">Position</th>
+                                        <th className="px-3 py-3 text-left text-sm font-semibold text-white">Rate</th>
+                                        <th className="px-3 py-3 text-left text-sm font-semibold text-white">Shifts</th>
+                                        <th className="px-3 py-3 text-left text-sm font-semibold text-white">Status</th>
+                                        <th className="px-3 py-3 text-left text-sm font-semibold text-white">Email</th>
+                                        {canEditShow && <th className="relative py-3 pl-3 pr-4"><span className="sr-only">Actions</span></th>}
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        {crew.length === 0 && (
-                            <div className="text-center py-12 text-gray-500">
-                                No crew assigned to this show yet.
-                            </div>
-                        )}
-                    </div>
+                                </thead>
+                                <tbody className="divide-y divide-gray-800 bg-gray-900">
+                                    {crew.map(member => (
+                                        <tr key={member.id} className="hover:bg-gray-800/50 transition-colors">
+                                            {canEditShow && (
+                                                <td className="px-4 py-4">
+                                                    <StyledCheckbox
+                                                        checked={selectedCrewIds.includes(member.roster.id)}
+                                                        onChange={() => handleSelectOne(member.roster.id)}
+                                                    />
+                                                </td>
+                                            )}
+                                            <td className="px-3 py-4 text-sm font-medium text-white">
+                                                {member.roster.first_name} {member.roster.last_name}
+                                            </td>
+                                            <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
+                                            <td className="px-3 py-4 text-sm text-gray-300">
+                                                {member.rate_type === 'daily'
+                                                    ? `$${Number(member.daily_rate || 0).toFixed(2)}/day`
+                                                    : `$${Number(member.hourly_rate || 0).toFixed(2)}/hr`}
+                                            </td>
+                                            <td className="px-3 py-4 text-xs text-gray-400 max-w-xs">{formatShiftsSummary(member.shifts)}</td>
+                                            <td className="px-3 py-4"><StatusBadge status={member.status} /></td>
+                                            <td className="px-3 py-4 text-sm text-gray-300">{member.roster.email}</td>
+                                            {canEditShow && (
+                                                <td className="py-4 pl-3 pr-4 text-right text-sm font-medium">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <button
+                                                            onClick={() => handleEdit(member)}
+                                                            className="text-gray-500 hover:text-blue-400 transition-colors"
+                                                            title="Edit Details"
+                                                        >
+                                                            <Edit size={18} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleRemoveCrew(member)}
+                                                            className="text-gray-500 hover:text-red-500 transition-colors"
+                                                            title="Remove Crew Member"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {crew.length === 0 && (
+                                <div className="text-center py-12 text-gray-500">
+                                    No crew assigned to this show yet.
+                                </div>
+                            )}
+                        </div>
+
+                        <AvailabilityPoolSection
+                            showId={showId}
+                            pool={pool}
+                            onChanged={() => fetchCrew(true)}
+                            onAssign={setAssigningResponse}
+                            canEditShow={canEditShow}
+                        />
+                    </>
                 )}
             </main>
 
-            <AddCrewFromRosterModal 
-                isOpen={isAddModalOpen} 
-                onClose={handleModalClose} 
-                onAdded={fetchCrew} 
+            <AddCrewFromRosterModal
+                isOpen={isAddModalOpen}
+                onClose={handleModalClose}
+                onAdded={fetchCrew}
                 showId={showId}
-                initialData={editingMember} 
+                initialData={editingMember}
+            />
+            <AssignFromPoolModal
+                isOpen={!!assigningResponse}
+                onClose={() => setAssigningResponse(null)}
+                onAssigned={() => fetchCrew(true)}
+                response={assigningResponse}
+                existingCrew={assigningResponse ? crew.find(c => c.roster_id === assigningResponse.roster_id) : null}
             />
             <EmailComposeModal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} recipients={selectedRecipients} category="CREW" showId={showId} />
-            
+
             {confirmModal.isOpen && (
-                <ConfirmationModal 
-                    message={confirmModal.message} 
-                    onConfirm={confirmModal.onConfirm} 
-                    onCancel={() => setConfirmModal({ isOpen: false, message: '', onConfirm: null })} 
+                <ConfirmationModal
+                    message={confirmModal.message}
+                    onConfirm={confirmModal.onConfirm}
+                    onCancel={() => setConfirmModal({ isOpen: false, message: '', onConfirm: null })}
                 />
             )}
         </div>

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from supabase import Client
 from app.api import get_supabase_client, get_user, feature_check
 from app.models import EmailTemplate, EmailTemplateCreate, BulkEmailRequest
 from app.user_email import send_email_with_user_smtp, SMTPSettings
+from app.email_utils import format_shift_schedule_html
 import uuid
 from typing import List, Optional
 
@@ -121,12 +122,12 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
                   <tbody>
                     <tr>
                       <td align="center">
-                        <a href="mailto:{{{{replyToEmail}}}}?subject=Available: {{{{showName}}}}&body=I am available." style="background-color: {color_roster}; color: {text_white}; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">I'm Available</a>
+                        <a href="{{{{acceptLink}}}}" style="background-color: {color_roster}; color: {text_white}; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;">Select My Dates</a>
                       </td>
                     </tr>
                     <tr>
                       <td align="center" style="padding-top: 20px;">
-                        <a href="mailto:{{{{replyToEmail}}}}?subject=Decline: {{{{showName}}}}" style="color: #6B7280; font-size: 14px; text-decoration: none;">Decline / Unavailable</a>
+                        <a href="{{{{declineLink}}}}" style="color: #6B7280; font-size: 14px; text-decoration: none;">None of These Dates Work</a>
                       </td>
                     </tr>
                   </tbody>
@@ -199,30 +200,16 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
                             </tr>
                           </tbody>
                         </table>
-                        <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false" style="margin-bottom: 16px;">
-                          <tbody>
-                            <tr>
-                              <td colspan="1" rowspan="1" width="80" valign="top" style="color: rgb(156, 163, 175); font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">
-                                <p>
-                                  <strong>CALL TIME:</strong>
-                                </p>
-                              </td>
-                              <td colspan="1" rowspan="1" style="color: rgb(249, 250, 251); font-size: 15px;">
-                                <p>{{callTime}}</p>
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
                         <table cellpadding="0" cellspacing="0" width="100%" border="0" draggable="false">
                           <tbody>
                             <tr>
                               <td colspan="1" rowspan="1" width="80" valign="top" style="color: rgb(156, 163, 175); font-size: 11px; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; padding-top: 2px;">
                                 <p>
-                                  <strong>NOTES:</strong>
+                                  <strong>SCHEDULE:</strong>
                                 </p>
                               </td>
                               <td colspan="1" rowspan="1" style="color: rgb(249, 250, 251); font-size: 15px;">
-                                <p>{{notes}}</p>
+                                {{schedule}}
                               </td>
                             </tr>
                           </tbody>
@@ -299,29 +286,70 @@ async def restore_default_email_templates(user=Depends(get_user), supabase: Clie
         
     return {"message": "Default templates restored.", "count": len(response.data)}
 
+def _require_show_editor_or_owner(supabase: Client, show_id, user_id) -> None:
+    """A CREW notification email doesn't write to any RLS-protected table, so unlike the
+    scheduling endpoints (where a viewer's write already gets blocked at the DB layer),
+    sending one needs an explicit check here — otherwise a viewer could freely email crew."""
+    show_res = supabase.table('shows').select('user_id').eq('id', show_id).execute()
+    if not show_res.data:
+        raise HTTPException(status_code=404, detail="Show not found.")
+    if str(show_res.data[0]['user_id']) == str(user_id):
+        return
+    role_res = supabase.table('show_collaborators').select('role').eq('show_id', show_id).eq('user_id', str(user_id)).execute()
+    if role_res.data and role_res.data[0]['role'] in ('owner', 'editor'):
+        return
+    raise HTTPException(status_code=403, detail="You need editor access on this show to send this email.")
+
+
+def _send_queued_emails(smtp_settings: SMTPSettings, messages: List[dict]) -> None:
+    """Runs after the response is already back with the caller — each message is its own
+    SMTP connection/send, so one bad address or a slow server can't hold up the request,
+    and one failure doesn't stop the rest of the batch from going out."""
+    for message in messages:
+        try:
+            send_email_with_user_smtp(
+                smtp_settings=smtp_settings,
+                recipient_emails=[message['target_email']],
+                subject=message['subject'],
+                html_body=message['html_body'],
+            )
+        except Exception as e:
+            print(f"Failed to send bulk email to {message['target_email']}: {e}")
+
+
 @router.post("/send", tags=["Communications"])
-async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Sends a bulk email to a list of recipients."""
+async def send_bulk_email(request: BulkEmailRequest, background_tasks: BackgroundTasks, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Queues a bulk email to a list of recipients — the SMTP sends happen after the response
+    goes out, so the request returns as soon as recipients/content are resolved rather than
+    waiting on one email-per-recipient loop."""
+    if request.category == 'ROSTER':
+        raise HTTPException(
+            status_code=400,
+            detail="ROSTER emails now go through the availability-call endpoint so accept/decline links resolve per recipient. Use POST /api/v1/shows/{show_id}/availability-calls instead."
+        )
+
     # 1. Fetch User SMTP settings (CONFIRMED: Uses User Settings, not Admin)
     smtp_res = supabase.table('user_smtp_settings').select('*').eq('user_id', str(user.id)).single().execute()
     if not smtp_res.data:
         raise HTTPException(status_code=400, detail="SMTP settings not configured. Please go to User Settings to configure them.")
-    
+
     smtp_settings = SMTPSettings(**smtp_res.data)
 
     # 2. Resolve Recipients
     recipients = []
-    if request.category == 'ROSTER':
-        roster_res = supabase.table('roster').select('*').in_('id', [str(rid) for rid in request.recipient_ids]).execute()
-        recipients = roster_res.data
-    elif request.category == 'CREW':
-        crew_res = supabase.table('show_crew').select('*, roster(*), shows(name, data)').in_('id', [str(rid) for rid in request.recipient_ids]).execute()
+    if request.category == 'CREW':
+        crew_res = supabase.table('show_crew').select('*, roster(*), shows(name, data), shifts:show_crew_shifts(*)').in_('id', [str(rid) for rid in request.recipient_ids]).execute()
         recipients = crew_res.data
     
     if not recipients:
         raise HTTPException(status_code=404, detail="No valid recipients found.")
 
-    # 3. Sending Logic
+    if request.category == 'CREW':
+        for show_id in {r['show_id'] for r in recipients if r.get('show_id')}:
+            _require_show_editor_or_owner(supabase, show_id, str(user.id))
+
+    # 3. Build each recipient's personalized message (fast, no network — safe to do inline)
+    queued_messages = []
     for recipient in recipients:
         subject = request.subject
         body = request.body
@@ -336,6 +364,7 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
             data_source = recipient.get('roster', {})
             data_source['showName'] = recipient.get('shows', {}).get('name', '')
             data_source['position'] = recipient.get('position', '')
+            data_source['schedule'] = format_shift_schedule_html(sorted(recipient.get('shifts') or [], key=lambda s: s['shift_date']))
             target_email = data_source.get('email')
 
         if not target_email:
@@ -387,20 +416,21 @@ async def send_bulk_email(request: BulkEmailRequest, user=Depends(get_user), sup
 <head>
   <meta charset="utf-8">
   <style>
-    body {{ margin: 0; padding: 0; width: 100% !important; background-color: #111827; }}
+    body {{ margin: 0; padding: 0; width: 100% !important; background-color: #111827; color: #F9FAFB; }}
     table {{ border-collapse: collapse; }}
   </style>
 </head>
-<body style="margin: 0; padding: 0; width: 100% !important; background-color: #111827;">
+<body style="margin: 0; padding: 0; width: 100% !important; background-color: #111827; color: #F9FAFB;">
   {body}
 </body>
 </html>"""
 
-        send_email_with_user_smtp(
-            smtp_settings=smtp_settings,
-            recipient_emails=[target_email],
-            subject=subject,
-            html_body=final_html_body
-        )
+        queued_messages.append({
+            'target_email': target_email,
+            'subject': subject,
+            'html_body': final_html_body,
+        })
 
-    return {"message": "Emails sent successfully."}
+    background_tasks.add_task(_send_queued_emails, smtp_settings, queued_messages)
+
+    return {"message": "Emails queued for sending."}

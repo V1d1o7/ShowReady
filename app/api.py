@@ -863,8 +863,8 @@ ALL_FEATURES = [
     {"key": "wire_diagram", "name": "Wire Diagram", "paywalled": True},
     {"key": "loom_builder", "name": "Loom Builder", "paywalled": True},
     {"key": "vlan_management", "name": "VLAN Management", "paywalled": True},
-    {"key": "crew", "name": "Crew Management", "paywalled": True},
-    {"key": "hours_tracking", "name": "Hours Tracking", "paywalled": True},
+    {"key": "crew", "name": "Crew Management", "paywalled": True},  # also gates Hours Tracking — one role, not two
+    {"key": "schedule", "name": "Crew Scheduling", "paywalled": True},
     {"key": "global_feedback_button", "name": "Global Feedback Button", "paywalled": False},
     {"key": "switch_config", "name": "Switch Configuration", "paywalled": True},
     {"key": "communications", "name": "Communications Suite", "paywalled": True},
@@ -1288,6 +1288,18 @@ async def update_show(show_id: int, show_data: ShowFile, user = Depends(get_user
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def _get_current_user_role(supabase: Client, show_data: dict, user_id) -> str:
+    """The caller's show_collaborators role for a show they're already known to be able to
+    read (via RLS) — the creator is always 'owner' even if their collaborator row hasn't
+    been self-healed yet (see collaboration.ensure_owner_consistency); everyone else falls
+    back to 'viewer' (the safe, least-privileged default) if no row is found."""
+    if str(show_data.get('user_id')) == str(user_id):
+        return 'owner'
+    role_res = supabase.table('show_collaborators').select('role').eq('show_id', show_data['id']).eq('user_id', str(user_id)).execute()
+    if role_res.data:
+        return role_res.data[0]['role']
+    return 'viewer'
+
 @router.get("/shows/{show_id}", tags=["Shows"])
 async def get_show(show_id: int, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Retrieves a specific show for the authenticated user."""
@@ -1295,17 +1307,18 @@ async def get_show(show_id: int, user = Depends(get_user), supabase: Client = De
         # FIX: Removed .eq('user_id', user.id) to allow shared users to view
         # Use execute() + list check to handle RLS restricted empty responses gracefully
         show_response = supabase.table('shows').select('*').eq('id', show_id).execute()
-        
+
         if not show_response.data:
             raise HTTPException(status_code=404, detail="Show not found or access denied")
 
         show_data = show_response.data[0]
-        
+
         # Check for associated notes
         notes_response = supabase.table('notes').select('id', count='exact').eq('parent_entity_type', 'show').eq('parent_entity_id', str(show_id)).execute()
-        
+
         # Add the has_notes flag to the response
         show_data['has_notes'] = notes_response.count > 0
+        show_data['current_user_role'] = _get_current_user_role(supabase, show_data, user.id)
 
         return show_data
     except Exception as e:
@@ -1320,7 +1333,9 @@ async def get_show_by_name(show_name: str, user = Depends(get_user), supabase: C
         # FIX: Removed .eq('user_id', user.id) to allow shared users to view
         response = supabase.table('shows').select('*').eq('name', formatted_show_name).execute()
         if response.data:
-            return response.data[0]
+            show_data = response.data[0]
+            show_data['current_user_role'] = _get_current_user_role(supabase, show_data, user.id)
+            return show_data
         raise HTTPException(status_code=404, detail="Show not found")
     except Exception as e:
         traceback.print_exc()
@@ -2909,8 +2924,49 @@ async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), sh
                         item['children'] = get_panel_children_recursive(item['id'], all_pe)
                     panel_export_data.append({"panel": panel, "mounted_instances": mounted_top_level})
 
+        template_lookup = None
+        if payload.include_equipment_list:
+            # Slots configured via "Configure Modules" store the selected
+            # equipment_templates id directly in module_assignments - there's
+            # no rack_equipment_instances row for them. Collect every id
+            # referenced anywhere in a slot assignment (recursing into
+            # nested {id, assignments} blobs) and resolve the ones that
+            # aren't real instances against equipment_templates so the
+            # equipment list can include them.
+            def collect_assignment_ids(assignments):
+                ids = set()
+                if not assignments:
+                    return ids
+                for value in assignments.values():
+                    if value is None:
+                        continue
+                    if isinstance(value, dict):
+                        target_id = value.get('id')
+                        sub_assignments = value.get('assignments')
+                    else:
+                        target_id = getattr(value, 'id', value)
+                        sub_assignments = getattr(value, 'assignments', None)
+                    if target_id:
+                        ids.add(str(target_id))
+                    if sub_assignments:
+                        ids |= collect_assignment_ids(sub_assignments)
+                return ids
+
+            referenced_ids = set()
+            instance_ids = set()
+            for rack in payload.racks:
+                for item in rack.equipment:
+                    instance_ids.add(str(item.id))
+                    referenced_ids |= collect_assignment_ids(item.module_assignments)
+
+            template_ids_to_fetch = list(referenced_ids - instance_ids)
+            if template_ids_to_fetch:
+                admin_client = get_service_client()
+                tmpl_res = admin_client.table('equipment_templates').select('id, manufacturer, model_number').in_('id', template_ids_to_fetch).execute()
+                template_lookup = {str(t['id']): t for t in (tmpl_res.data or [])}
+
         # Use the combined PDF generator which handles equipment list + drawings
-        pdf_buffer = generate_combined_rack_pdf(payload, show_branding=show_branding, panel_export_data=panel_export_data)
+        pdf_buffer = generate_combined_rack_pdf(payload, show_branding=show_branding, panel_export_data=panel_export_data, template_lookup=template_lookup)
         
         # Create a clean filename
         safe_name = payload.show_name.replace(' ', '_')
@@ -2926,7 +2982,7 @@ async def create_racks_pdf(payload: RackPDFPayload, user = Depends(get_user), sh
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to generate PDF: {str(e)}")
 
-@router.post("/pdf/hours-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("hours_tracking"))])
+@router.post("/pdf/hours-labels", tags=["PDF Generation"], dependencies=[Depends(feature_check("crew"))])
 async def create_hours_pdf(payload: HoursPDFPayload, user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
     """Generates a PDF for the hours tracking view."""
     try:

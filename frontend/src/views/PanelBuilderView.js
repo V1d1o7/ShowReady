@@ -5,7 +5,7 @@ import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import ConfirmationModal from '../components/ConfirmationModal';
 import PdfPreviewModal from '../components/PdfPreviewModal';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 import PeDroppableSlot from '../components/panel/PeDroppableSlot';
 import PanelLabelModal from '../components/panel/PanelLabelModal';
@@ -648,7 +648,6 @@ const PanelBuilderView = () => {
 
     return (
         <div className="flex flex-row gap-8 h-full">
-            <Toaster position="bottom-center" />
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 
                 <div className="w-72 flex-shrink-0 bg-gray-800 p-3 rounded-xl flex flex-col z-20">

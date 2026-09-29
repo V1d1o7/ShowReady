@@ -2,12 +2,13 @@ import React, { useState } from 'react';
 import { NavLink, useParams, useNavigate } from 'react-router-dom';
 import { useShows } from '../contexts/ShowsContext';
 import { useAuth } from '../contexts/AuthContext';
-import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, ChevronDown, ChevronRight, Tag, Layout, Globe } from 'lucide-react';
+import { FileText, Box, Info, Server, GitMerge, Combine, ChevronsUpDown, Network, Users, Clock, HelpCircle, HardDrive, MessageSquare, ChevronDown, ChevronRight, Tag, Layout, Globe, CalendarDays } from 'lucide-react';
 import ShortcutsModal from './ShortcutsModal';
 
 const ShowSidebar = () => {
     const { profile } = useAuth();
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+    const [isCrewManagementOpen, setIsCrewManagementOpen] = useState(false);
     const [isLabelsOpen, setIsLabelsOpen] = useState(false);
     const [isRackBuildingOpen, setIsRackBuildingOpen] = useState(false);
     const [isNetworksOpen, setIsNetworksOpen] = useState(false);
@@ -58,9 +59,14 @@ const ShowSidebar = () => {
     // Group 1: General Info & Management
     const mainTabs = [
         { path: 'info', label: 'Show Info', icon: Info, feature: null },
-        { path: 'crew', label: 'Crew', icon: Users, feature: 'crew' },
         { path: 'team', label: 'Team Collab', icon: MessageSquare, feature: 'show_collaboration' },
-        { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'hours_tracking' },
+    ];
+
+    // Group 1b: Collapsible Crew Management
+    const crewManagementTabs = [
+        { path: 'crew', label: 'Crew', icon: Users, feature: 'crew' },
+        { path: 'schedule', label: 'Schedule', icon: CalendarDays, feature: 'schedule' },
+        { path: 'hourstracking', label: 'Hours Tracking', icon: Clock, feature: 'crew' },
     ];
 
     // Group 2: Collapsible Labels
@@ -88,6 +94,7 @@ const ShowSidebar = () => {
     ];
 
     const visibleMainTabs = mainTabs.filter(tab => checkAccess(tab.feature));
+    const visibleCrewManagementTabs = crewManagementTabs.filter(tab => checkAccess(tab.feature));
     const visibleLabelTabs = labelTabs.filter(tab => checkAccess(tab.feature));
     const visibleRackTabs = rackTabs.filter(tab => checkAccess(tab.feature));
     const visibleNetworkTabs = networkTabs.filter(tab => checkAccess(tab.feature));
@@ -126,6 +133,38 @@ const ShowSidebar = () => {
                         {tab.label}
                     </NavLink>
                 ))}
+
+                {/* Collapsible Crew Management Section */}
+                {visibleCrewManagementTabs.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                        <button
+                            onClick={() => setIsCrewManagementOpen(!isCrewManagementOpen)}
+                            className="flex items-center justify-between px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white rounded-lg transition-colors w-full"
+                        >
+                            <div className="flex items-center">
+                                <Users className="mr-3 h-5 w-5" />
+                                Crew Management
+                            </div>
+                            {isCrewManagementOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </button>
+
+                        {isCrewManagementOpen && (
+                            <div className="flex flex-col gap-1 pl-4 border-l border-gray-700 ml-4">
+                                {visibleCrewManagementTabs.map(tab => (
+                                    <NavLink
+                                        key={tab.path}
+                                        to={tab.path}
+                                        end
+                                        className={navLinkClasses}
+                                    >
+                                        <tab.icon className="mr-3 h-5 w-5" />
+                                        {tab.label}
+                                    </NavLink>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* Collapsible Labels Section */}
                 {visibleLabelTabs.length > 0 && (

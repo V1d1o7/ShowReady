@@ -48,7 +48,10 @@ const VLANView = lazy(() => import('./views/VLANView'));
 const NetworkIpsView = lazy(() => import('./views/NetworkIpsView'));
 const PanelBuilderView = lazy(() => import('./views/PanelBuilderView'));
 const RosterView = lazy(() => import('./views/RosterView'));
+const RosterProfileView = lazy(() => import('./views/RosterProfileView'));
+const InviteResponseView = lazy(() => import('./views/InviteResponseView'));
 const ShowCrewView = lazy(() => import('./views/ShowCrewView'));
+const ScheduleView = lazy(() => import('./views/ScheduleView'));
 const HoursTrackingView = lazy(() => import('./views/HoursTrackingView'));
 const SwitchConfigView = lazy(() => import('./views/SwitchConfigView'));
 const TemplateManager = lazy(() => import('./views/settings/TemplateManager'));
@@ -174,7 +177,8 @@ const MainLayout = ({ session }) => {
                                                 <Route index element={<Navigate to="info" replace />} />
                                                 <Route path="info" element={<ShowInfoView />} />
                                                 <Route path="crew" element={<ProtectedRoute feature="crew"><ShowCrewView /></ProtectedRoute>} />
-                                                <Route path="hourstracking" element={<ProtectedRoute feature="hours_tracking"><HoursTrackingView /></ProtectedRoute>} />
+                                                <Route path="schedule" element={<ProtectedRoute feature="schedule"><ScheduleView /></ProtectedRoute>} />
+                                                <Route path="hourstracking" element={<ProtectedRoute feature="crew"><HoursTrackingView /></ProtectedRoute>} />
                                                 <Route path="loomlabels" element={<ProtectedRoute feature="loom_labels"><LoomLabelView /></ProtectedRoute>} />
                                                 <Route path="caselabels" element={<ProtectedRoute feature="case_labels"><CaseLabelView /></ProtectedRoute>} />
                                                 {/* REMOVED: route path="label-engine" */}
@@ -201,6 +205,7 @@ const MainLayout = ({ session }) => {
                                         <Route path="label-templates" element={<LabelTemplateListView />} />
                                     </Route>
                                     <Route path="/roster" element={<ProtectedRoute><RosterView /></ProtectedRoute>} />
+                                    <Route path="/roster/:rosterId" element={<ProtectedRoute><RosterProfileView /></ProtectedRoute>} />
                                     <Route
                                         path="/mgmt"
                                         element={
@@ -333,6 +338,11 @@ const ShowWrapper = ({ onShowUpdate }) => {
     const showId = showData ? showData.id : null;
     const has_notes = showData ? showData.has_notes : false;
     const showOwnerId = showData ? showData.user_id : null;
+    // The caller's show_collaborators role ('owner'/'editor'/'viewer') for this show —
+    // defaults open (not 'viewer') while showData hasn't loaded yet, so views don't flash
+    // read-only before the real role is known; RLS is still the real backstop either way.
+    const currentUserRole = showData ? showData.current_user_role : null;
+    const canEditShow = currentUserRole !== 'viewer';
     // Pass the nested 'data' object to the provider for backward compatibility
     const providerShowData = showData ? showData.data : null;
 
@@ -348,7 +358,9 @@ const ShowWrapper = ({ onShowUpdate }) => {
             refreshRacks: () => fetchRackData(showId),
             refreshNetworkIps,
             has_notes,
-            showOwnerId
+            showOwnerId,
+            currentUserRole,
+            canEditShow
         }}>
             <Outlet />
         </ShowProvider>
@@ -357,6 +369,21 @@ const ShowWrapper = ({ onShowUpdate }) => {
 
 function AppContent() {
     const { session, isLoading } = useAuth();
+    const location = useLocation();
+
+    // Public, unauthenticated route: crew responding to a schedule invite have no
+    // session, so this must render before the session gate below.
+    if (location.pathname.startsWith('/invite/')) {
+        return (
+            <div className="bg-gray-900 text-gray-300 font-sans h-full">
+                <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="text-xl text-gray-400">Loading...</div></div>}>
+                    <Routes>
+                        <Route path="/invite/:token" element={<InviteResponseView />} />
+                    </Routes>
+                </Suspense>
+            </div>
+        );
+    }
 
     if (isLoading) {
         return <div className="flex items-center justify-center h-screen bg-gray-900"><div className="text-xl text-gray-400">Loading...</div></div>;
