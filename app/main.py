@@ -41,6 +41,8 @@ from app.routers.panels import router as panels_router
 from app.routers.network_ips import router as network_ips_router
 from app.routers.schedule import router as schedule_router
 from app.routers.schedule_public import router as schedule_public_router
+from app.routers.onboarding import router as onboarding_router
+from app.routers.onboarding_public import router as onboarding_public_router
 from .scheduler import scheduler
 
 
@@ -152,6 +154,8 @@ app.include_router(communications_router, prefix="/api/communications", tags=["C
 app.include_router(panels_router)
 app.include_router(schedule_router, prefix="/api/v1")
 app.include_router(schedule_public_router, prefix="/api/public")
+app.include_router(onboarding_router, prefix="/api/v1")
+app.include_router(onboarding_public_router, prefix="/api/public")
 
 app.include_router(api_router, prefix="/api")
 

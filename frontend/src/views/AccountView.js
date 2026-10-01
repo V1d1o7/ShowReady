@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { Save, Trash2, KeyRound, UploadCloud, Download, Mail, Settings, FileText } from 'lucide-react';
+import { Save, Trash2, KeyRound, UploadCloud, Mail, Settings, FileText } from 'lucide-react';
 import { supabase, api } from '../api/api';
 import Card from '../components/Card';
 import InputField from '../components/InputField';
@@ -34,8 +34,12 @@ const AccountView = () => {
         smtp_username: '',
         smtp_password: '' // Note: password is write-only
     });
-    const [agentKey, setAgentKey] = useState(null);
-    const [apiKeyName, setApiKeyName] = useState('');
+    const [switchDefaultsStatus, setSwitchDefaultsStatus] = useState({ message: '', isError: false });
+    const [switchDefaults, setSwitchDefaults] = useState({
+        default_login_timeout_minutes: '',
+        default_igmp_snooping_enabled: false,
+        default_multicast_flooding_enabled: true,
+    });
 
     // Effect to control page scrolling
     useEffect(() => {
@@ -66,6 +70,15 @@ const AccountView = () => {
         api.getUserSmtpSettings()
             .then(data => setSmtpSettings(prev => ({ ...prev, ...data, smtp_password: '' })))
             .catch(err => console.log("No SMTP settings found yet"));
+
+        // Fetch existing switch defaults to populate form
+        api.getSwitchDefaults()
+            .then(data => setSwitchDefaults({
+                default_login_timeout_minutes: data.default_login_timeout_minutes ?? '',
+                default_igmp_snooping_enabled: !!data.default_igmp_snooping_enabled,
+                default_multicast_flooding_enabled: data.default_multicast_flooding_enabled !== false,
+            }))
+            .catch(err => console.log("No switch defaults set yet"));
     }, [profile, user?.email]);
 
     const handleProfileChange = (e) => {
@@ -106,15 +119,6 @@ const AccountView = () => {
         }
     };
     
-    const handleGenerateApiKey = async () => {
-        try {
-            const result = await api.generateAgentApiKey(apiKeyName);
-            setAgentKey(result.key);
-        } catch (error) {
-            alert(`Failed to generate API key: ${error.message}`);
-        }
-    };
-
     const handleSmtpChange = (e) => {
         setSmtpSettings({ ...smtpSettings, [e.target.name]: e.target.value });
     };
@@ -137,6 +141,20 @@ const AccountView = () => {
             setSmtpStatus({ message: 'Connection successful!', isError: false });
         } catch (err) {
             setSmtpStatus({ message: `Connection failed: ${err.message}`, isError: true });
+        }
+    };
+
+    const handleSaveSwitchDefaults = async () => {
+        setSwitchDefaultsStatus({ message: 'Saving...', isError: false });
+        try {
+            await api.saveSwitchDefaults({
+                ...switchDefaults,
+                default_login_timeout_minutes: switchDefaults.default_login_timeout_minutes === ''
+                    ? null : Number(switchDefaults.default_login_timeout_minutes),
+            });
+            setSwitchDefaultsStatus({ message: 'Defaults saved successfully!', isError: false });
+        } catch (err) {
+            setSwitchDefaultsStatus({ message: `Failed to save defaults: ${err.message}`, isError: true });
         }
     };
 
@@ -181,7 +199,6 @@ const AccountView = () => {
 
     // RBAC Feature Checks
     const canAccessCommunications = profile?.permitted_features?.includes('communications');
-    const canAccessSwitchConfig = profile?.permitted_features?.includes('switch_config');
     const canAccessLabelEngine = profile?.permitted_features?.includes('label_engine');
 
     if (isLoading) {
@@ -208,32 +225,6 @@ const AccountView = () => {
                         </Link>
                     </Card>
                 )}
-
-                {/* Conditional Rendering: Switch Configuration (Local Agent) */}
-                 {canAccessSwitchConfig && (
-                    <Card>
-                        <h2 className="text-xl font-bold mb-4 text-white">ShowReady Local Agent</h2>
-                        <p className="text-gray-400 mb-4">
-                            To push configurations to your network switches, you need to run the Local Agent application on a computer on the same network.
-                        </p>
-                        {agentKey ? (
-                            <div>
-                                 <p className="text-gray-400">Your new API Key. Please copy this into the Local Agent application. This key will only be shown once.</p>
-                                 <div className="mt-2 p-3 bg-gray-900 rounded-lg font-mono text-amber-400 break-all">{agentKey}</div>
-                            </div>
-                        ) : (
-                            <div className="flex items-end gap-2">
-                                 <InputField label="API Key Name" value={apiKeyName} onChange={(e) => setApiKeyName(e.target.value)} placeholder="e.g., My Laptop" />
-                                 <button onClick={handleGenerateApiKey} disabled={!apiKeyName} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold text-white h-10 disabled:bg-gray-500">
-                                     <KeyRound size={16} /> Generate API Key
-                                 </button>
-                            </div>
-                        )}
-                         <a href="#" onClick={(e) => { e.preventDefault(); alert("Download link will be available soon."); }} className="mt-4 w-full flex justify-center items-center gap-2 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-gray-200 transition-colors">
-                            <Download size={16} /> Download Local Agent
-                        </a>
-                    </Card>
-                 )}
 
                 <Card>
                     <h2 className="text-xl font-bold mb-4 text-white">Profile Details</h2>
@@ -310,6 +301,50 @@ const AccountView = () => {
                     <div className="mt-6 flex justify-end gap-4">
                         <button onClick={handleTestSmtp} className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold text-white transition-colors">Test Connection</button>
                         <button onClick={handleSaveSmtp} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Settings</button>
+                    </div>
+                </Card>
+
+                <Card>
+                    <h2 className="text-xl font-bold text-white">Switch Defaults</h2>
+                    <p className="text-gray-400">
+                        Applied to new switches and VLANs so you don't start from scratch every time — still
+                        fully editable per-item afterward.
+                    </p>
+                    {switchDefaultsStatus.message && (
+                        <div className={`mt-4 p-3 rounded text-center ${switchDefaultsStatus.isError ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300'}`}>
+                            {switchDefaultsStatus.message}
+                        </div>
+                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                        <InputField
+                            label="Default Login Timeout (minutes)"
+                            name="default_login_timeout_minutes"
+                            type="number"
+                            min="0"
+                            value={switchDefaults.default_login_timeout_minutes}
+                            onChange={(e) => setSwitchDefaults(prev => ({ ...prev, default_login_timeout_minutes: e.target.value }))}
+                        />
+                        <div className="flex flex-col justify-center gap-2 text-sm">
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={switchDefaults.default_igmp_snooping_enabled}
+                                    onChange={(e) => setSwitchDefaults(prev => ({ ...prev, default_igmp_snooping_enabled: e.target.checked }))}
+                                />
+                                Default new VLANs to IGMP Snooping Enabled
+                            </label>
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={switchDefaults.default_multicast_flooding_enabled}
+                                    onChange={(e) => setSwitchDefaults(prev => ({ ...prev, default_multicast_flooding_enabled: e.target.checked }))}
+                                />
+                                Default new VLANs to Multicast Flooding Enabled
+                            </label>
+                        </div>
+                    </div>
+                    <div className="mt-6 flex justify-end">
+                        <button onClick={handleSaveSwitchDefaults} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 rounded-lg font-bold text-black transition-colors"><Save size={16} /> Save Defaults</button>
                     </div>
                 </Card>
 

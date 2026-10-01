@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Optional, Union, Any, Literal
 import uuid
 from datetime import datetime, date, time
@@ -205,6 +205,9 @@ class Loom(LoomBase):
 class RosterMemberBase(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
+    preferred_first_name: Optional[str] = None
+    preferred_last_name: Optional[str] = None
+    pronouns: Optional[str] = None
     phone_number: Optional[str] = None
     email: Optional[str] = None
     position: Optional[str] = None
@@ -244,6 +247,9 @@ class ShowCrewShiftEntry(BaseModel):
     end_time: Optional[time] = None
     notes: Optional[str] = None
     status: Optional[str] = 'scheduled'
+    shift_id: Optional[uuid.UUID] = None
+    shift_position_id: Optional[uuid.UUID] = None
+    label: Optional[str] = None
 
 class RosterMemberAssignment(BaseModel):
     show_crew_id: uuid.UUID
@@ -333,9 +339,12 @@ class BulkTimesheetUpdate(BaseModel):
 
 class CrewMemberHours(BaseModel):
     show_crew_id: uuid.UUID
-    roster_id: Optional[uuid.UUID] = None 
+    roster_id: Optional[uuid.UUID] = None
     first_name: str
     last_name: str
+    preferred_first_name: Optional[str] = None
+    preferred_last_name: Optional[str] = None
+    pronouns: Optional[str] = None
     position: Optional[str] = None
     rate_type: Optional[str] = None
     hourly_rate: Optional[float] = 0.0
@@ -369,6 +378,8 @@ class TimesheetEmailPayload(BaseModel):
 class VLANBase(BaseModel):
     name: str
     tag: int
+    igmp_snooping_enabled: bool = False
+    multicast_flooding_enabled: bool = True
 
 class VLANCreate(VLANBase):
     pass
@@ -376,6 +387,8 @@ class VLANCreate(VLANBase):
 class VLANUpdate(BaseModel):
     name: Optional[str] = None
     tag: Optional[int] = None
+    igmp_snooping_enabled: Optional[bool] = None
+    multicast_flooding_enabled: Optional[bool] = None
 
 class VLAN(VLANBase):
     id: uuid.UUID
@@ -750,6 +763,21 @@ class UserSMTPSettingsResponse(BaseModel):
     smtp_username: str
     created_at: datetime
 
+# --- User Switch Defaults Models ---
+# Applied to new switches/VLANs so they don't start from scratch every time; always
+# fully editable per-item afterward.
+class UserSwitchDefaultsUpdate(BaseModel):
+    default_login_timeout_minutes: Optional[int] = None
+    default_igmp_snooping_enabled: Optional[bool] = None
+    default_multicast_flooding_enabled: Optional[bool] = None
+
+class UserSwitchDefaultsResponse(BaseModel):
+    user_id: uuid.UUID
+    default_login_timeout_minutes: Optional[int] = None
+    default_igmp_snooping_enabled: Optional[bool] = None
+    default_multicast_flooding_enabled: Optional[bool] = None
+    updated_at: datetime
+
 # --- Switch Configuration Models ---
 
 # --- Switch Models (Templates) ---
@@ -757,7 +785,10 @@ class SwitchModelBase(BaseModel):
     manufacturer: Optional[str] = None
     model_name: str
     port_count: int
-    netmiko_driver_type: str
+    copper_port_count: int = 0
+    sfp_port_count: int = 0
+    driver_type: str
+    device_type: Literal['switch', 'router'] = 'switch'
 
 class SwitchModelCreate(SwitchModelBase):
     pass
@@ -770,11 +801,49 @@ class SwitchModelUpdate(BaseModel):
     manufacturer: Optional[str] = None
     model_name: Optional[str] = None
     port_count: Optional[int] = None
-    netmiko_driver_type: Optional[str] = None
+    copper_port_count: Optional[int] = None
+    sfp_port_count: Optional[int] = None
+    driver_type: Optional[str] = None
+    device_type: Optional[Literal['switch', 'router']] = None
 
 # For linking a model to equipment
 class EquipmentLinkModel(BaseModel):
     switch_model_id: uuid.UUID
+
+# --- Port Configuration ---
+class PortConfig(BaseModel):
+    port_name: Optional[str] = None
+    pvid: Optional[int] = None
+    tagged_vlans: List[int] = Field(default_factory=list)
+
+# A Link Aggregation Group (LAG/port-channel): several physical ports bonded into one
+# logical link. VLAN membership is configured on the LAG itself, not its member ports
+# (confirmed from a real running-config) -- same port_name/pvid/tagged_vlans shape as
+# PortConfig, plus which physical ports belong to it.
+class LagConfig(BaseModel):
+    lag_name: Optional[str] = None
+    member_ports: List[int] = Field(default_factory=list)
+    port_name: Optional[str] = None
+    pvid: Optional[int] = None
+    tagged_vlans: List[int] = Field(default_factory=list)
+
+# Switch-wide settings. Kept loosely typed (extra fields allowed) because the exact
+# REST/CLI surface for several of these (location, login_timeout_minutes,
+# green_ethernet_enabled) isn't confirmed yet pending Netgear's official docs. IGMP
+# snooping and multicast flooding are VLAN-scoped (see VLANBase), not here.
+class SwitchDeviceSettings(BaseModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
+    login_timeout_minutes: Optional[int] = None
+    green_ethernet_enabled: Optional[bool] = None
+    radius_server_host: Optional[str] = None
+    radius_server_name: Optional[str] = None
+    # Write-only plaintext shared secret -- never returned by any GET; the router
+    # encrypts it on save (radius_server_key_encrypted, stripped from every response)
+    # and only decrypts it server-side when generating a plan to send to the device.
+    radius_server_key: Optional[str] = None
+
+    model_config = ConfigDict(extra='allow')
 
 # --- Switch Configurations (Instances) ---
 class SwitchConfigCreate(BaseModel):
@@ -784,7 +853,10 @@ class SwitchConfig(BaseModel):
     id: uuid.UUID
     rack_item_id: uuid.UUID
     show_id: int
-    port_config: Optional[Dict[str, 'PortConfig']] = None
+    port_config: Optional[Dict[str, PortConfig]] = None
+    lag_config: Optional[Dict[str, LagConfig]] = None
+    management_ip: Optional[str] = None
+    device_settings: SwitchDeviceSettings = Field(default_factory=SwitchDeviceSettings)
     created_at: datetime
 
 class SwitchDetails(BaseModel):
@@ -794,34 +866,14 @@ class SwitchDetails(BaseModel):
     name: str
     model_name: str
     port_count: int
+    copper_port_count: int = 0
+    sfp_port_count: int = 0
+    driver_type: str
+    management_ip: Optional[str] = None
     created_at: datetime
 
-# --- Port Configuration ---
-class PortConfig(BaseModel):
-    port_name: Optional[str] = None
-    pvid: Optional[int] = None
-    tagged_vlans: List[int] = Field(default_factory=list)
-    igmp_enabled: bool = False
-
-# --- Push Jobs ---
-class PushJobCreate(BaseModel):
-    target_ip: str
-    username: str
-    password: str
-
-class PushJob(BaseModel):
-    id: uuid.UUID
-    show_id: int
-    switch_id: uuid.UUID
-    user_id: uuid.UUID
-    status: str
-    target_ip: str
-    result_log: Optional[str] = None
-    created_at: datetime
-
-class PushJobStatus(BaseModel):
-    status: str
-    result_log: Optional[str] = None
+class SwitchManagementIpUpdate(BaseModel):
+    management_ip: Optional[str] = None
 
 # For the sidebar API response
 class SwitchSidebarItem(BaseModel):
@@ -834,28 +886,30 @@ class SwitchSidebarGroup(BaseModel):
     rack_name: str
     items: List[SwitchSidebarItem]
 
-class SwitchConfiguration(BaseModel):
-    hostname: str
-    config_commands: List[str]
+# --- Driver plan/command output (browser executes these directly against the device) ---
+class RestStep(BaseModel):
+    method: Literal['GET', 'POST', 'PUT', 'DELETE']
+    path: str
+    body: Optional[Dict[str, Any]] = None
+    description: str
+    implemented: bool = True  # False for TODO/best-effort steps not yet confirmed against real firmware
 
-# --- Agent API Keys ---
-class AgentApiKeyBase(BaseModel):
-    name: str
+class CliCommand(BaseModel):
+    command: str
+    expect_regex: str
+    description: str
+    implemented: bool = True
 
-class AgentApiKeyCreate(AgentApiKeyBase):
-    pass
+class CliPlan(BaseModel):
+    baud_rate: int
+    commands: List[CliCommand]
 
-class AgentApiKey(AgentApiKeyBase):
-    id: uuid.UUID
-    user_id: uuid.UUID
-    key_prefix: str
-    created_at: datetime
-
-class AgentApiKeyWithKey(AgentApiKey):
-    key: str # The full key, only shown on creation
-
-class AgentPublicKeyUpload(BaseModel):
-    public_key: str
+class SwitchDriverInfo(BaseModel):
+    key: str
+    label: str
+    manufacturer: str
+    device_type: Literal['switch', 'router']
+    supported_transports: List[Literal['rest', 'serial']]
 
 # --- Email Template Models ---
 class EmailTemplate(BaseModel):

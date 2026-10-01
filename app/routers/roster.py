@@ -6,6 +6,7 @@ from app.models import (
     ShowCrewMember, RosterMemberAndShowCrewCreate, ShowCrewMemberUpdate, ShowCrewMemberCreate,
     RosterCustomFieldDefinition, RosterCustomFieldDefinitionCreate, RosterCustomFieldDefinitionUpdate,
 )
+from app.services.schedule_shared import flatten_nested_assignment
 import uuid
 import re
 from datetime import date, datetime, timezone
@@ -60,14 +61,14 @@ def get_roster_member(roster_id: uuid.UUID, user=Depends(get_user), supabase: Cl
     notes_res = supabase.table('notes').select('id').eq('parent_entity_type', 'roster_member').eq('parent_entity_id', str(roster_id)).limit(1).execute()
     member['has_notes'] = bool(notes_res.data)
 
-    assignments_res = supabase.table('show_crew').select('*, shows(id, name)').eq('roster_id', str(roster_id)).order('created_at', desc=True).execute()
+    # Shifts are now shared, headcount-based show_shifts rows that a show_crew_shifts
+    # assignment fills one position of (see app/services/schedule_shared.py) — nest and
+    # flatten the same way get_show_crew does, rather than querying show_crew_shifts for a
+    # shift_date column it no longer has.
+    assignments_res = supabase.table('show_crew').select(
+        '*, shows(id, name), shifts:show_crew_shifts(*, shift:show_shifts(shift_date, call_time, end_time, label, notes))'
+    ).eq('roster_id', str(roster_id)).order('created_at', desc=True).execute()
     assignment_rows = assignments_res.data or []
-
-    shifts_by_show_crew_id = {}
-    if assignment_rows:
-        shifts_res = supabase.table('show_crew_shifts').select('*').in_('show_crew_id', [row['id'] for row in assignment_rows]).order('shift_date').execute()
-        for shift in (shifts_res.data or []):
-            shifts_by_show_crew_id.setdefault(shift['show_crew_id'], []).append(shift)
 
     assignments = [{
         'show_crew_id': row['id'],
@@ -80,7 +81,10 @@ def get_roster_member(roster_id: uuid.UUID, user=Depends(get_user), supabase: Cl
         'status': row.get('status') or 'confirmed',
         'requested_at': row.get('requested_at'),
         'responded_at': row.get('responded_at'),
-        'shifts': shifts_by_show_crew_id.get(row['id'], []),
+        'shifts': sorted(
+            (flatten_nested_assignment(s) for s in (row.get('shifts') or [])),
+            key=lambda s: s['shift_date'] or ''
+        ),
     } for row in assignment_rows]
 
     # Accept/decline history lives mostly in availability_responses, not show_crew:
@@ -109,7 +113,7 @@ def get_roster_member(roster_id: uuid.UUID, user=Depends(get_user), supabase: Cl
     # the crew member took the call and it fell through for reasons that weren't on them, so
     # it shouldn't count against their attendance either way.
     today_iso = date.today().isoformat()
-    all_shifts = [shift for shifts in shifts_by_show_crew_id.values() for shift in shifts]
+    all_shifts = [shift for a in assignments for shift in a['shifts']]
     completed_count = sum(
         1 for s in all_shifts
         if s.get('status') not in ('no_show', 'cancelled') and s.get('shift_date') and s['shift_date'] <= today_iso
@@ -181,6 +185,9 @@ async def erase_roster_member(roster_id: uuid.UUID, user=Depends(get_user), supa
     erasure_data = {
         'first_name': 'Erased',
         'last_name': f"Member {str(roster_id)[:8]}",
+        'preferred_first_name': None,
+        'preferred_last_name': None,
+        'pronouns': None,
         'phone_number': None,
         'email': None,
         'custom_fields': {},
@@ -271,9 +278,17 @@ async def create_roster_member_and_add_to_show(data: RosterMemberAndShowCrewCrea
 
 @router.get("/shows/{show_id}/crew", response_model=List[ShowCrewMember], tags=["Show Crew"], dependencies=[Depends(feature_check("crew"))])
 async def get_show_crew(show_id: int, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-    """Gets all crew members for a specific show, with their dated shifts."""
-    response = supabase.table('show_crew').select('*, roster(*), shifts:show_crew_shifts(*)').eq('show_id', show_id).execute()
-    return response.data
+    """Gets all crew members for a specific show, with their shifts. Shifts are now shared,
+    headcount-based show_shifts rows that a show_crew_shifts assignment fills one position
+    of; each is flattened back into the same {shift_date, call_time, end_time, notes, status}
+    shape this endpoint has always returned; see app/services/schedule_shared.py."""
+    response = supabase.table('show_crew').select(
+        '*, roster(*), shifts:show_crew_shifts(*, shift:show_shifts(shift_date, call_time, end_time, label, notes))'
+    ).eq('show_id', show_id).execute()
+    rows = response.data or []
+    for row in rows:
+        row['shifts'] = [flatten_nested_assignment(s) for s in (row.get('shifts') or [])]
+    return rows
 
 @router.post("/shows/{show_id}/crew/{roster_id}", response_model=ShowCrewMember, tags=["Show Crew"], dependencies=[Depends(feature_check("crew"))])
 async def add_crew_to_show(show_id: int, roster_id: uuid.UUID, crew_data: ShowCrewMemberCreate, user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):

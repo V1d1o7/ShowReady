@@ -5,6 +5,21 @@ import { CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { formatShiftDate, formatTimeRange } from '../components/CrewStatusBadge';
 import toast, { Toaster } from 'react-hot-toast';
 
+// Shell must live at module scope, not inside InviteResponseView's body — a component
+// defined inside another component's render function gets a new function identity every
+// render, so React diffs it as "a different component type" on every state update and
+// unmounts+remounts the whole subtree instead of updating it in place (see the identical,
+// more visible version of this bug fixed in JoinFormView.js, where it dropped input focus
+// after every keystroke).
+const Shell = ({ children }) => (
+    <div className="h-screen w-full overflow-y-auto bg-gray-900 text-gray-300 flex items-start sm:items-center justify-center p-6">
+        <Toaster position="top-center" toastOptions={{ style: { background: '#1F2937', color: '#F9FAFB', border: '1px solid #374151' } }} />
+        <div className="w-full max-w-md bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-8 text-center">
+            {children}
+        </div>
+    </div>
+);
+
 // The email's Decline button is a one-click backend link — no page involved,
 // it just redirects here afterward to show the "declined" state below.
 // The Accept button lands here live: this page is the actual per-date picker,
@@ -56,15 +71,6 @@ const InviteResponseView = () => {
             setIsSaving(false);
         }
     };
-
-    const Shell = ({ children }) => (
-        <div className="min-h-screen w-full overflow-y-auto bg-gray-900 text-gray-300 flex items-start sm:items-center justify-center p-6">
-            <Toaster position="top-center" toastOptions={{ style: { background: '#1F2937', color: '#F9FAFB', border: '1px solid #374151' } }} />
-            <div className="w-full max-w-md bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-8 text-center">
-                {children}
-            </div>
-        </div>
-    );
 
     if (isLoading) {
         return <Shell><div className="text-gray-400">Loading...</div></Shell>;

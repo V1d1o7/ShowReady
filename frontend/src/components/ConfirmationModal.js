@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
+import useHotkeys from '../hooks/useHotkeys';
 
 const ConfirmationModal = ({ message, onConfirm, onCancel }) => {
     const confirmButtonRef = useRef(null);
+    useHotkeys({ escape: onCancel });
 
     useEffect(() => {
         // Auto-focus the confirm button when the modal opens

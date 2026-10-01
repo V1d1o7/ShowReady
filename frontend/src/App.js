@@ -50,8 +50,10 @@ const PanelBuilderView = lazy(() => import('./views/PanelBuilderView'));
 const RosterView = lazy(() => import('./views/RosterView'));
 const RosterProfileView = lazy(() => import('./views/RosterProfileView'));
 const InviteResponseView = lazy(() => import('./views/InviteResponseView'));
+const JoinFormView = lazy(() => import('./views/JoinFormView'));
 const ShowCrewView = lazy(() => import('./views/ShowCrewView'));
 const ScheduleView = lazy(() => import('./views/ScheduleView'));
+const GlobalScheduleView = lazy(() => import('./views/GlobalScheduleView'));
 const HoursTrackingView = lazy(() => import('./views/HoursTrackingView'));
 const SwitchConfigView = lazy(() => import('./views/SwitchConfigView'));
 const TemplateManager = lazy(() => import('./views/settings/TemplateManager'));
@@ -204,6 +206,7 @@ const MainLayout = ({ session }) => {
                                         <Route path="racks" element={<UserRackBuilderView />} />
                                         <Route path="label-templates" element={<LabelTemplateListView />} />
                                     </Route>
+                                    <Route path="/scheduling" element={<ProtectedRoute feature="schedule"><GlobalScheduleView /></ProtectedRoute>} />
                                     <Route path="/roster" element={<ProtectedRoute><RosterView /></ProtectedRoute>} />
                                     <Route path="/roster/:rosterId" element={<ProtectedRoute><RosterProfileView /></ProtectedRoute>} />
                                     <Route
@@ -371,14 +374,16 @@ function AppContent() {
     const { session, isLoading } = useAuth();
     const location = useLocation();
 
-    // Public, unauthenticated route: crew responding to a schedule invite have no
-    // session, so this must render before the session gate below.
-    if (location.pathname.startsWith('/invite/')) {
+    // Public, unauthenticated routes: crew responding to a schedule invite, or a
+    // prospective crew member filling out an onboarding form, have no session, so both
+    // must render before the session gate below.
+    if (location.pathname.startsWith('/invite/') || location.pathname.startsWith('/join/')) {
         return (
             <div className="bg-gray-900 text-gray-300 font-sans h-full">
                 <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="text-xl text-gray-400">Loading...</div></div>}>
                     <Routes>
                         <Route path="/invite/:token" element={<InviteResponseView />} />
+                        <Route path="/join/:slug" element={<JoinFormView />} />
                     </Routes>
                 </Suspense>
             </div>

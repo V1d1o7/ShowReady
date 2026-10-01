@@ -359,37 +359,49 @@ export const api = {
 
     // --- User Switch Config ---
     getConfigurableSwitches: async (showId) => fetch(`/api/v1/switches?show_id=${showId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    createSwitchConfig: async (rackItemId) => fetch('/api/v1/switches', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ rack_item_id: rackItemId }), 
+
+    createSwitchConfig: async (rackItemId) => fetch('/api/v1/switches', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ rack_item_id: rackItemId }),
     }).then(handleResponse),
-    
+
     getSwitchDetails: async (switchId) => fetch(`/api/v1/switches/${switchId}/details`, { headers: await getAuthHeader() }).then(handleResponse),
     getSwitchConfig: async (switchId) => fetch(`/api/v1/switches/${switchId}/config`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    saveSwitchPortConfig: async (switchId, portConfigData) => fetch(`/api/v1/switches/${switchId}/config`, { 
-        method: 'PUT', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(portConfigData), 
+
+    saveSwitchPortConfig: async (switchId, portConfigData) => fetch(`/api/v1/switches/${switchId}/config`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(portConfigData),
     }).then(handleResponse),
-    
-    pushSwitchConfig: async (switchId, pushData) => fetch(`/api/v1/switches/${switchId}/push_config`, { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(pushData), 
+
+    saveSwitchLagConfig: async (switchId, lagConfigData) => fetch(`/api/v1/switches/${switchId}/lag_config`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(lagConfigData),
     }).then(handleResponse),
-    
-    getPushJobStatus: async (jobId) => fetch(`/api/v1/switches/push_jobs/${jobId}`, { headers: await getAuthHeader() }).then(handleResponse),
-    
-    // --- Agent API Keys ---
-    generateAgentApiKey: async (name) => fetch('/api/v1/agent/api-keys', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify({ name }), 
+
+    saveSwitchDeviceSettings: async (switchId, settings) => fetch(`/api/v1/switches/${switchId}/device_settings`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(settings),
     }).then(handleResponse),
-    
+
+    saveSwitchManagementIp: async (switchId, managementIp) => fetch(`/api/v1/switches/${switchId}/management_ip`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify({ management_ip: managementIp }),
+    }).then(handleResponse),
+
+    // Ordered REST steps for the browser to execute directly against the switch
+    // (Local Network Access), and the CLI command list + baud rate for the Web
+    // Serial console executor. Neither the plan itself nor the switch's credentials
+    // ever involve a call back to ShowReady beyond fetching the plan.
+    getSwitchRestPlan: async (switchId) => fetch(`/api/v1/switches/${switchId}/rest_plan`, { headers: await getAuthHeader() }).then(handleResponse),
+    getSwitchCliCommands: async (switchId) => fetch(`/api/v1/switches/${switchId}/cli_commands`, { headers: await getAuthHeader() }).then(handleResponse),
+
+    getSwitchDrivers: async () => fetch('/api/v1/switch_drivers', { headers: await getAuthHeader() }).then(handleResponse),
+
     // --- Wire Diagram & Connections ---
     getConnectionsForShow: async (showId) => fetch(`/api/shows/${showId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
     getConnectionsForDevice: async (instanceId) => fetch(`/api/equipment/${instanceId}/connections`, { headers: await getAuthHeader() }).then(handleResponse),
@@ -638,6 +650,20 @@ export const api = {
 
     deleteRosterCustomField: async (fieldId) => fetch(`/api/roster_custom_fields/${fieldId}`, { method: 'DELETE', headers: await getAuthHeader(), }),
 
+    // --- Roster Onboarding Link ---
+    getOnboardingLink: async () => fetch('/api/v1/onboarding-link', { headers: await getAuthHeader() }).then(handleResponse),
+
+    updateOnboardingLink: async (data) => fetch('/api/v1/onboarding-link', {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    regenerateOnboardingSlug: async () => fetch('/api/v1/onboarding-link/regenerate-slug', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
     // --- Show Crew ---
     getShowCrew: async (showId) => fetch(`/api/shows/${showId}/crew`, { headers: await getAuthHeader() }).then(handleResponse),
     
@@ -684,6 +710,14 @@ export const api = {
         body: JSON.stringify(data),
     }).then(handleResponse),
 
+    // Direct assignment straight from the account-wide Roster (no availability-call
+    // response involved) — e.g. dragging a name onto a date in the global Scheduling grid.
+    assignRosterMember: async (showId, rosterId, data) => fetch(`/api/v1/shows/${showId}/crew/${rosterId}/assign`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
     updateAvailabilityStatus: async (responseId, status) => fetch(`/api/v1/availability/${responseId}`, {
         method: 'PATCH',
         headers: await getAuthHeader(),
@@ -702,21 +736,81 @@ export const api = {
         body: JSON.stringify(data),
     }).then(handleResponse),
 
-    upsertCrewShift: async (showCrewId, shiftDate, data) => fetch(`/api/v1/schedule/${showCrewId}/shifts/${shiftDate}`, {
+    // --- Shift board: shifts exist independently of who fills them, each with position
+    // lines carrying a headcount ("Hands: 4") that assignments fill against. ---
+    getShifts: async (showId, start = null, end = null) => {
+        const params = new URLSearchParams();
+        if (start) params.set('start', start);
+        if (end) params.set('end', end);
+        const qs = params.toString();
+        return fetch(`/api/v1/shows/${showId}/shifts${qs ? `?${qs}` : ''}`, {
+            headers: await getAuthHeader(),
+        }).then(handleResponse);
+    },
+
+    createShift: async (showId, data) => fetch(`/api/v1/shows/${showId}/shifts`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    updateShift: async (shiftId, data) => fetch(`/api/v1/shifts/${shiftId}`, {
         method: 'PUT',
         headers: await getAuthHeader(),
         body: JSON.stringify(data),
     }).then(handleResponse),
 
-    deleteCrewShift: async (showCrewId, shiftDate) => fetch(`/api/v1/schedule/${showCrewId}/shifts/${shiftDate}`, {
+    deleteShift: async (shiftId) => fetch(`/api/v1/shifts/${shiftId}`, {
         method: 'DELETE',
         headers: await getAuthHeader(),
     }).then(handleResponse),
 
-    updateCrewShiftStatus: async (showCrewId, shiftDate, status) => fetch(`/api/v1/schedule/${showCrewId}/shifts/${shiftDate}/status`, {
+    addShiftPosition: async (shiftId, data) => fetch(`/api/v1/shifts/${shiftId}/positions`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    updateShiftPosition: async (shiftId, positionId, data) => fetch(`/api/v1/shifts/${shiftId}/positions/${positionId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    deleteShiftPosition: async (shiftId, positionId) => fetch(`/api/v1/shifts/${shiftId}/positions/${positionId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    // Assigns one roster member straight into an open shift position (the board's
+    // per-position "assign" action).
+    assignToPosition: async (shiftId, positionId, data) => fetch(`/api/v1/shifts/${shiftId}/positions/${positionId}/assign`, {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    updateShiftAssignment: async (assignmentId, data) => fetch(`/api/v1/shift-assignments/${assignmentId}`, {
+        method: 'PUT',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
+    deleteShiftAssignment: async (assignmentId) => fetch(`/api/v1/shift-assignments/${assignmentId}`, {
+        method: 'DELETE',
+        headers: await getAuthHeader(),
+    }).then(handleResponse),
+
+    updateShiftAssignmentStatus: async (assignmentId, status) => fetch(`/api/v1/shift-assignments/${assignmentId}/status`, {
         method: 'PUT',
         headers: await getAuthHeader(),
         body: JSON.stringify({ status }),
+    }).then(handleResponse),
+
+    // Account-wide Scheduling tab: every non-archived show's shift board/planning dates
+    // in one call, grouped by show.
+    getGlobalSchedule: async () => fetch('/api/v1/schedule/global', {
+        headers: await getAuthHeader(),
     }).then(handleResponse),
 
     // Persisted "blank" planning days on the Schedule view — pinned to the
@@ -749,6 +843,18 @@ export const api = {
         body: JSON.stringify({ dates }),
     }).then(handleResponse),
 
+    // Public, unauthenticated — the crew-onboarding join form. No session exists for the
+    // prospective crew member filling it out.
+    getPublicOnboardingForm: async (slug) => fetch(`/api/public/join/${slug}`, {
+        headers: { 'Content-Type': 'application/json' },
+    }).then(handleResponse),
+
+    submitOnboardingForm: async (slug, data) => fetch(`/api/public/join/${slug}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    }).then(handleResponse),
+
     // --- User SMTP ---
     getUserSmtpSettings: async () => fetch('/api/user/smtp-settings', { headers: await getAuthHeader() }).then(handleResponse),
     
@@ -758,12 +864,21 @@ export const api = {
         body: JSON.stringify(settings) 
     }).then(handleResponse),
     
-    testUserSmtpSettings: async (settings) => fetch('/api/user/smtp-settings/test', { 
-        method: 'POST', 
-        headers: await getAuthHeader(), 
-        body: JSON.stringify(settings) 
+    testUserSmtpSettings: async (settings) => fetch('/api/user/smtp-settings/test', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(settings)
     }).then(handleResponse),
-    
+
+    // --- User Switch Defaults ---
+    getSwitchDefaults: async () => fetch('/api/user/switch-defaults', { headers: await getAuthHeader() }).then(handleResponse),
+
+    saveSwitchDefaults: async (settings) => fetch('/api/user/switch-defaults', {
+        method: 'POST',
+        headers: await getAuthHeader(),
+        body: JSON.stringify(settings),
+    }).then(handleResponse),
+
     // --- Timesheets ---
     getWeeklyTimesheet: async (showId, weekStartDate) => fetch(`/api/shows/${showId}/timesheet?week_start_date=${weekStartDate}`, { headers: await getAuthHeader() }).then(handleResponse),
     

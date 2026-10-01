@@ -3,6 +3,7 @@ import { api } from '../api/api';
 import { UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import ShiftDateListEditor from './ShiftDateListEditor';
+import { getDisplayName } from '../utils/rosterName';
 
 // Adds someone straight to the show's available list, e.g. they said yes by text.
 // `excludeRosterIds` are people already in the list as available.
@@ -33,7 +34,7 @@ const AddToPoolModal = ({ isOpen, onClose, onAdded, showId, excludeRosterIds = [
 
     const options = roster
         .filter(m => !excludeRosterIds.includes(m.id))
-        .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
+        .sort((a, b) => getDisplayName(a).localeCompare(getDisplayName(b)));
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -77,7 +78,7 @@ const AddToPoolModal = ({ isOpen, onClose, onAdded, showId, excludeRosterIds = [
                             >
                                 <option value="">-- Select a member --</option>
                                 {options.map(m => (
-                                    <option key={m.id} value={m.id}>{m.first_name} {m.last_name}{m.position ? ` (${m.position})` : ''}</option>
+                                    <option key={m.id} value={m.id}>{getDisplayName(m)}{m.position ? ` (${m.position})` : ''}</option>
                                 ))}
                             </select>
                         )}

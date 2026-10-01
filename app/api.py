@@ -876,6 +876,7 @@ ALL_FEATURES = [
     {"key": "networking_proxy", "name": "Networking Proxy", "paywalled": True},
     {"key": "networking_integrations", "name": "Networking Integrations", "paywalled": True},
     {"key": "budget_tools", "name": "Budget Tools", "paywalled": True},
+    {"key": "crew_onboarding", "name": "Crew Onboarding Links", "paywalled": True},
 ]
 
 def get_user_roles_sync(user_id: uuid.UUID, supabase: Client) -> set:
@@ -926,46 +927,51 @@ def _get_feature_restrictions(supabase: Client) -> dict:
         raise
 
 
+def _user_has_feature(user_id, feature_name: str, supabase: Client, paywalled: bool = True) -> bool:
+    """Request-independent core of feature_check, for callers that only have a user id (no
+    Depends(get_user) available) — e.g. an unauthenticated public route checking whether the
+    *owner* of a resource still has access to the feature that resource belongs to."""
+    # 1. Fetch User Roles for Admin Check
+    user_roles = get_user_roles_sync(user_id, supabase)
+    if 'global_admin' in user_roles:
+        return True
+
+    # 2. Fetch User Profile and Tier
+    profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user_id).single().execute()
+    if not profile_res.data:
+        return False
+
+    raw_tier = profile_res.data.get('tiers', {}).get('name')
+    user_tier = raw_tier.lower() if raw_tier else None
+
+    # 3. Fetch Entitlements
+    entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user_id).maybe_single().execute()
+    is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
+
+    # 4. Feature Restrictions (cached, near-static table)
+    permitted_tiers = _get_feature_restrictions(supabase).get(feature_name, [])
+
+    # 5. Layered Evaluation
+    if user_tier and user_tier in permitted_tiers:
+        return True
+
+    if paywalled and is_founding:
+        return True
+
+    return False
+
+
 def feature_check(feature_name: str, paywalled: bool = True):
     """
     Dependency factory with added DEBUGGING to trace evaluation failures.
     """
     async def checker(user = Depends(get_user), supabase: Client = Depends(get_supabase_client)):
-
-        # 1. Fetch User Roles for Admin Check
-        user_roles = get_user_roles_sync(user.id, supabase)
-        if 'global_admin' in user_roles:
+        if _user_has_feature(user.id, feature_name, supabase, paywalled):
             return
 
-        # 2. Fetch User Profile and Tier
-        profile_res = supabase.table('profiles').select('tiers(name)').eq('id', user.id).single().execute()
-        if not profile_res.data:
-            raise HTTPException(status_code=403, detail="User profile not found.")
-
-        raw_tier = profile_res.data.get('tiers', {}).get('name')
-        user_tier = raw_tier.lower() if raw_tier else None
-
-        # 3. Fetch Entitlements
-        entitlements_res = supabase.table('user_entitlements').select('is_founding').eq('user_id', user.id).maybe_single().execute()
-        is_founding = entitlements_res.data.get('is_founding', False) if entitlements_res and entitlements_res.data else False
-
-        # 4. Feature Restrictions (cached, near-static table)
-        permitted_tiers = _get_feature_restrictions(supabase).get(feature_name, [])
-
-
-        # 5. Layered Evaluation
-        # Tier Check
-        if user_tier and user_tier in permitted_tiers:
-            return 
-
-        # Founding User Override
-        if paywalled and is_founding:
-            return 
-
-        # 6. Final Denial
         feature_display_name = feature_name.replace('_', ' ').title()
         raise HTTPException(
-            status_code=403, 
+            status_code=403,
             detail=f"You do not have access to the {feature_display_name}. Please contact support to upgrade."
         )
     return checker

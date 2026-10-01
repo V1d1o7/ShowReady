@@ -49,7 +49,7 @@ function LabelManagerView({ sheetType, showData, onSave, labelFields, pdfType })
                 handleGeneratePdf();
             }
         },
-        'esc': () => {
+        'escape': () => {
             if (isLabelModalOpen) {
                 setIsLabelModalOpen(false);
             }

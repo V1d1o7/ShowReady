@@ -31,6 +31,9 @@ const shortcuts = {
         { action: 'Email Roster', keys: ['M'] },
         { action: 'Focus Search', keys: ['S'] },
     ],
+    "Schedule": [
+        { action: 'New shift', keys: ['N'] },
+    ],
     "Hours Tracker": [
         { action: 'Open Settings modal', keys: ['S'] },
     ],

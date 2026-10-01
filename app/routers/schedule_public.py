@@ -7,6 +7,7 @@ from supabase import Client
 
 from app.api import get_service_client
 from app.schemas.schedule import AvailabilityRespondRequest, DateStatus, PublicAvailabilityDetail, ShiftInput
+from app.services.roster_shared import get_display_first_last
 
 router = APIRouter()
 
@@ -15,7 +16,7 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://showready.k-p.video")
 
 def _load_response(supabase: Client, token: str) -> dict:
     res = supabase.table('availability_responses').select(
-        '*, roster(first_name), shows(name), availability_calls(name)'
+        '*, roster(first_name, last_name, preferred_first_name, preferred_last_name), shows(name), availability_calls(name)'
     ).eq('invite_token', token).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="This link is invalid.")
@@ -42,7 +43,7 @@ def _detail_for(supabase: Client, response_row: dict) -> PublicAvailabilityDetai
     return PublicAvailabilityDetail(
         show_name=shows.get('name', ''),
         call_name=call.get('name'),
-        first_name=roster.get('first_name'),
+        first_name=get_display_first_last(roster)[0],
         shifts=shifts,
         date_statuses=date_statuses,
         status=response_row.get('status') or 'pending',

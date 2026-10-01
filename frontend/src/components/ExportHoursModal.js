@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Modal from './Modal';
+import { getDisplayName } from '../utils/rosterName';
 
 const ExportHoursModal = ({ isOpen, onClose, crewMembers, onExportWeekly, onExportAudit }) => {
     const [exportType, setExportType] = useState('weekly'); 
@@ -82,7 +83,7 @@ const ExportHoursModal = ({ isOpen, onClose, crewMembers, onExportWeekly, onExpo
                                                 onChange={() => handleToggleCrew(member.show_crew_id)}
                                                 className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-amber-500 focus:ring-amber-500 focus:ring-offset-gray-900"
                                             />
-                                            <span className="text-white text-sm">{member.first_name} {member.last_name}</span>
+                                            <span className="text-white text-sm">{getDisplayName(member)}</span>
                                             <span className="text-gray-500 text-xs ml-auto">{member.position}</span>
                                         </label>
                                     ))

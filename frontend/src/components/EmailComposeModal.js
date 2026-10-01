@@ -13,8 +13,8 @@ const VARIABLES = {
     // acceptLink/declineLink are resolved server-side, one unique link per recipient —
     // never substituted client-side like the others. {{schedule}} for CREW is likewise
     // resolved server-side, from that recipient's actual assigned dates.
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{acceptLink}}', '{{declineLink}}', '{{tags}}', '{{rosteredEmail}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{pronouns}}', '{{showName}}', '{{schedule}}', '{{acceptLink}}', '{{declineLink}}', '{{tags}}', '{{rosteredEmail}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{pronouns}}', '{{showName}}', '{{schedule}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
     HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 
@@ -79,7 +79,7 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
 
             if (category === 'ROSTER') {
                 const showsData = await api.getShows();
-                setShows(showsData);
+                setShows(showsData.filter(s => s.status !== 'archived'));
             } else if (category === 'HOURS' && showId) {
                 const showResp = await api.getShow(showId);
                 const pmEmail = showResp.info?.show_pm_email || showResp.data?.info?.show_pm_email || '';
@@ -120,12 +120,18 @@ const EmailComposeModal = ({ isOpen, onClose, recipients, category, showId, week
                 if (cancelled) return;
                 setSelectedShowRole(show?.current_user_role || null);
 
+                // Only pull in dates that haven't passed yet — no point asking for
+                // availability on a date that's already happened.
+                const todayStr = new Date().toISOString().slice(0, 10);
+
                 const byDate = {};
                 (scheduleDates || []).forEach(d => {
+                    if (d.shift_date < todayStr) return;
                     byDate[d.shift_date] = { shift_date: d.shift_date, call_time: '', end_time: '', notes: d.notes || '' };
                 });
                 (crew || []).forEach(member => {
                     (member.shifts || []).forEach(s => {
+                        if (s.shift_date < todayStr) return;
                         const existing = byDate[s.shift_date];
                         if (!existing) {
                             byDate[s.shift_date] = { shift_date: s.shift_date, call_time: s.call_time || '', end_time: s.end_time || '', notes: s.notes || '' };

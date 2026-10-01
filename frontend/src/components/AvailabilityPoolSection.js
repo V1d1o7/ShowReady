@@ -5,6 +5,7 @@ import { api } from '../api/api';
 import { formatShiftDate, formatShiftsSummary } from './CrewStatusBadge';
 import AddToPoolModal from './AddToPoolModal';
 import ConfirmationModal from './ConfirmationModal';
+import { getDisplayName } from '../utils/rosterName';
 
 const DATE_STATUS_STYLES = {
     available: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -260,11 +261,11 @@ const AvailabilityPoolSection = ({ showId, pool, onChanged, onAssign, canEditSho
                                                     className="accent-amber-500"
                                                     checked={selectedIds.includes(response.id)}
                                                     onChange={() => toggleOne(response.id)}
-                                                    aria-label={`Select ${response.first_name} ${response.last_name}`}
+                                                    aria-label={`Select ${getDisplayName(response)}`}
                                                 />
                                             </td>
                                         )}
-                                        <td className="px-3 py-3 text-sm font-medium text-white">{response.first_name} {response.last_name}</td>
+                                        <td className="px-3 py-3 text-sm font-medium text-white">{getDisplayName(response)}</td>
                                         <td className="px-3 py-3 text-sm text-gray-400">{response.call_name}</td>
                                         <td className="px-3 py-3 text-xs text-gray-400 max-w-xs"><DatesCell response={response} /></td>
                                         <td className="px-3 py-3">
@@ -297,7 +298,7 @@ const AvailabilityPoolSection = ({ showId, pool, onChanged, onAssign, canEditSho
                                                         </button>
                                                     )}
                                                     <button
-                                                        onClick={() => dismiss([response.id], `${response.first_name} ${response.last_name} removed from the list`)}
+                                                        onClick={() => dismiss([response.id], `${getDisplayName(response)} removed from the list`)}
                                                         className="text-gray-500 hover:text-red-400 transition-colors"
                                                         title="Remove from list"
                                                     >

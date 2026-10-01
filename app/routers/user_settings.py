@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from supabase import Client
 from app.api import get_supabase_client, get_user
-from app.models import UserSMTPSettingsCreate, UserSMTPSettingsResponse, UserSMTPSettingsUpdate
+from app.models import (
+    UserSMTPSettingsCreate, UserSMTPSettingsResponse, UserSMTPSettingsUpdate,
+    UserSwitchDefaultsResponse, UserSwitchDefaultsUpdate,
+)
 from app.encryption import encrypt_password
 from app.user_email import test_user_smtp_connection
 import uuid
@@ -77,3 +80,28 @@ async def test_smtp_settings(
     except Exception as e:
         # The exception from the thread will be re-raised here
         raise HTTPException(status_code=400, detail=f"Connection test failed: {str(e)}")
+
+@router.get("/switch-defaults", response_model=UserSwitchDefaultsResponse)
+async def get_switch_defaults(user=Depends(get_user), supabase: Client = Depends(get_supabase_client)):
+    """Fetches the user's default login timeout / IGMP snooping / multicast flooding
+    settings, applied to new switches/VLANs. 404 if never set."""
+    res = supabase.table('user_switch_defaults').select('*').eq('user_id', str(user.id)).maybe_single().execute()
+    if not res or not res.data:
+        raise HTTPException(status_code=404, detail="Switch defaults not set")
+    return res.data
+
+@router.post("/switch-defaults", response_model=UserSwitchDefaultsResponse)
+async def save_switch_defaults(
+    settings: UserSwitchDefaultsUpdate,
+    user=Depends(get_user),
+    supabase: Client = Depends(get_supabase_client),
+):
+    """Creates or updates the user's switch defaults. user_id is the primary key, so
+    this is a straight upsert rather than the SMTP settings' existence-check pattern."""
+    data_to_save = settings.model_dump(exclude_unset=True)
+    data_to_save['user_id'] = str(user.id)
+
+    response = supabase.table('user_switch_defaults').upsert(data_to_save, on_conflict='user_id').execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="Failed to save switch defaults.")
+    return response.data[0]

@@ -19,6 +19,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from pypdf import PdfWriter, PdfReader
 
 from .models import LoomLabel, CaseLabel, Rack, RackPDFPayload, Loom, LoomBuilderPDFPayload, Cable, LoomWithCables, WeeklyTimesheet
+from .services.roster_shared import get_display_name, get_legal_name, has_preferred_name
 
 # IMPORT OUR DRAWING LOGIC HERE
 from .utils.panel_pdf_draw import draw_panel_visual
@@ -316,10 +317,7 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
                     
                     weekly_ot_hours -= ot_to_apply
         
-    all_crew_sorted = sorted(crew_hours, key=lambda c: (
-        (c.get('first_name') or '').lower(),
-        (c.get('last_name') or '').lower()
-    ))
+    all_crew_sorted = sorted(crew_hours, key=lambda c: get_display_name(c).lower())
     
     grand_total_regular = 0
     grand_total_ot = 0
@@ -333,9 +331,16 @@ def generate_hours_pdf(user: dict, show: dict, timesheet_data: dict, show_logo_b
         rate_suffix = "/day" if c.get('rate_type') == 'daily' else "/hr"
         rate_str = f"${rate_val:,.2f}{rate_suffix}"
         
-        first_name = c.get('first_name') or 'N/A'
-        last_name = c.get('last_name') or ''
-        name_p = Paragraph(f"{first_name} {last_name}", styles['CrewName'])
+        display_name = get_display_name(c) or 'N/A'
+        if has_preferred_name(c):
+            legal_name = get_legal_name(c) or 'N/A'
+            name_p = Paragraph(
+                f"<font name='SpaceMono-Bold'>{display_name}</font><br/>"
+                f"<font name='SpaceMono' size=6 color=grey>{legal_name}</font>",
+                styles['CrewName']
+            )
+        else:
+            name_p = Paragraph(display_name, styles['CrewName'])
         position_p = Paragraph(f"<font size=7 color=grey>{c.get('position', 'N/A')}</font>", styles['CrewName'])
 
         row = [[name_p, position_p], Paragraph(rate_str, styles['CellCenter'])]
@@ -413,11 +418,19 @@ def generate_crew_audit_pdf(user: dict, show: dict, audit_data: dict, show_logo_
 
     for crew_member in audit_data['crew']:
         crew_id = crew_member['id']
-        roster = crew_member.get('roster', {})
-        first_name = roster.get('first_name', 'N/A')
-        last_name = roster.get('last_name', '')
-        
-        story.append(Paragraph(f"{first_name} {last_name} - {crew_member.get('position', 'N/A')}", styles["MemberHeader"]))
+        roster = crew_member.get('roster', {}) or {}
+        display_name = get_display_name(roster) or 'N/A'
+        position_suffix = f" - {crew_member.get('position', 'N/A')}"
+
+        if has_preferred_name(roster):
+            legal_name = get_legal_name(roster) or 'N/A'
+            story.append(Paragraph(
+                f"{display_name}{position_suffix}"
+                f"<br/><font name='SpaceMono' size=9 color=grey>{legal_name}</font>",
+                styles["MemberHeader"]
+            ))
+        else:
+            story.append(Paragraph(f"{display_name}{position_suffix}", styles["MemberHeader"]))
         
         daily_rate = float(crew_member.get('daily_rate') or 0)
         hourly_rate = float(crew_member.get('hourly_rate') or 0)

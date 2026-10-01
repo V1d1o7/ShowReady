@@ -86,7 +86,8 @@ const SwitchModelView = () => {
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Manufacturer</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Model Name</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Ports</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Driver Type</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Driver</th>
                                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
                                 </tr>
                             </thead>
@@ -95,8 +96,13 @@ const SwitchModelView = () => {
                                     <tr key={model.id}>
                                         <td className="px-6 py-4 whitespace-nowrap">{model.manufacturer}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">{model.model_name}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">{model.port_count}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">{model.netmiko_driver_type}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            {model.copper_port_count || model.sfp_port_count
+                                                ? `${model.copper_port_count} copper + ${model.sfp_port_count} SFP`
+                                                : model.port_count}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap capitalize">{model.device_type}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap">{model.driver_type}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                             <button onClick={() => handleOpenModal(model)} className="text-indigo-400 hover:text-indigo-300 mr-4"><Edit size={18} /></button>
                                             <button onClick={() => handleDelete(model.id)} className="text-red-400 hover:text-red-300"><Trash2 size={18} /></button>
@@ -122,31 +128,66 @@ const SwitchModelView = () => {
 };
 
 const SwitchModelFormModal = ({ isOpen, onClose, onSave, model }) => {
+    const [drivers, setDrivers] = useState([]);
     const [formData, setFormData] = useState({
         manufacturer: model?.manufacturer || '',
         model_name: model?.model_name || '',
-        port_count: model?.port_count || 24,
-        netmiko_driver_type: model?.netmiko_driver_type || '',
+        copper_port_count: model?.copper_port_count ?? (model ? 0 : 24),
+        sfp_port_count: model?.sfp_port_count ?? 0,
+        driver_type: model?.driver_type || '',
+        device_type: model?.device_type || 'switch',
     });
+
+    useEffect(() => {
+        api.getSwitchDrivers().then(setDrivers).catch(() => setDrivers([]));
+    }, []);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
+    const totalPorts = (Number(formData.copper_port_count) || 0) + (Number(formData.sfp_port_count) || 0);
+
     const handleSubmit = (e) => {
         e.preventDefault();
-        onSave(formData);
+        onSave({
+            ...formData,
+            copper_port_count: Number(formData.copper_port_count) || 0,
+            sfp_port_count: Number(formData.sfp_port_count) || 0,
+            port_count: totalPorts,
+        });
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={model ? "Edit Switch Model" : "Create New Switch Model"}>
             <form onSubmit={handleSubmit} className="space-y-4">
                 <InputField name="manufacturer" label="Manufacturer" value={formData.manufacturer} onChange={handleChange} placeholder="e.g., Netgear" />
-                <InputField name="model_name" label="Model Name" value={formData.model_name} onChange={handleChange} placeholder="e.g., GS724Tv4" required />
-                <InputField name="port_count" label="Port Count" type="number" value={formData.port_count} onChange={handleChange} required />
-                <InputField name="netmiko_driver_type" label="Netmiko Driver Type" value={formData.netmiko_driver_type} onChange={handleChange} placeholder="e.g., netgear_prosafe" required />
-                
+                <InputField name="model_name" label="Model Name" value={formData.model_name} onChange={handleChange} placeholder="e.g., M4300-28G" required />
+                <div className="grid grid-cols-2 gap-4">
+                    <InputField name="copper_port_count" label="Copper Ports" type="number" min="0" value={formData.copper_port_count} onChange={handleChange} required />
+                    <InputField name="sfp_port_count" label="SFP / Uplink Ports" type="number" min="0" value={formData.sfp_port_count} onChange={handleChange} required />
+                </div>
+                <p className="text-xs text-gray-400">{totalPorts} total port{totalPorts === 1 ? '' : 's'}</p>
+
+                <label className="block text-sm">
+                    <span className="block text-gray-400 mb-1">Device Type</span>
+                    <select name="device_type" value={formData.device_type} onChange={handleChange} className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-2">
+                        <option value="switch">Switch</option>
+                        <option value="router">Router</option>
+                    </select>
+                </label>
+
+                <label className="block text-sm">
+                    <span className="block text-gray-400 mb-1">Driver</span>
+                    <select name="driver_type" value={formData.driver_type} onChange={handleChange} required className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-2">
+                        <option value="" disabled>Select a driver…</option>
+                        {drivers.map(d => (
+                            <option key={d.key} value={d.key}>{d.label} ({d.supported_transports.join(' + ')})</option>
+                        ))}
+                    </select>
+                </label>
+
                 <div className="flex justify-end gap-4 pt-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg font-bold">Cancel</button>
                     <button type="submit" className="px-4 py-2 bg-blue-500 hover:bg-blue-400 rounded-lg font-bold text-white">Save</button>

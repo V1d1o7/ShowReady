@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { X, Plus, Trash2, GripVertical, Check } from 'lucide-react';
+import { X, Plus, Trash2, GripVertical, Check, Pencil } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api } from '../api/api';
 import InputField from './InputField';
 import ConfirmationModal from './ConfirmationModal';
+import useHotkeys from '../hooks/useHotkeys';
 
 const FIELD_TYPE_LABELS = {
     text: 'Text',
@@ -27,6 +28,13 @@ const CustomFieldManagerDrawer = ({ isOpen, onClose, fields, onFieldsChanged }) 
     const [newOptions, setNewOptions] = useState([]);
     const [optionInput, setOptionInput] = useState('');
     const [confirmDelete, setConfirmDelete] = useState(null);
+    const [editingField, setEditingField] = useState(null);
+    const [editLabel, setEditLabel] = useState('');
+    const [editOptions, setEditOptions] = useState([]);
+    const [editOptionInput, setEditOptionInput] = useState('');
+    // Guarded on confirmDelete/editingField so Escape closes whichever's open first, not
+    // both it and this drawer at once.
+    useHotkeys({ escape: () => { if (isOpen && !confirmDelete && !editingField) onClose(); } });
 
     if (!isOpen) return null;
 
@@ -87,6 +95,48 @@ const CustomFieldManagerDrawer = ({ isOpen, onClose, fields, onFieldsChanged }) 
         }
     };
 
+    const handleStartEdit = (field) => {
+        setIsAddOpen(false);
+        setEditingField(field);
+        setEditLabel(field.label);
+        setEditOptions([...(field.options || [])]);
+        setEditOptionInput('');
+    };
+
+    const handleCancelEdit = () => {
+        setEditingField(null);
+        setEditLabel('');
+        setEditOptions([]);
+        setEditOptionInput('');
+    };
+
+    const handleAddEditOption = () => {
+        const trimmed = editOptionInput.trim();
+        if (trimmed && !editOptions.includes(trimmed)) {
+            setEditOptions([...editOptions, trimmed]);
+        }
+        setEditOptionInput('');
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editLabel.trim()) {
+            toast.error('Field label is required.');
+            return;
+        }
+        if (editingField.field_type === 'dropdown' && editOptions.length === 0) {
+            toast.error('Add at least one dropdown option.');
+            return;
+        }
+        try {
+            await api.updateRosterCustomField(editingField.id, { label: editLabel.trim(), options: editOptions });
+            toast.success('Custom field updated');
+            handleCancelEdit();
+            onFieldsChanged();
+        } catch (error) {
+            toast.error(`Failed to update field: ${error.message}`);
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50">
             <div className="absolute inset-0 bg-black bg-opacity-60" onClick={onClose}></div>
@@ -129,19 +179,68 @@ const CustomFieldManagerDrawer = ({ isOpen, onClose, fields, onFieldsChanged }) 
                         <div className="text-[11px] font-bold uppercase tracking-wide text-gray-500 px-2 mb-1">Your Fields</div>
                     )}
                     {fields.map(field => (
-                        <div key={field.id} className="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-gray-700">
-                            <GripVertical size={14} className="text-gray-500 flex-shrink-0" />
-                            <div className="flex-1 text-sm font-medium text-white">{field.label}</div>
-                            <span className="px-2 py-0.5 text-xs rounded bg-gray-700 text-gray-400">{FIELD_TYPE_LABELS[field.field_type] || field.field_type}</span>
-                            <button onClick={() => setConfirmDelete(field)} className="p-1 text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>
-                        </div>
+                        editingField?.id === field.id ? (
+                            <div key={field.id} className="mt-1 mb-2 p-4 bg-gray-900 border border-gray-700 rounded-lg space-y-4">
+                                <InputField
+                                    label="Field Label"
+                                    value={editLabel}
+                                    onChange={(e) => setEditLabel(e.target.value)}
+                                />
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-1.5">Field Type</label>
+                                    <div className="w-full p-2 bg-gray-800/60 border border-gray-700 rounded-lg text-gray-500">
+                                        {FIELD_TYPE_LABELS[field.field_type] || field.field_type}
+                                    </div>
+                                    <p className="mt-1 text-xs text-gray-500">The field type can't be changed once created — delete and re-add it to use a different type.</p>
+                                </div>
+
+                                {field.field_type === 'dropdown' && (
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-1.5">Dropdown Options</label>
+                                        <div className="flex flex-wrap gap-1.5 mb-2">
+                                            {editOptions.map(opt => (
+                                                <span key={opt} className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 text-xs rounded-full bg-gray-700 text-gray-200">
+                                                    {opt}
+                                                    <button onClick={() => setEditOptions(editOptions.filter(o => o !== opt))} className="text-gray-400 hover:text-white">
+                                                        <X size={11} />
+                                                    </button>
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <input
+                                                value={editOptionInput}
+                                                onChange={(e) => setEditOptionInput(e.target.value)}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddEditOption(); } }}
+                                                placeholder="Add an option..."
+                                                className="flex-1 p-2 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-amber-500"
+                                            />
+                                            <button onClick={handleAddEditOption} className="px-3 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-sm font-semibold">Add</button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="flex justify-end gap-3">
+                                    <button onClick={handleCancelEdit} className="px-4 py-2 rounded-md bg-gray-700 hover:bg-gray-600 text-sm">Cancel</button>
+                                    <button onClick={handleSaveEdit} className="px-4 py-2 rounded-md bg-amber-500 text-black hover:bg-amber-400 text-sm font-bold">Save Changes</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div key={field.id} className="flex items-center gap-3 px-2 py-2.5 rounded-lg hover:bg-gray-700">
+                                <GripVertical size={14} className="text-gray-500 flex-shrink-0" />
+                                <div className="flex-1 text-sm font-medium text-white">{field.label}</div>
+                                <span className="px-2 py-0.5 text-xs rounded bg-gray-700 text-gray-400">{FIELD_TYPE_LABELS[field.field_type] || field.field_type}</span>
+                                <button onClick={() => handleStartEdit(field)} className="p-1 text-gray-500 hover:text-amber-400"><Pencil size={14} /></button>
+                                <button onClick={() => setConfirmDelete(field)} className="p-1 text-gray-500 hover:text-red-500"><Trash2 size={14} /></button>
+                            </div>
+                        )
                     ))}
 
                     {fields.length === 0 && !isAddOpen && (
                         <div className="text-center py-8 text-sm text-gray-500">No custom fields yet.</div>
                     )}
 
-                    {!isAddOpen && (
+                    {!isAddOpen && !editingField && (
                         <button
                             onClick={() => setIsAddOpen(true)}
                             className="flex items-center justify-center gap-2 w-full mt-3 p-3 border-2 border-dashed border-gray-600 text-gray-400 rounded-lg font-semibold text-sm hover:border-amber-500 hover:text-amber-400 transition-colors"

@@ -40,6 +40,7 @@ coverage/
 *.sln
 *.sw?
 CLAUDE.md
+.claude/
 
 # Operating System #
 ####################
@@ -55,3 +56,7 @@ db_structure-*.sql
 tree*
 StartUp.yaml
 DB_DUMPS*
+data.sql
+roles.sql
+schema.sql
+supabase/

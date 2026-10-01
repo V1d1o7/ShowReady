@@ -1,4 +1,5 @@
 import React from 'react';
+import { getDisplayName } from '../utils/rosterName';
 
 const PrintHours = ({ crew, dates, hoursByDate, showData }) => {
     return (
@@ -23,7 +24,7 @@ const PrintHours = ({ crew, dates, hoursByDate, showData }) => {
                         const cost = c.rate_type === 'daily' ? (weeklyTotal > 0 ? c.daily_rate : 0) : (regularHours * c.hourly_rate) + (otHours * c.hourly_rate * 1.5);
                         return (
                             <tr key={c.id}>
-                                <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium">{`${c.roster.first_name} ${c.roster.last_name}`}</td>
+                                <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium">{getDisplayName(c.roster)}</td>
                                 {dates.map(d => (
                                     <td key={d} className="whitespace-nowrap px-3 py-4 text-sm">{crewHours[d]}</td>
                                 ))}

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '../api/api';
 import { UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getDisplayName } from '../utils/rosterName';
 
 const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId, initialData }) => {
     // Mode: 'existing' or 'new'
@@ -176,7 +177,7 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId, initialData 
                          <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-400 mb-1">Name</label>
                             <div className="w-full bg-gray-900 border border-gray-600 rounded-md p-2.5 text-gray-300">
-                                {initialData.roster.first_name} {initialData.roster.last_name}
+                                {getDisplayName(initialData.roster)}
                             </div>
                         </div>
                     )}
@@ -201,7 +202,7 @@ const AddCrewFromRosterModal = ({ isOpen, onClose, onAdded, showId, initialData 
                                     <option value="">-- Select a member --</option>
                                     {roster.map(member => (
                                         <option key={member.id} value={member.id}>
-                                            {member.first_name} {member.last_name}
+                                            {getDisplayName(member)}
                                         </option>
                                     ))}
                                 </select>

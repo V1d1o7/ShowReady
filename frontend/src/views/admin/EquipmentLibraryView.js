@@ -333,7 +333,7 @@ const EquipmentLibraryView = () => {
     };
 
     const handleLinkModel = async (equipmentId, modelId) => {
-        await api.linkModelToEquipment(equipmentId, modelId);
+        await api.linkEquipmentToModel(equipmentId, modelId);
         fetchData();
     };
 

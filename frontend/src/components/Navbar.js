@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Home, Book, User, ShieldCheck, MessageSquare } from 'lucide-react';
+import { Home, Book, User, ShieldCheck, MessageSquare, CalendarDays } from 'lucide-react';
 import FeedbackModal from './FeedbackModal';
 import { api } from '../api/api';
 import toast from 'react-hot-toast';
@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
  * Navbar component for main application navigation.
  * Links are conditionally rendered based on user permissions (RBAC).
  */
-const Navbar = () => {
+const Navbar = ({ minimal = false }) => {
     const { profile } = useAuth();
     const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
     const [activityStatus, setActivityStatus] = useState('grey');
@@ -46,6 +46,7 @@ const Navbar = () => {
     // Feature check helpers
     const canShowFeedbackButton = profile?.permitted_features?.includes('global_feedback_button');
     const canAccessRoster = profile?.permitted_features?.includes('crew');
+    const canAccessScheduling = profile?.permitted_features?.includes('schedule');
 
     const statusColorClass = {
         green: 'text-green-500',
@@ -65,7 +66,7 @@ const Navbar = () => {
                                 </NavLink>
                             </div>
                         </div>
-                        <div className="hidden md:block">
+                        <div className={minimal ? 'hidden' : 'hidden md:block'}>
                             <div className="ml-10 flex items-baseline space-x-4">
                                 {canShowFeedbackButton && (
                                     <button
@@ -111,6 +112,20 @@ const Navbar = () => {
                                     >
                                         <User size={16} className="mr-2" />
                                         Roster
+                                    </NavLink>
+                                )}
+
+                                {canAccessScheduling && (
+                                    <NavLink
+                                        to="/scheduling"
+                                        className={({ isActive }) =>
+                                            `flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                                                isActive ? 'bg-gray-900 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                                            }`
+                                        }
+                                    >
+                                        <CalendarDays size={16} className="mr-2" />
+                                        Scheduling
                                     </NavLink>
                                 )}
 

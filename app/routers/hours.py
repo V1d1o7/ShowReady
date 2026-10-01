@@ -7,6 +7,7 @@ from app.models import (
     CrewMemberHours, TimesheetEmailPayload, BudgetUpdate
 ) 
 from app.user_email import send_email_with_user_smtp, SMTPSettings
+from app.services.roster_shared import get_display_name, get_display_first_last
 # NOTE: Make sure to import generate_crew_audit_pdf once it's created in pdf_utils.py!
 from app.pdf_utils import generate_hours_pdf
 from fastapi.responses import Response
@@ -197,11 +198,10 @@ def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, 
     # Sort crew members: current user first, then alphabetically by first name 
     sorted_crew_data = sorted( 
         crew_res.data, 
-        key=lambda c: ( 
-            c.get('roster_id') != user_roster_id, # False (0) for user, True (1) for others 
-            (c.get('roster') or {}).get('first_name', '').lower(), 
-            (c.get('roster') or {}).get('last_name', '').lower() 
-        ) 
+        key=lambda c: (
+            c.get('roster_id') != user_roster_id, # False (0) for user, True (1) for others
+            get_display_name(c.get('roster') or {}).lower(),
+        )
     ) 
      
     show_crew_ids = [c['id'] for c in sorted_crew_data] 
@@ -224,22 +224,30 @@ def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, 
             other_hours_by_date.append(h)
 
     # 3b. Shift-based autofill: for any (crew, date) in this week that has no
-    # saved timesheet entry, pull the assigned shift's call/end time (if both
-    # are set) and fill in the break-adjusted duration. A shift with no
-    # end_time is left alone — the user hasn't said when it ends yet. A shift
-    # marked no_show or cancelled never autofills — there's nothing to pay.
-    shift_map = {}  # {show_crew_id: {date_str: {'call_time':, 'end_time':, 'status':}}}
+    # saved timesheet entry, pull the assigned shift's effective (override-or-default)
+    # call/end time and fill in the break-adjusted duration. A shift with no end_time is
+    # left alone — the user hasn't said when it ends yet. A shift marked no_show or
+    # cancelled never autofills — there's nothing to pay. show_crew_shifts no longer
+    # carries its own date/call/end directly (see app/services/schedule_shared.py) — it's
+    # an assignment against a shared show_shifts row, with call_time/end_time here only an
+    # optional per-person override of that shift's own default.
+    shift_map = {}  # {show_crew_id: {date_str: {'call_time':, 'end_time':}}}
     if schedule_autofill_enabled and show_crew_ids:
         shifts_res = supabase.table('show_crew_shifts') \
-            .select('show_crew_id, shift_date, call_time, end_time, status') \
+            .select('show_crew_id, call_time, end_time, status, shift:show_shifts(shift_date, call_time, end_time)') \
             .in_('show_crew_id', show_crew_ids) \
-            .gte('shift_date', str(week_start_date)) \
-            .lte('shift_date', str(week_end_date)) \
             .execute()
         for s in shifts_res.data:
             if s.get('status') in ('no_show', 'cancelled'):
                 continue
-            shift_map.setdefault(s['show_crew_id'], {})[s['shift_date']] = s
+            shift = s.get('shift') or {}
+            shift_date_str = shift.get('shift_date')
+            if not shift_date_str or not (str(week_start_date) <= shift_date_str <= str(week_end_date)):
+                continue
+            shift_map.setdefault(s['show_crew_id'], {})[shift_date_str] = {
+                'call_time': s.get('call_time') or shift.get('call_time'),
+                'end_time': s.get('end_time') or shift.get('end_time'),
+            }
 
     assembled_crew_hours = []
     for c in sorted_crew_data:
@@ -259,6 +267,9 @@ def get_timesheet_data(show_id: int, week_start_date: date, user_id: uuid.UUID, 
                 roster_id=c.get('roster_id'), # Pass the roster_id for grouping logic
                 first_name=roster_info.get('first_name'),
                 last_name=roster_info.get('last_name'),
+                preferred_first_name=roster_info.get('preferred_first_name'),
+                preferred_last_name=roster_info.get('preferred_last_name'),
+                pronouns=roster_info.get('pronouns'),
                 position=c.get('position'), # Pass the position for the line item
                 rate_type=c['rate_type'],
                 hourly_rate=c['hourly_rate'],
@@ -527,8 +538,8 @@ async def get_crew_audit_pdf(
     if len(show_crew_ids) > 1:
         filename_prefix = "Multi_Crew_Audit"
     else:
-        last_name = (crew_data[0].get('roster') or {}).get('last_name', 'Crew')
-        filename_prefix = f"{last_name}_Audit"
+        _, display_last = get_display_first_last(crew_data[0].get('roster') or {})
+        filename_prefix = f"{display_last or 'Crew'}_Audit"
         
     safe_show_name = show_info['name'].replace(' ', '_')
     filename = f"{filename_prefix}_{safe_show_name}.pdf"

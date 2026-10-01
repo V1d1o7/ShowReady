@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useContext, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/api';
-import { Plus, Edit, Trash2, Mail, HelpCircle, Lock, SlidersHorizontal, Settings2, ChevronDown, Check, Pin } from 'lucide-react';
+import { Plus, Edit, Trash2, Mail, HelpCircle, Lock, SlidersHorizontal, Settings2, ChevronDown, Check, Pin, Tag } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { LayoutContext } from '../contexts/LayoutContext';
 import useHotkeys from '../hooks/useHotkeys';
@@ -12,6 +12,8 @@ import EmailComposeModal from '../components/EmailComposeModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import InputField from '../components/InputField';
 import ShortcutsModal from '../components/ShortcutsModal';
+import OnboardingLinkPanel from '../components/OnboardingLinkPanel';
+import { getDisplayName, getLegalName } from '../utils/rosterName';
 
 const BASE_COLUMNS = [
     { key: 'position', label: 'Position', default: true },
@@ -46,8 +48,10 @@ const RosterView = () => {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
     const [isFieldManagerOpen, setIsFieldManagerOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState('list');
     const [isViewMenuOpen, setIsViewMenuOpen] = useState(false);
     const [isHeaderFrozen, setIsHeaderFrozen] = useState(true);
+    const [showPronouns, setShowPronouns] = useState(false);
     const [selectedIds, setSelectedIds] = useState(() => new Set());
     const [visibleColumns, setVisibleColumns] = useState(() =>
         Object.fromEntries(BASE_COLUMNS.map(c => [c.key, c.default]))
@@ -120,7 +124,7 @@ const RosterView = () => {
         }
         const search = filterText.toLowerCase();
         return roster.filter(member => {
-            const fullName = `${member.first_name || ''} ${member.last_name || ''}`.toLowerCase();
+            const fullName = `${getDisplayName(member)} ${getLegalName(member)}`.toLowerCase();
             const hasMatchingTag = member.tags && member.tags.some(tag => {
                 const cleanTag = tag.startsWith('_') ? tag.substring(1) : tag;
                 return cleanTag.toLowerCase().includes(search);
@@ -196,7 +200,7 @@ const RosterView = () => {
     const handleDeleteMember = (member) => {
         setConfirmModal({
             isOpen: true,
-            message: `Are you sure you want to delete ${member.first_name} ${member.last_name}?`,
+            message: `Are you sure you want to delete ${getDisplayName(member)}?`,
             onConfirm: async () => {
                 try {
                     await api.deleteRosterMember(member.id);
@@ -221,8 +225,8 @@ const RosterView = () => {
     };
 
     useHotkeys({
-        'n': () => handleOpenModal(),
-        'm': handleEmailRoster
+        'n': () => activeTab === 'list' && handleOpenModal(),
+        'm': () => activeTab === 'list' && handleEmailRoster()
     });
 
     const headerCellClass = `px-3 py-3.5 text-left text-sm font-semibold text-white ${isHeaderFrozen ? 'sticky top-0 z-10 bg-gray-800' : ''}`;
@@ -255,6 +259,16 @@ const RosterView = () => {
                                         {isHeaderFrozen && <Check size={11} className="text-black" strokeWidth={3} />}
                                     </div>
                                     <Pin size={14} className="text-gray-400" /> Freeze Header Row
+                                </div>
+
+                                <div
+                                    onClick={() => setShowPronouns(prev => !prev)}
+                                    className="flex items-center gap-2.5 px-2.5 py-2 rounded-md cursor-pointer hover:bg-gray-700 text-sm text-gray-200"
+                                >
+                                    <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border ${showPronouns ? 'bg-amber-500 border-amber-500' : 'border-gray-600'}`}>
+                                        {showPronouns && <Check size={11} className="text-black" strokeWidth={3} />}
+                                    </div>
+                                    <Tag size={14} className="text-gray-400" /> Show Pronouns
                                 </div>
 
                                 <button
@@ -290,6 +304,26 @@ const RosterView = () => {
                     </button>
                 </div>
             </header>
+
+            <div className="flex-shrink-0 flex border-b border-gray-700 mt-6">
+                {[{ key: 'list', label: 'Roster List' }, { key: 'link', label: 'Onboarding Link' }].map(tab => (
+                    <button
+                        key={tab.key}
+                        onClick={() => setActiveTab(tab.key)}
+                        className={`px-4 py-2 text-sm font-bold ${activeTab === tab.key ? 'text-amber-400 border-b-2 border-amber-400' : 'text-gray-400 hover:text-white'}`}
+                    >
+                        {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {activeTab === 'link' && (
+                <main className="mt-8 flex-1 min-h-0 overflow-auto">
+                    <OnboardingLinkPanel />
+                </main>
+            )}
+
+            {activeTab === 'list' && (
             <main className="mt-8 flex-1 min-h-0 flex flex-col">
                 {isLoading ? (
                     <div className="text-center py-16 text-gray-500">Loading roster...</div>
@@ -331,7 +365,10 @@ const RosterView = () => {
                                             />
                                         </td>
                                         <td className="py-4 pl-1 pr-3 text-sm font-medium text-white sm:pl-2">
-                                            {`${member.first_name || ''} ${member.last_name || ''}`}
+                                            {getDisplayName(member)}
+                                            {showPronouns && member.pronouns && (
+                                                <span className="text-gray-500 font-normal"> · {member.pronouns}</span>
+                                            )}
                                         </td>
                                         {visibleColumns.position && (
                                             <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
@@ -404,6 +441,7 @@ const RosterView = () => {
                     </div>
                 )}
             </main>
+            )}
 
             <button
                 onClick={() => setIsShortcutsModalOpen(true)}

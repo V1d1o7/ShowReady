@@ -12,8 +12,8 @@ const TABS = ['ROSTER', 'CREW', 'HOURS'];
 // acceptLink/declineLink are resolved server-side, one unique link per recipient —
 // available to type into a template, but never substituted client-side like the others.
 const VARIABLES = {
-    ROSTER: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{acceptLink}}', '{{declineLink}}', '{{tags}}', '{{rosteredEmail}}'],
-    CREW: ['{{firstName}}', '{{lastName}}', '{{showName}}', '{{schedule}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
+    ROSTER: ['{{firstName}}', '{{lastName}}', '{{pronouns}}', '{{showName}}', '{{schedule}}', '{{acceptLink}}', '{{declineLink}}', '{{tags}}', '{{rosteredEmail}}'],
+    CREW: ['{{firstName}}', '{{lastName}}', '{{pronouns}}', '{{showName}}', '{{schedule}}', '{{callTime}}', '{{notes}}', '{{venue}}'],
     HOURS: ['{{pmFirstName}}', '{{pmLastName}}', '{{showName}}', '{{weekStartDate}}', '{{totalCost}}'],
 };
 

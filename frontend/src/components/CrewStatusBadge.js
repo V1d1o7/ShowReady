@@ -67,6 +67,20 @@ export const formatTimeRange = (callTimeStr, endTimeStr) => {
     return end ? `${start} – ${end}` : start;
 };
 
+// A shift position's headcount fill state, for the shift board's "3/4" pills.
+export const FILL_STYLES = {
+    empty: 'bg-gray-700/40 text-gray-400 border-gray-600',
+    partial: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    full: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+};
+
+export const getFillState = (filled, required) => {
+    if (filled <= 0) return 'empty';
+    return filled >= required ? 'full' : 'partial';
+};
+
+export const formatFillStatus = (filled, required) => `${filled}/${required}`;
+
 export const formatShiftsSummary = (shifts) => {
     if (!shifts || shifts.length === 0) return '—';
     return shifts.map(s => {

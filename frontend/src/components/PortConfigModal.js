@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import InputField from './InputField';
 import SelectField from './SelectField';
@@ -8,14 +8,22 @@ import toast from 'react-hot-toast';
 // CORRECTED: Import useShow hook instead of ShowContext
 import { useShow } from '../contexts/ShowContext';
 
-const PortConfigModal = ({ isOpen, onClose, portNumber, portConfig, switchId, onSave }) => {
+const PortConfigModal = ({ isOpen, onClose, portNumber, portConfig, switchId, totalPorts, onSave }) => {
     const [portName, setPortName] = useState('');
     const [pvid, setPvid] = useState('');
     const [taggedVlans, setTaggedVlans] = useState([]);
     const [availableVlans, setAvailableVlans] = useState([]);
-    
+    const portNameRef = useRef(null);
+
     // CORRECTED: Use the useShow hook
     const { showId } = useShow();
+
+    // Auto-advance (see SwitchConfigView's handleUpdatePortConfig) keeps this modal
+    // mounted and just swaps portNumber/portConfig, so autoFocus alone won't refire --
+    // focus the first field explicitly every time the port changes.
+    useEffect(() => {
+        if (isOpen) portNameRef.current?.focus();
+    }, [isOpen, portNumber]);
 
     useEffect(() => {
         if (isOpen) {
@@ -28,8 +36,8 @@ const PortConfigModal = ({ isOpen, onClose, portNumber, portConfig, switchId, on
                 try {
                     const vlans = await api.getVlans(showId);
                     const vlanOptions = vlans.map(v => ({
-                        value: v.vlan_id,
-                        label: `${v.vlan_id} - ${v.name}`
+                        value: v.tag,
+                        label: `${v.tag} - ${v.name}`
                     }));
                     setAvailableVlans(vlanOptions);
 
@@ -89,10 +97,11 @@ const PortConfigModal = ({ isOpen, onClose, portNumber, portConfig, switchId, on
     ];
     
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Configure Port ${portNumber}`}>
+        <Modal isOpen={isOpen} onClose={onClose} title={totalPorts ? `Configure Port ${portNumber} of ${totalPorts}` : `Configure Port ${portNumber}`}>
             <form onSubmit={handleSubmit}>
                 <div className="space-y-4">
                     <InputField
+                        ref={portNameRef}
                         label="Port Name / Description"
                         value={portName}
                         onChange={(e) => setPortName(e.target.value)}

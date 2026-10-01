@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import useHotkeys from '../hooks/useHotkeys';
+import { getDisplayName } from '../utils/rosterName';
 
 const HoursModal = ({ isOpen, onClose, onSubmit, entry, crew }) => {
     const [formData, setFormData] = useState({});
@@ -34,7 +35,7 @@ const HoursModal = ({ isOpen, onClose, onSubmit, entry, crew }) => {
                     <select name="show_crew_id" value={formData.show_crew_id || ''} onChange={handleChange} className="w-full bg-gray-800 border border-gray-700 rounded-md p-2">
                         <option value="">Select Crew Member</option>
                         {crew.map(member => (
-                            <option key={member.id} value={member.id}>{`${member.first_name} ${member.last_name}`}</option>
+                            <option key={member.id} value={member.id}>{getDisplayName(member)}</option>
                         ))}
                     </select>
                     <input type="date" name="date" value={formData.date || ''} onChange={handleChange} className="w-full bg-gray-800 border border-gray-700 rounded-md p-2" />

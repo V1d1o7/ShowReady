@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api/api';
 import toast from 'react-hot-toast';
 import {
-    ArrowLeft, Edit, Mail, Trash2, Phone, AlertTriangle, Plus, Lock
+    ArrowLeft, Edit, Mail, Trash2, Phone, AlertTriangle, Plus, Lock, User
 } from 'lucide-react';
+import { getDisplayName, getLegalName, hasPreferredName } from '../utils/rosterName';
 import { LayoutContext } from '../contexts/LayoutContext';
 import RosterModal from '../components/RosterModal';
 import CustomFieldManagerDrawer from '../components/CustomFieldManagerDrawer';
@@ -44,6 +45,7 @@ const RosterProfileView = () => {
     const navigate = useNavigate();
     const { setShouldScroll } = useContext(LayoutContext);
     const [data, setData] = useState(null);
+    const [roster, setRoster] = useState([]);
     const [customFieldDefs, setCustomFieldDefs] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -77,17 +79,41 @@ const RosterProfileView = () => {
         }
     }, []);
 
+    // So the Tags autocomplete recognizes tags used elsewhere in the roster, not just this
+    // member's own — otherwise retyping an existing roster-wide tag goes down the
+    // "create new" path instead of reusing it (same aggregation RosterView.js does).
+    const fetchRosterTags = useCallback(async () => {
+        try {
+            const members = await api.getRoster();
+            setRoster(members || []);
+        } catch (error) {
+            console.error("Failed to fetch roster tags:", error);
+        }
+    }, []);
+
     useEffect(() => {
         setIsLoading(true);
         fetchMember();
         fetchCustomFields();
-    }, [fetchMember, fetchCustomFields]);
+        fetchRosterTags();
+    }, [fetchMember, fetchCustomFields, fetchRosterTags]);
+
+    const allTags = useMemo(() => {
+        const tags = new Set();
+        roster.forEach(member => {
+            (member.tags || []).forEach(tag => {
+                tags.add(tag.startsWith('_') ? tag.substring(1) : tag);
+            });
+        });
+        return Array.from(tags);
+    }, [roster]);
 
     const handleSubmitEdit = async (formData) => {
         try {
             await api.updateRosterMember(rosterId, formData);
             toast.success("Profile updated");
             fetchMember();
+            fetchRosterTags();
         } catch (error) {
             toast.error(`Failed to save: ${error.message}`);
         } finally {
@@ -97,7 +123,7 @@ const RosterProfileView = () => {
 
     const handleDelete = () => {
         setConfirmModal({
-            message: `Delete ${data.first_name} ${data.last_name}? This can't be undone.`,
+            message: `Delete ${getDisplayName(data)}? This can't be undone.`,
             onConfirm: async () => {
                 try {
                     await api.deleteRosterMember(rosterId);
@@ -113,7 +139,7 @@ const RosterProfileView = () => {
 
     const handleErase = () => {
         setConfirmModal({
-            message: `Permanently erase ${data.first_name} ${data.last_name}'s personal data? Their contact info, address, and custom field values will be permanently removed. Show assignment and pay history will be kept. This can't be undone.`,
+            message: `Permanently erase ${getDisplayName(data)}'s personal data? Their contact info, address, and custom field values will be permanently removed. Show assignment and pay history will be kept. This can't be undone.`,
             onConfirm: async () => {
                 try {
                     await api.eraseRosterMember(rosterId);
@@ -134,7 +160,9 @@ const RosterProfileView = () => {
 
     const isErased = !!data.erased_at;
     const hasHistory = (data.assignments || []).length > 0;
-    const initials = `${(data.first_name || '?')[0] || ''}${(data.last_name || '')[0] || ''}`.toUpperCase();
+    const displayName = getDisplayName(data);
+    const [displayFirst, displayLast] = [data.preferred_first_name || data.first_name, data.preferred_last_name || data.last_name];
+    const initials = `${(displayFirst || '?')[0] || ''}${(displayLast || '')[0] || ''}`.toUpperCase();
 
     return (
         <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
@@ -150,7 +178,10 @@ const RosterProfileView = () => {
                     </div>
                     <div>
                         <div className="flex items-center gap-3 flex-wrap">
-                            <h1 className="text-2xl font-bold text-white">{data.first_name} {data.last_name}</h1>
+                            <h1 className="text-2xl font-bold text-white">
+                                {displayName}
+                                {data.pronouns && <span className="text-base font-normal text-gray-400"> · {data.pronouns}</span>}
+                            </h1>
                             {isErased ? (
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-gray-700/50 text-gray-400 border border-gray-600">Erased</span>
                             ) : data.status === 'inactive' ? (
@@ -216,6 +247,9 @@ const RosterProfileView = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-7">
                     <div className="bg-gray-800 border border-gray-700 rounded-xl p-5">
                         <h2 className="text-base font-bold text-white mb-3">Contact &amp; Details</h2>
+                        {hasPreferredName(data) && (
+                            <DetailRow icon={User} label="Legal Name" value={getLegalName(data)} />
+                        )}
                         <DetailRow icon={Phone} label="Phone" value={data.phone_number} />
                         <DetailRow icon={Mail} label="Email" value={data.email} last />
                     </div>
@@ -282,7 +316,7 @@ const RosterProfileView = () => {
                 onClose={() => setIsEditOpen(false)}
                 onSubmit={handleSubmitEdit}
                 member={data}
-                allTags={data.tags || []}
+                allTags={allTags}
                 customFieldDefs={customFieldDefs}
             />
             <CustomFieldManagerDrawer

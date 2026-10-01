@@ -2,16 +2,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, X, Check, Lock } from 'lucide-react';
 
-const MultiSelect = ({ 
-    options = [], 
-    value, 
+const MultiSelect = ({
+    label,
+    options = [],
+    value,
     selected, // Legacy prop support
-    onChange, 
-    isCreatable = false, 
-    placeholder = "Select..." 
+    onChange,
+    isCreatable = false,
+    placeholder = "Select..."
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [inputValue, setInputValue] = useState("");
+    const [highlightedIndex, setHighlightedIndex] = useState(-1);
     const containerRef = useRef(null);
 
     // 1. Unify 'value' and 'selected'
@@ -44,6 +46,12 @@ const MultiSelect = ({
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // Reset the keyboard highlight whenever the dropdown opens or the filter text
+    // changes, so arrow-key navigation always starts from the top of the current list.
+    useEffect(() => {
+        setHighlightedIndex(isOpen ? 0 : -1);
+    }, [isOpen, inputValue]);
 
     const emitChange = (newItems) => {
         if (isPrimitiveMode) {
@@ -98,6 +106,24 @@ const MultiSelect = ({
     };
 
     const handleKeyDown = (e) => {
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex(i => Math.min(i + 1, filteredOptions.length - 1));
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightedIndex(i => Math.max(i - 1, 0));
+            return;
+        }
+        if (e.key === 'Enter' && isOpen && highlightedIndex >= 0 && filteredOptions[highlightedIndex]) {
+            // A highlighted dropdown option takes priority over the "create new" path
+            // below, and over letting Enter bubble up to submit the form.
+            e.preventDefault();
+            handleSelect(filteredOptions[highlightedIndex]);
+            return;
+        }
         if (e.key === 'Enter' && inputValue) {
             e.preventDefault();
             if (isCreatable) {
@@ -136,6 +162,7 @@ const MultiSelect = ({
 
     return (
         <div className="relative" ref={containerRef}>
+            {label && <label className="block text-sm font-medium text-gray-300 mb-1.5">{label}</label>}
             <div
                 className="flex flex-wrap items-center gap-2 p-2 bg-gray-800 border border-gray-700 rounded-lg focus-within:ring-2 focus-within:ring-amber-500 min-h-[42px] cursor-text"
                 onClick={() => {
@@ -188,13 +215,15 @@ const MultiSelect = ({
 
             {isOpen && (filteredOptions.length > 0 || isCreatable) && (
                 <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {filteredOptions.map(option => {
+                    {filteredOptions.map((option, index) => {
                         const isSelected = selectedItems.some(i => i.value === option.value);
+                        const isHighlighted = index === highlightedIndex;
                         return (
                             <div
                                 key={option.value}
                                 onClick={() => handleSelect(option)}
-                                className={`flex items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-gray-700 ${isSelected ? 'bg-gray-700/50' : ''}`}
+                                onMouseEnter={() => setHighlightedIndex(index)}
+                                className={`flex items-center justify-between px-3 py-2 text-sm cursor-pointer hover:bg-gray-700 ${isSelected ? 'bg-gray-700/50' : ''} ${isHighlighted ? 'ring-1 ring-inset ring-amber-500' : ''}`}
                             >
                                 <span className="text-white">{option.label}</span>
                                 {isSelected && <Check size={14} className="text-amber-500" />}

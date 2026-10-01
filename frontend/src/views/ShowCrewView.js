@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useContext } from 're
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { LayoutContext } from '../contexts/LayoutContext';
-import { Plus, Trash2, Mail, Check, Edit } from 'lucide-react';
+import { Plus, Trash2, Mail, Check, Edit, Tag } from 'lucide-react';
+import { getDisplayName } from '../utils/rosterName';
 import AddCrewFromRosterModal from '../components/AddCrewFromRosterModal';
 import AssignFromPoolModal from '../components/AssignFromPoolModal';
 import AvailabilityPoolSection from '../components/AvailabilityPoolSection';
@@ -24,6 +25,7 @@ const ShowCrewView = () => {
     const [selectedCrewIds, setSelectedCrewIds] = useState([]);
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [assigningResponse, setAssigningResponse] = useState(null);
+    const [showPronouns, setShowPronouns] = useState(false);
 
     useEffect(() => {
         setShouldScroll(true);
@@ -64,7 +66,7 @@ const ShowCrewView = () => {
     const handleRemoveCrew = (crewMember) => {
         setConfirmModal({
             isOpen: true,
-            message: `Remove ${crewMember.roster.first_name} ${crewMember.roster.last_name} from this show?`,
+            message: `Remove ${getDisplayName(crewMember.roster)} from this show?`,
             onConfirm: async () => {
                 try {
                     await api.removeCrewFromShow(showId, crewMember.id);
@@ -136,6 +138,12 @@ const ShowCrewView = () => {
             <header className="flex items-center justify-between pb-6 border-b border-gray-700">
                 <h1 className="text-2xl font-bold text-white">Show Crew</h1>
                 <div className="flex gap-4">
+                    <button
+                        onClick={() => setShowPronouns(prev => !prev)}
+                        className={`flex items-center gap-2 px-4 py-2 font-semibold rounded-lg border transition-colors ${showPronouns ? 'bg-amber-500/10 border-amber-500/40 text-amber-400' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}`}
+                    >
+                        <Tag size={16} /> Pronouns
+                    </button>
                     {canEditShow && selectedCrewIds.length > 0 && (
                         <button onClick={handleEmailSelected} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
                             <Mail size={18} /> Email Selected ({selectedCrewIds.length})
@@ -187,7 +195,10 @@ const ShowCrewView = () => {
                                                 </td>
                                             )}
                                             <td className="px-3 py-4 text-sm font-medium text-white">
-                                                {member.roster.first_name} {member.roster.last_name}
+                                                {getDisplayName(member.roster)}
+                                                {showPronouns && member.roster.pronouns && (
+                                                    <span className="text-gray-500 font-normal"> · {member.roster.pronouns}</span>
+                                                )}
                                             </td>
                                             <td className="px-3 py-4 text-sm text-gray-300">{member.position}</td>
                                             <td className="px-3 py-4 text-sm text-gray-300">
@@ -253,6 +264,7 @@ const ShowCrewView = () => {
                 onAssigned={() => fetchCrew(true)}
                 response={assigningResponse}
                 existingCrew={assigningResponse ? crew.find(c => c.roster_id === assigningResponse.roster_id) : null}
+                showId={showId}
             />
             <EmailComposeModal isOpen={isEmailModalOpen} onClose={() => setIsEmailModalOpen(false)} recipients={selectedRecipients} category="CREW" showId={showId} />
 

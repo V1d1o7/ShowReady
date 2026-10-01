@@ -190,6 +190,9 @@ const VLANView = () => {
                                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                                     VLAN Tag
                                 </th>
+                                <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                    Multicast
+                                </th>
                                 <th scope="col" className="relative px-6 py-3 w-20">
                                     <span className="sr-only">Actions</span>
                                 </th>
@@ -208,6 +211,22 @@ const VLANView = () => {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{vlan.name}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{vlan.tag}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <div className="flex gap-1.5">
+                                            <span
+                                                title={vlan.igmp_snooping_enabled ? 'IGMP snooping enabled' : 'IGMP snooping disabled'}
+                                                className={`px-1.5 py-0.5 rounded text-xs font-bold ${vlan.igmp_snooping_enabled ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-500'}`}
+                                            >
+                                                IGMP
+                                            </span>
+                                            <span
+                                                title={vlan.multicast_flooding_enabled ? 'Multicast flooding enabled' : 'Multicast flooding disabled'}
+                                                className={`px-1.5 py-0.5 rounded text-xs font-bold ${vlan.multicast_flooding_enabled ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-500'}`}
+                                            >
+                                                MC
+                                            </span>
+                                        </div>
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex items-center gap-4">
                                         <button onClick={() => handleOpenModal(vlan)} className="text-gray-400 hover:text-white" aria-label={`Edit VLAN ${vlan.name}`}>
                                             <Edit size={18} />
@@ -219,7 +238,7 @@ const VLANView = () => {
                                 </tr>
                             )) : (
                                 <tr>
-                                    <td colSpan="4" className="text-center py-10 text-gray-400">
+                                    <td colSpan="5" className="text-center py-10 text-gray-400">
                                         No VLANs found. Click "New VLAN" to add one.
                                     </td>
                                 </tr>

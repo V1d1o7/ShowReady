@@ -34,6 +34,11 @@ const ShowSidebar = () => {
     // Use the matched show's real name as the select value
     const selectedShowValue = currentShow ? currentShow.name : (decodeURIComponent(showNameFromParams || ''));
 
+    // Archived shows don't belong in the switcher — but if the show currently being
+    // viewed is archived (read-only access is still allowed), keep it in the list so
+    // the select doesn't fall back to a blank/mismatched value.
+    const switcherShows = shows?.filter(s => s.status !== 'archived' || s.id === currentShow?.id);
+
     const handleShowChange = (e) => {
         const newShowName = e.target.value;
         if (newShowName) {
@@ -112,7 +117,7 @@ const ShowSidebar = () => {
                         onChange={handleShowChange}
                         disabled={isLoadingShows}
                     >
-                        {shows?.map(s => (
+                        {switcherShows?.map(s => (
                             <option key={s.name} value={s.name}>{s.name}</option>
                         ))}
                     </select>

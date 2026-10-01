@@ -4,6 +4,8 @@ from app.api import get_supabase_client, get_user, feature_check
 from app.models import EmailTemplate, EmailTemplateCreate, BulkEmailRequest
 from app.user_email import send_email_with_user_smtp, SMTPSettings
 from app.email_utils import format_shift_schedule_html
+from app.services.schedule_shared import flatten_nested_assignment
+from app.services.roster_shared import get_display_first_last
 import uuid
 from typing import List, Optional
 
@@ -338,8 +340,12 @@ async def send_bulk_email(request: BulkEmailRequest, background_tasks: Backgroun
     # 2. Resolve Recipients
     recipients = []
     if request.category == 'CREW':
-        crew_res = supabase.table('show_crew').select('*, roster(*), shows(name, data), shifts:show_crew_shifts(*)').in_('id', [str(rid) for rid in request.recipient_ids]).execute()
+        crew_res = supabase.table('show_crew').select(
+            '*, roster(*), shows(name, data), shifts:show_crew_shifts(*, shift:show_shifts(shift_date, call_time, end_time, label, notes))'
+        ).in_('id', [str(rid) for rid in request.recipient_ids]).execute()
         recipients = crew_res.data
+        for r in recipients:
+            r['shifts'] = [flatten_nested_assignment(s) for s in (r.get('shifts') or [])]
     
     if not recipients:
         raise HTTPException(status_code=404, detail="No valid recipients found.")
@@ -361,7 +367,10 @@ async def send_bulk_email(request: BulkEmailRequest, background_tasks: Backgroun
             data_source = recipient
             target_email = recipient.get('email')
         elif request.category == 'CREW':
-            data_source = recipient.get('roster', {})
+            data_source = recipient.get('roster', {}) or {}
+            disp_first, disp_last = get_display_first_last(data_source)
+            data_source['first_name'] = disp_first
+            data_source['last_name'] = disp_last
             data_source['showName'] = recipient.get('shows', {}).get('name', '')
             data_source['position'] = recipient.get('position', '')
             data_source['schedule'] = format_shift_schedule_html(sorted(recipient.get('shifts') or [], key=lambda s: s['shift_date']))

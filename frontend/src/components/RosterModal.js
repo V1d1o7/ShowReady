@@ -7,6 +7,9 @@ import MultiSelect from './MultiSelect';
 const EMPTY_FORM = {
     first_name: '',
     last_name: '',
+    preferred_first_name: '',
+    preferred_last_name: '',
+    pronouns: '',
     position: '',
     email: '',
     phone_number: '',
@@ -139,6 +142,14 @@ const RosterModal = ({ isOpen, onClose, onSubmit, member, allTags, customFieldDe
                             />
                             <InputField name="last_name" placeholder="Last Name" value={formData.last_name || ''} onChange={handleChange} />
                         </div>
+                        <div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <InputField name="preferred_first_name" placeholder="Preferred First Name" value={formData.preferred_first_name || ''} onChange={handleChange} />
+                                <InputField name="preferred_last_name" placeholder="Preferred Last Name" value={formData.preferred_last_name || ''} onChange={handleChange} />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1.5">Leave blank to use the legal name above. When set, this name is used everywhere instead.</p>
+                        </div>
+                        <InputField name="pronouns" placeholder="Pronouns (e.g. she/her, they/them)" value={formData.pronouns || ''} onChange={handleChange} />
                         <InputField name="position" placeholder="Position" value={formData.position || ''} onChange={handleChange} />
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <InputField type="email" name="email" placeholder="Email" value={formData.email || ''} onChange={handleChange} />

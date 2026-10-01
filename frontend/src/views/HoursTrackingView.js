@@ -3,7 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { api } from '../api/api';
 import { useShow } from '../contexts/ShowContext';
 import { LayoutContext } from '../contexts/LayoutContext';
-import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Mail, Settings, Info, Tag } from 'lucide-react';
+import { getDisplayName, getLegalName, hasPreferredName } from '../utils/rosterName';
 import toast from 'react-hot-toast';
 import PdfPreviewModal from '../components/PdfPreviewModal';
 import EmailComposeModal from '../components/EmailComposeModal';
@@ -47,6 +48,7 @@ const HoursTrackingView = () => {
     const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+    const [showPronouns, setShowPronouns] = useState(false);
 
     const formatDate = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -201,6 +203,13 @@ const HoursTrackingView = () => {
                     <button onClick={() => changeWeek(1)} className="p-2 rounded-md hover:bg-gray-700"><ChevronRight size={20} /></button>
                 </div>
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => setShowPronouns(prev => !prev)}
+                        title="Show pronouns"
+                        className={`p-2 rounded-md ${showPronouns ? 'bg-amber-500/10 text-amber-400' : 'hover:bg-gray-700'}`}
+                    >
+                        <Tag size={20} />
+                    </button>
                     <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 rounded-md hover:bg-gray-700"><Settings size={20} /></button>
                     <button 
                         onClick={async () => { 
@@ -257,13 +266,21 @@ const HoursTrackingView = () => {
                                 <td className="px-3 py-2">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="min-w-0">
-                                            <p className="font-medium text-white truncate">{member.first_name} {member.last_name}</p>
+                                            <p className="font-medium text-white truncate">
+                                                {getDisplayName(member)}
+                                                {showPronouns && member.pronouns && (
+                                                    <span className="text-gray-500 font-normal"> · {member.pronouns}</span>
+                                                )}
+                                            </p>
+                                            {hasPreferredName(member) && (
+                                                <p className="text-xs text-gray-500 truncate">{getLegalName(member)}</p>
+                                            )}
                                             <p className="text-sm text-gray-400 truncate">{member.position}</p>
                                         </div>
-                                        <button 
+                                        <button
                                             onClick={() => handleGenerateCrewAudit([member.show_crew_id])}
                                             className="opacity-0 group-hover:opacity-100 p-1.5 rounded bg-gray-700 hover:bg-blue-600 text-white transition-opacity duration-200"
-                                            title={`Download Full Audit for ${member.first_name}`}
+                                            title={`Download Full Audit for ${getDisplayName(member)}`}
                                         >
                                             <Download size={14} />
                                         </button>

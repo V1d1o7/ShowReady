@@ -4,10 +4,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { useModal } from '../contexts/ModalContext';
 import { X, MessageSquare, Trash2, Edit, CheckSquare, Square } from 'lucide-react';
 import toast from 'react-hot-toast';
+import useHotkeys from '../hooks/useHotkeys';
 
 const ContextualNotesDrawer = ({ entityType, entityId, showId, isOpen, onClose, isOwner = false, onNotesUpdated }) => {
     const { user, profile } = useAuth();
     const { showConfirmationModal } = useModal();
+    // Always mounted (it animates open/closed via a CSS transform rather than a
+    // conditional return), so this must check isOpen itself rather than relying on the
+    // component not existing while closed.
+    useHotkeys({ escape: () => { if (isOpen) onClose(); } });
     const [notes, setNotes] = useState([]);
     const [newNoteContent, setNewNoteContent] = useState('');
     const [editingNoteId, setEditingNoteId] = useState(null);
